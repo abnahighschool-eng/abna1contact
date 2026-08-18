@@ -1,7 +1,7 @@
 {
   "mode": "real",
-  "simulatedStatus": "disconnected",
-  "simulatedPhone": "",
+  "simulatedStatus": "connected",
+  "simulatedPhone": "+966560599870",
   "cloudApiKey": "",
   "cloudPhoneId": "",
   "cloudAccountId": ""

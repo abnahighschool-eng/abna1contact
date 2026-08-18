@@ -33,6 +33,21 @@ let whatsappConfig = {
   cloudAccountId: "",
 };
 
+function normalizePhoneNumber(input: string): string {
+  if (!input) return "";
+  let cleaned = input.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+  if (cleaned.startsWith("00966")) {
+    cleaned = "966" + cleaned.substring(5);
+  } else if (cleaned.startsWith("966")) {
+    cleaned = cleaned;
+  } else if (cleaned.startsWith("05")) {
+    cleaned = "966" + cleaned.substring(1);
+  } else if (cleaned.startsWith("5") && cleaned.length === 9) {
+    cleaned = "966" + cleaned;
+  }
+  return cleaned;
+}
+
 let sock: any = null;
 let realQrCodeUrl: string = "";
 let realPairingCode: string = "";
@@ -41,34 +56,53 @@ let realConnectionStatus: "disconnected" | "qr_ready" | "pairing_code_ready" | "
 let connectedPhoneNumber: string = "";
 let connectionTimeoutTimer: NodeJS.Timeout | null = null;
 
-async function initRealWhatsApp(method: "qr" | "pairing_code" = "qr", targetPhone?: string) {
+async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr", targetPhone?: string) {
   try {
     if (connectionTimeoutTimer) {
       clearTimeout(connectionTimeoutTimer);
       connectionTimeoutTimer = null;
     }
 
-    realErrorMessage = "";
-    realPairingCode = "";
-    realQrCodeUrl = "";
-    realConnectionStatus = "connecting";
+    if (method !== "resume") {
+      realErrorMessage = "";
+      realPairingCode = "";
+      realQrCodeUrl = "";
+      realConnectionStatus = "connecting";
+    }
 
-    // Set fallback timeout in case WhatsApp servers do not respond within 40 seconds
+    // Set fallback timeout (60 seconds) in case WhatsApp servers do not respond
     connectionTimeoutTimer = setTimeout(() => {
       if (realConnectionStatus === "connecting") {
         realConnectionStatus = "error";
-        realErrorMessage = "استغرق الاتصال بخوادم واتساب وقتاً طويلاً. يرجى تجربة خيار (الربط برمز التحقق عبر رقم الجوال) أو الضغط على إعادة المحاولة.";
+        realErrorMessage = "استغرق الاتصال بخوادم واتساب وقتاً أطول من المعتاد. يرجى تجربة رمز الربط بالهاتف أو إعادة التعيين.";
       }
-    }, 40000);
+    }, 60000);
+
+    // Clean up previous socket instance if any
+    if (sock && method !== "resume") {
+      try {
+        sock.ev?.removeAllListeners("creds.update");
+        sock.ev?.removeAllListeners("connection.update");
+        sock.end(undefined);
+      } catch (e) {
+        // ignore cleanup error
+      }
+      sock = null;
+    }
 
     const authFolder = path.join(process.cwd(), "auth_info_baileys");
+    if (!fs.existsSync(authFolder)) {
+      fs.mkdirSync(authFolder, { recursive: true });
+    }
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
     // Fetch latest WhatsApp Web version to avoid outdated protocol rejections
-    let waVersion = [2, 3000, 1015901307] as any;
+    let waVersion = [2, 3000, 1043857760] as any;
     try {
-      const { version } = await fetchLatestBaileysVersion();
-      if (version) waVersion = version;
+      if (typeof fetchLatestBaileysVersion === "function") {
+        const { version } = await fetchLatestBaileysVersion();
+        if (version) waVersion = version;
+      }
     } catch (e) {
       console.warn("Could not fetch latest Baileys version online, using fallback version", e);
     }
@@ -78,15 +112,17 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" = "qr", targetPhon
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: "silent" }) as any,
-      browser: Browsers.ubuntu("Chrome"),
+      browser: ["Ubuntu", "Chrome", "22.04.4"],
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 15000,
+      keepAliveIntervalMs: 25000,
       syncFullHistory: false,
       generateHighQualityLinkPreview: false,
     });
     
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", async () => {
+      await saveCreds();
+    });
     
     sock.ev.on("connection.update", async (update: any) => {
       const { connection, lastDisconnect, qr } = update;
@@ -126,11 +162,11 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" = "qr", targetPhon
       
       if (connection === "close") {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const shouldReconnect = statusCode !== DisconnectReason?.loggedOut && statusCode !== 401 && statusCode !== 403;
         
-        console.log(`Real WhatsApp connection closed. StatusCode: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+        console.log(`Real WhatsApp connection closed. StatusCode: ${statusCode}. ShouldReconnect: ${shouldReconnect}`);
         
-        if (statusCode === DisconnectReason.loggedOut) {
+        if (statusCode === DisconnectReason?.loggedOut || statusCode === 401 || statusCode === 403) {
           realConnectionStatus = "disconnected";
           realQrCodeUrl = "";
           realPairingCode = "";
@@ -138,41 +174,45 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" = "qr", targetPhon
           whatsappConfig.simulatedStatus = "disconnected";
           whatsappConfig.simulatedPhone = "";
           saveConfig();
+        } else if (shouldReconnect) {
+          // Reconnect automatically on 515 (restartRequired) or temporary closed socket during handshake
+          console.log("Automatically resuming Baileys socket handshake / session...");
+          setTimeout(() => {
+            initRealWhatsApp("resume", targetPhone);
+          }, 1200);
         } else if (realConnectionStatus !== "connected") {
-          // If disconnected before full pairing, log error
-          if (!shouldReconnect) {
-            realConnectionStatus = "error";
-            realErrorMessage = "فشل الاتصال بجلسة واتساب السابقة، يرجى إعادة تعيين الجلسة وتوليد رمز جديد.";
-          }
+          realConnectionStatus = "error";
+          realErrorMessage = "انقطع الاتصال بخوادم واتساب. يرجى الضغط على إعادة التعيين والمحاولة مجدداً.";
         }
       }
     });
 
     // Handle Pairing Code flow if requested
-    if (method === "pairing_code" && targetPhone && !sock.authState.creds.registered) {
-      let cleanPhone = targetPhone.replace(/[^0-9]/g, "");
-      if (cleanPhone.startsWith("05")) {
-        cleanPhone = "966" + cleanPhone.substring(1);
-      } else if (cleanPhone.startsWith("5")) {
-        cleanPhone = "966" + cleanPhone;
-      }
+    if (method === "pairing_code" && targetPhone && !sock.authState?.creds?.registered) {
+      const cleanPhone = normalizePhoneNumber(targetPhone);
 
-      setTimeout(async () => {
+      const tryRequestCode = async (attempt = 1) => {
         try {
-          if (sock && !sock.authState.creds.registered) {
-            const code = await sock.requestPairingCode(cleanPhone);
-            if (connectionTimeoutTimer) clearTimeout(connectionTimeoutTimer);
-            realPairingCode = code;
-            realConnectionStatus = "pairing_code_ready";
-            realErrorMessage = "";
-            console.log(`WhatsApp pairing code requested for ${cleanPhone}: ${code}`);
-          }
+          if (!sock || sock.authState?.creds?.registered) return;
+          const code = await sock.requestPairingCode(cleanPhone);
+          if (connectionTimeoutTimer) clearTimeout(connectionTimeoutTimer);
+          
+          realPairingCode = code || "";
+          realConnectionStatus = "pairing_code_ready";
+          realErrorMessage = "";
+          console.log(`WhatsApp pairing code generated for ${cleanPhone}: ${code}`);
         } catch (err: any) {
-          console.error("Error requesting WhatsApp pairing code:", err);
-          realConnectionStatus = "error";
-          realErrorMessage = err?.message || "فشل توليد رمز الربط لرقم الهاتف. تأكد من صحة الرقم ومفتاح الدولة.";
+          if (attempt < 3 && !realPairingCode) {
+            setTimeout(() => tryRequestCode(attempt + 1), 2000);
+          } else {
+            console.error("Error requesting WhatsApp pairing code:", err);
+            realConnectionStatus = "error";
+            realErrorMessage = err?.message || "فشل توليد رمز الربط لرقم الهاتف. تأكد من صحة الرقم ومفتاح الدولة.";
+          }
         }
-      }, 3000);
+      };
+
+      setTimeout(() => tryRequestCode(1), 2000);
     }
   } catch (err: any) {
     console.error("Error starting Baileys socket connection:", err);
@@ -283,7 +323,8 @@ app.post("/api/whatsapp/simulated/action", (req, res) => {
 
 // Manage Real WhatsApp Web Pairing
 app.post("/api/whatsapp/real/start", async (req, res) => {
-  const { method = "qr", phone = "" } = req.body || {};
+  const { method = "qr", phone = "", phoneNumber = "" } = req.body || {};
+  const targetPhone = phone || phoneNumber || "";
   whatsappConfig.mode = "real";
   saveConfig();
   
@@ -292,7 +333,7 @@ app.post("/api/whatsapp/real/start", async (req, res) => {
   }
   
   realConnectionStatus = "connecting";
-  await initRealWhatsApp(method, phone);
+  await initRealWhatsApp(method, targetPhone);
   res.json({ status: "connecting" });
 });
 

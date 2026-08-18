@@ -113,9 +113,14 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     }
   };
 
+  const normalizeArabicDigits = (str: string) => {
+    return str.replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+  };
+
   const handleCopyPairingCode = () => {
     if (realStatus.pairingCode) {
-      navigator.clipboard.writeText(realStatus.pairingCode);
+      const cleanCode = realStatus.pairingCode.replace(/[^A-Za-z0-9]/g, "");
+      navigator.clipboard.writeText(cleanCode);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2500);
     }
@@ -313,7 +318,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                           dir="ltr"
                           placeholder="مثال: 0501234567 أو 966501234567"
                           value={phoneNumberInput}
-                          onChange={(e) => setPhoneNumberInput(e.target.value)}
+                          onChange={(e) => setPhoneNumberInput(normalizeArabicDigits(e.target.value))}
                           className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                         />
                         <p className="text-[11px] text-slate-500 mt-1">
@@ -392,28 +397,60 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                   <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
                     <Smartphone className="w-6 h-6" />
                   </div>
-                  <div>
-                    <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">رمز ربط الواتساب الخاص بك:</span>
-                    <div className="mt-3 flex items-center justify-center gap-3">
-                      <div className="text-2xl sm:text-3xl font-mono font-black tracking-widest text-slate-900 bg-white px-6 py-3 rounded-xl border-2 border-emerald-500 shadow-sm select-all">
-                        {realStatus.pairingCode}
-                      </div>
+                  <div className="w-full">
+                    <span className="text-xs font-bold text-emerald-800 block mb-3">
+                      أدخل الرمز التالي في تطبيق واتساب بجوالك:
+                    </span>
+                    
+                    {/* Character Boxes */}
+                    <div className="flex items-center justify-center gap-1.5 sm:gap-2 flex-wrap mb-3" dir="ltr">
+                      {(() => {
+                        const clean = realStatus.pairingCode.replace(/[^A-Za-z0-9]/g, "");
+                        const part1 = clean.slice(0, 4).split("");
+                        const part2 = clean.slice(4, 8).split("");
+                        return (
+                          <>
+                            {part1.map((char, idx) => (
+                              <div
+                                key={`p1-${idx}`}
+                                className="w-9 h-12 sm:w-11 sm:h-14 flex items-center justify-center text-xl sm:text-2xl font-mono font-bold bg-white text-slate-900 border-2 border-emerald-500 rounded-xl shadow-sm select-all"
+                              >
+                                {char}
+                              </div>
+                            ))}
+                            {part2.length > 0 && (
+                              <span className="text-slate-400 font-bold text-xl px-1">-</span>
+                            )}
+                            {part2.map((char, idx) => (
+                              <div
+                                key={`p2-${idx}`}
+                                className="w-9 h-12 sm:w-11 sm:h-14 flex items-center justify-center text-xl sm:text-2xl font-mono font-bold bg-white text-slate-900 border-2 border-emerald-500 rounded-xl shadow-sm select-all"
+                              >
+                                {char}
+                              </div>
+                            ))}
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="flex items-center justify-center gap-2">
                       <button
                         onClick={handleCopyPairingCode}
-                        className="p-3 bg-white hover:bg-emerald-50 border border-slate-200 rounded-xl text-slate-700 transition-colors shadow-sm cursor-pointer"
+                        className="px-4 py-2 bg-white hover:bg-emerald-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-bold transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
                         title="نسخ الرمز"
                       >
-                        {isCopied ? <Check className="w-5 h-5 text-emerald-600" /> : <Copy className="w-5 h-5" />}
+                        {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-slate-500" />}
+                        {isCopied ? "تم نسخ الرمز!" : "نسخ الرمز كاملاً"}
                       </button>
                     </div>
-                    {isCopied && <span className="text-xs text-emerald-600 font-bold mt-1.5 block">تم نسخ الرمز بنجاح!</span>}
                   </div>
 
-                  <div className="bg-white p-4 rounded-xl border border-emerald-100 text-right w-full text-xs text-slate-700 flex flex-col gap-2">
-                    <p className="font-bold text-emerald-800">أين تضع هذا الرمز في هاتفك؟</p>
-                    <p>1. افتح واتساب &gt; <b>الأجهزة المرتبطة</b> &gt; <b>ربط جهاز</b>.</p>
-                    <p>2. اضغط على <b>«الربط باستخدام رقم الهاتف بدلاً من ذلك»</b> بالأسفل.</p>
-                    <p>3. أدخل هذا الرمز وسيتصل النظام فوراً دون الحاجة للكاميرا!</p>
+                  <div className="bg-white p-4 rounded-xl border border-emerald-100 text-right w-full text-xs text-slate-700 flex flex-col gap-2 shadow-xs">
+                    <p className="font-bold text-emerald-800">خطوات تفعيل الرمز في هاتفك:</p>
+                    <p>1. افتح واتساب &gt; <b>الإعدادات</b> &gt; <b>الأجهزة المرتبطة</b> &gt; <b>ربط جهاز</b>.</p>
+                    <p>2. اضغط بالأسفل على <b>«الربط باستخدام رقم الهاتف بدلاً من ذلك»</b>.</p>
+                    <p>3. أدخل هذا الرمز وسيتصل النظام تلقائياً خلال ثوانٍ معدودة.</p>
                   </div>
 
                   <button
@@ -429,23 +466,28 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
               {/* State 4: QR Code Ready */}
               {realStatus.status === "qr_ready" && (
                 <div className="flex flex-col items-center text-center gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80 animate-fadeIn">
-                  <span className="text-xs font-bold text-slate-700">امسح الباركود بجوالك للربط المباشر:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-700">امسح الباركود بجوالك للربط المباشر</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full animate-pulse">
+                      مباشر ومحدث
+                    </span>
+                  </div>
                   <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-md">
                     {realStatus.qr ? (
                       <img
                         src={realStatus.qr}
                         alt="WhatsApp QR Code"
-                        className="w-48 h-48 object-contain"
+                        className="w-52 h-52 object-contain"
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-48 h-48 flex items-center justify-center">
+                      <div className="w-52 h-52 flex items-center justify-center">
                         <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
                       </div>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    افتح واتساب &gt; الأجهزة المرتبطة &gt; ربط جهاز &gt; وجّه الكاميرا نحو الشاشة.
+                  <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                    افتح واتساب على جوالك &gt; <b>الأجهزة المرتبطة</b> &gt; <b>ربط جهاز</b> &gt; وجّه كاميرا الجوال نحو هذا الباركود.
                   </p>
                   <button
                     onClick={handleResetSession}
