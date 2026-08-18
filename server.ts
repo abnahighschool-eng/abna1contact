@@ -96,16 +96,8 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
     }
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
-    // Fetch latest WhatsApp Web version to avoid outdated protocol rejections
-    let waVersion = [2, 3000, 1043857760] as any;
-    try {
-      if (typeof fetchLatestBaileysVersion === "function") {
-        const { version } = await fetchLatestBaileysVersion();
-        if (version) waVersion = version;
-      }
-    } catch (e) {
-      console.warn("Could not fetch latest Baileys version online, using fallback version", e);
-    }
+    // Using stable tested WhatsApp multi-device version directly for instant initialization
+    const waVersion = [2, 3000, 1043857760] as any;
     
     sock = makeWASocket({
       version: waVersion,
@@ -113,11 +105,16 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
       printQRInTerminal: false,
       logger: pino({ level: "silent" }) as any,
       browser: ["Ubuntu", "Chrome", "22.04.4"],
-      connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 60000,
+      connectTimeoutMs: 30000,
+      defaultQueryTimeoutMs: 30000,
       keepAliveIntervalMs: 25000,
       syncFullHistory: false,
+      markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
+      fireInitQueries: false,
+      emitOwnEvents: false,
+      getMessage: async () => undefined,
+      shouldIgnoreJid: (jid: string) => !jid || jid.includes("@broadcast") || jid.endsWith("@newsletter"),
     });
     
     sock.ev.on("creds.update", async () => {
@@ -265,11 +262,16 @@ const saveConfig = () => {
 
 // API Endpoints for WhatsApp Config
 app.get("/api/whatsapp/config", (req, res) => {
-  // Hide secret keys in response
+  const isRealConnected = realConnectionStatus === "connected" || (sock && sock.user);
+  const isConnected = isRealConnected || whatsappConfig.simulatedStatus === "connected";
+  const activePhone = connectedPhoneNumber ? `+${connectedPhoneNumber}` : (whatsappConfig.simulatedPhone || "");
+
   res.json({
-    mode: whatsappConfig.mode,
-    simulatedStatus: whatsappConfig.simulatedStatus,
-    simulatedPhone: whatsappConfig.simulatedPhone,
+    mode: isRealConnected ? "real" : whatsappConfig.mode,
+    simulatedStatus: isConnected ? "connected" : (realConnectionStatus === "qr_ready" ? "qr_ready" : (realConnectionStatus === "connecting" ? "connecting" : whatsappConfig.simulatedStatus)),
+    simulatedPhone: activePhone,
+    isConnected,
+    realStatus: realConnectionStatus,
     hasCloudApiKey: !!whatsappConfig.cloudApiKey,
     cloudPhoneId: whatsappConfig.cloudPhoneId,
     cloudAccountId: whatsappConfig.cloudAccountId,
@@ -338,12 +340,14 @@ app.post("/api/whatsapp/real/start", async (req, res) => {
 });
 
 app.get("/api/whatsapp/real/status", (req, res) => {
+  const isConnected = realConnectionStatus === "connected" || (sock && sock.user);
   res.json({
-    status: realConnectionStatus,
+    status: isConnected ? "connected" : realConnectionStatus,
     qr: realQrCodeUrl,
     pairingCode: realPairingCode,
     error: realErrorMessage,
-    phone: connectedPhoneNumber,
+    phone: connectedPhoneNumber ? `+${connectedPhoneNumber}` : (whatsappConfig.simulatedPhone || ""),
+    isConnected: !!isConnected,
   });
 });
 
@@ -575,17 +579,15 @@ async function processCampaign(campaignId: string, delayMs: number) {
         log.error = err.message || "حدث خطأ في الاتصال بالخادم الرئيسي";
         campaign.failed += 1;
       }
-    } else if (isRealMode) {
+    } else if (isRealMode || (sock && sock.user)) {
       try {
-        if (!sock || realConnectionStatus !== "connected") {
-          throw new Error("جهاز الواتساب الحقيقي غير متصل حالياً.");
+        if (!sock || (realConnectionStatus !== "connected" && !sock.user)) {
+          throw new Error("جهاز الواتساب غير متصل حالياً. يرجى إتمام عملية الربط أولاً.");
         }
         
-        let formattedPhone = log.phone.replace(/[\s\-\(\)\+]/g, "");
-        if (formattedPhone.startsWith("05")) {
-          formattedPhone = "966" + formattedPhone.substring(1);
-        } else if (formattedPhone.startsWith("5")) {
-          formattedPhone = "966" + formattedPhone;
+        const formattedPhone = normalizePhoneNumber(log.phone);
+        if (!formattedPhone || formattedPhone.length < 8) {
+          throw new Error("رقم جوال غير صالح أو غير مكتمل");
         }
         
         const jid = `${formattedPhone}@s.whatsapp.net`;
@@ -601,8 +603,8 @@ async function processCampaign(campaignId: string, delayMs: number) {
     } else {
       // Simulated sending
       // Add a tiny random chance of failure (e.g., 4% chance of invalid format if phone has letters or is too short)
-      const cleanedPhone = log.phone.replace(/[^0-9]/g, "");
-      if (cleanedPhone.length < 9) {
+      const cleanedPhone = normalizePhoneNumber(log.phone);
+      if (cleanedPhone.length < 8) {
         log.status = "failed";
         log.error = "رقم جوال غير صالح أو قصير جداً";
         campaign.failed += 1;
@@ -658,16 +660,11 @@ app.post("/api/whatsapp/send-single", async (req, res) => {
   }
 
   const isCloudAPI = whatsappConfig.mode === "cloud_api" && whatsappConfig.cloudApiKey && whatsappConfig.cloudPhoneId;
-  const isRealMode = whatsappConfig.mode === "real";
+  const isRealMode = whatsappConfig.mode === "real" || (sock && sock.user);
 
   if (isCloudAPI) {
     try {
-      let formattedPhone = phone.replace(/[\s\-\(\)\+]/g, "");
-      if (formattedPhone.startsWith("05")) {
-        formattedPhone = "966" + formattedPhone.substring(1);
-      } else if (formattedPhone.startsWith("5")) {
-        formattedPhone = "966" + formattedPhone;
-      }
+      const formattedPhone = normalizePhoneNumber(phone);
 
       const response = await fetch(
         `https://graph.facebook.com/v18.0/${whatsappConfig.cloudPhoneId}/messages`,
@@ -702,28 +699,26 @@ app.post("/api/whatsapp/send-single", async (req, res) => {
     }
   } else if (isRealMode) {
     try {
-      if (!sock || realConnectionStatus !== "connected") {
-        return res.status(400).json({ error: "جهاز الواتساب الحقيقي غير متصل حالياً. يرجى إتمام عملية الربط أولاً." });
+      if (!sock || (realConnectionStatus !== "connected" && !sock.user)) {
+        return res.status(400).json({ error: "جهاز الواتساب غير متصل حالياً. يرجى إتمام عملية الربط أولاً." });
       }
 
-      let formattedPhone = phone.replace(/[\s\-\(\)\+]/g, "");
-      if (formattedPhone.startsWith("05")) {
-        formattedPhone = "966" + formattedPhone.substring(1);
-      } else if (formattedPhone.startsWith("5")) {
-        formattedPhone = "966" + formattedPhone;
+      const formattedPhone = normalizePhoneNumber(phone);
+      if (!formattedPhone || formattedPhone.length < 8) {
+        return res.status(400).json({ error: "رقم الجوال غير صالح أو غير مكتمل." });
       }
 
       const jid = `${formattedPhone}@s.whatsapp.net`;
       await sock.sendMessage(jid, { text: message });
 
-      return res.json({ success: true, message: "تم إرسال الرسالة الفردية الحقيقية بنجاح" });
+      return res.json({ success: true, message: "تم إرسال الرسالة الفردية بنجاح عبر واتساب" });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message || "فشل إرسال الرسالة الفردية عبر ربط الواتساب المباشر" });
+      return res.status(500).json({ error: err.message || "فشل إرسال الرسالة الفردية عبر ربط الواتساب" });
     }
   } else {
     // Simulated sending
-    const cleanedPhone = phone.replace(/[^0-9]/g, "");
-    if (cleanedPhone.length < 9) {
+    const cleanedPhone = normalizePhoneNumber(phone);
+    if (cleanedPhone.length < 8) {
       return res.status(400).json({ error: "رقم الجوال الفردي غير صالح أو قصير جداً" });
     }
     // Simulate latency
@@ -748,11 +743,19 @@ async function startServer() {
     });
   }
 
-  // Restore existing real WhatsApp sessions automatically on reboot
+  // Restore existing registered WhatsApp sessions automatically on reboot
   const authFolder = path.join(process.cwd(), "auth_info_baileys");
-  if (fs.existsSync(authFolder)) {
-    console.log("Found existing real WhatsApp Web session folder. Restoring connection...");
-    initRealWhatsApp();
+  const credsFile = path.join(authFolder, "creds.json");
+  if (fs.existsSync(credsFile)) {
+    try {
+      const credsData = JSON.parse(fs.readFileSync(credsFile, "utf-8"));
+      if (credsData && credsData.registered) {
+        console.log("Found existing registered WhatsApp Web session. Restoring connection...");
+        initRealWhatsApp("resume");
+      }
+    } catch (e) {
+      console.warn("Could not inspect creds.json", e);
+    }
   }
 
   app.listen(PORT, "0.0.0.0", () => {

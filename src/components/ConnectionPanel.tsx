@@ -41,7 +41,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
         const data = await res.json();
         setRealStatus(data);
         
-        if (data.status === "connected" && config.simulatedStatus !== "connected" && config.mode === "real") {
+        if (data.status === "connected" && config.simulatedStatus !== "connected") {
           onRefreshConfig();
         }
       }

@@ -35,6 +35,8 @@ export default function App() {
 
   useEffect(() => {
     fetchConfig();
+    const interval = setInterval(fetchConfig, 2500);
+
     // Load local state template if any
     const savedTemplate = localStorage.getItem("whatsapp_student_template");
     if (savedTemplate) {
@@ -48,6 +50,8 @@ export default function App() {
         console.error(e);
       }
     }
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleUpdateStudents = (newStudents: Student[]) => {
@@ -60,7 +64,7 @@ export default function App() {
     localStorage.setItem("whatsapp_student_template", newTmpl);
   };
 
-  const isWhatsAppConnected = config.simulatedStatus === "connected";
+  const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;
 
   return (
     <div className="min-h-screen bg-slate-50/70 text-slate-800 flex flex-col font-sans" dir="rtl" id="app-root">
