@@ -421,6 +421,68 @@ app.post("/api/whatsapp/real/disconnect", async (req, res) => {
   res.json({ status: "disconnected" });
 });
 
+// Helper functions for student data extraction
+function extractStudentPhone(std: any): string {
+  if (!std) return "";
+  if (std.phone) return String(std.phone).trim();
+  if (std["رقم الجوال"]) return String(std["رقم الجوال"]).trim();
+  if (std["الجوال"]) return String(std["الجوال"]).trim();
+  if (std["رقم الهاتف"]) return String(std["رقم الهاتف"]).trim();
+  if (std["الهاتف"]) return String(std["الهاتف"]).trim();
+  if (std["جوال"]) return String(std["جوال"]).trim();
+  if (std["هاتف"]) return String(std["هاتف"]).trim();
+  if (std["phone"]) return String(std["phone"]).trim();
+  if (std["Phone"]) return String(std["Phone"]).trim();
+  if (std["Mobile"]) return String(std["Mobile"]).trim();
+  if (std["mobile"]) return String(std["mobile"]).trim();
+  if (std["جوال ولي الأمر"]) return String(std["جوال ولي الأمر"]).trim();
+  if (std["رقم ولي الأمر"]) return String(std["رقم ولي الأمر"]).trim();
+  if (std["هاتف ولي الأمر"]) return String(std["هاتف ولي الأمر"]).trim();
+  if (std["العمود A"]) return String(std["العمود A"]).trim();
+  if (std["العمود B"]) return String(std["العمود B"]).trim();
+
+  // Search any key containing phone keywords
+  for (const key of Object.keys(std)) {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.includes("جوال") || lowerKey.includes("هاتف") || lowerKey.includes("phone") || lowerKey.includes("mobile")) {
+      const val = String(std[key] || "").trim();
+      if (val) return val;
+    }
+  }
+
+  // Fallback search for phone-like values
+  for (const key of Object.keys(std)) {
+    const val = String(std[key] || "").trim();
+    const cleaned = val.replace(/[\s\-\+\(\)]/g, "");
+    if (/^\d{8,14}$/.test(cleaned) && (cleaned.startsWith("05") || cleaned.startsWith("5") || cleaned.startsWith("966"))) {
+      return val;
+    }
+  }
+
+  return "";
+}
+
+function extractStudentName(std: any, fallbackIdx = 1): string {
+  if (!std) return `طالب ${fallbackIdx}`;
+  if (std.name) return String(std.name).trim();
+  if (std["اسم الطالب"]) return String(std["اسم الطالب"]).trim();
+  if (std["الاسم"]) return String(std["الاسم"]).trim();
+  if (std["الاسم الكامل"]) return String(std["الاسم الكامل"]).trim();
+  if (std["name"]) return String(std["name"]).trim();
+  if (std["Name"]) return String(std["Name"]).trim();
+  if (std["العمود D"]) return String(std["العمود D"]).trim();
+  if (std["العمود C"]) return String(std["العمود C"]).trim();
+  if (std["العمود B"]) return String(std["العمود B"]).trim();
+
+  for (const key of Object.keys(std)) {
+    if (key.includes("اسم") || key.toLowerCase().includes("name")) {
+      const val = String(std[key] || "").trim();
+      if (val) return val;
+    }
+  }
+  return `طالب ${fallbackIdx}`;
+}
+
 // Campaign sending endpoint
 app.post("/api/whatsapp/campaign/create", (req, res) => {
   const { name, students, template, delayMs = 3000 } = req.body;
@@ -433,10 +495,10 @@ app.post("/api/whatsapp/campaign/create", (req, res) => {
   
   // Helper to compile template placeholders
   const compileTemplate = (tmpl: string, student: any) => {
-    let result = tmpl;
+    let result = tmpl || "";
     
     // Extract first and last name for shortened student name
-    const studentFullName = student["اسم الطالب"] || student["الاسم"] || student["الاسم الكامل"] || student["name"] || student["Name"] || "";
+    const studentFullName = extractStudentName(student, 1);
     const getShortName = (nameStr: string) => {
       if (!nameStr) return "";
       const parts = nameStr.trim().split(/\s+/).filter(Boolean);
@@ -451,16 +513,15 @@ app.post("/api/whatsapp/campaign/create", (req, res) => {
 
     Object.keys(student).forEach((key) => {
       const placeholder = `{${key}}`;
-      result = result.replace(new RegExp(placeholder, "g"), student[key] || "");
+      result = result.replace(new RegExp(placeholder, "g"), String(student[key] ?? ""));
     });
     return result;
   };
 
   const campaignLogs = students.map((std: any, idx: number) => {
     const compiledMsg = compileTemplate(template, std);
-    // Find phone column
-    const phone = std["الجوال"] || std["رقم الجوال"] || std["الهاتف"] || std["رقم الهاتف"] || std["phone"] || std["Phone"] || "";
-    const studentName = std["الاسم"] || std["اسم الطالب"] || std["الاسم الكامل"] || std["name"] || std["Name"] || `طالب ${idx + 1}`;
+    const phone = extractStudentPhone(std);
+    const studentName = extractStudentName(std, idx + 1);
     
     return {
       id: `log_${campaignId}_${idx}`,
@@ -484,10 +545,10 @@ app.post("/api/whatsapp/campaign/create", (req, res) => {
     logs: campaignLogs,
   };
 
-  // Start processing in background loop (simulated or cloud api)
-  processCampaign(campaignId, delayMs);
+  // Start processing in background loop (simulated or real/cloud api)
+  processCampaign(campaignId, Number(delayMs) || 3000);
 
-  res.json({ campaignId, message: "تم بدء الحملة بنجاح" });
+  res.json({ campaignId, message: "تم بدء الحملة بنجاح", total: campaignLogs.length });
 });
 
 // Retrieve specific campaign progress
@@ -518,9 +579,10 @@ async function processCampaign(campaignId: string, delayMs: number) {
   const campaign = campaigns[campaignId];
   if (!campaign || campaign.status !== "running") return;
 
-  for (let i = 0; i < campaign.logs.length; i++) {
+  const totalLogs = campaign.logs.length;
+  for (let i = 0; i < totalLogs; i++) {
     // Check if campaign was paused or cancelled in between
-    if (campaigns[campaignId].status !== "running") {
+    if (!campaigns[campaignId] || campaigns[campaignId].status !== "running") {
       break;
     }
 
@@ -529,24 +591,26 @@ async function processCampaign(campaignId: string, delayMs: number) {
 
     log.status = "sending";
     
-    // Simulate/Execute sending delay
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    // For the first message send immediately (short 150ms buffer), for subsequent messages wait the specified delayMs
+    if (i > 0 && delayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+
+    // Check again after delay
+    if (!campaigns[campaignId] || campaigns[campaignId].status !== "running") {
+      log.status = "pending";
+      break;
+    }
 
     const isCloudAPI = whatsappConfig.mode === "cloud_api" && whatsappConfig.cloudApiKey && whatsappConfig.cloudPhoneId;
-    const isRealMode = whatsappConfig.mode === "real";
+    const isRealMode = whatsappConfig.mode === "real" || (sock && sock.user);
     
     if (isCloudAPI) {
       try {
-        // Prepare phone number (requires country code, default to Saudi Arabia +966 if starts with 5 or 05)
-        let formattedPhone = log.phone.replace(/[\s\-\(\)\+]/g, "");
-        if (formattedPhone.startsWith("05")) {
-          formattedPhone = "966" + formattedPhone.substring(1);
-        } else if (formattedPhone.startsWith("5")) {
-          formattedPhone = "966" + formattedPhone;
-        }
+        const formattedPhone = normalizePhoneNumber(log.phone);
 
-        // WhatsApp Cloud API sends template messages primarily for business initiated conversations.
-        // We simulate a free-form message or trigger the Cloud API call:
         const response = await fetch(
           `https://graph.facebook.com/v18.0/${whatsappConfig.cloudPhoneId}/messages`,
           {
@@ -602,7 +666,6 @@ async function processCampaign(campaignId: string, delayMs: number) {
       }
     } else {
       // Simulated sending
-      // Add a tiny random chance of failure (e.g., 4% chance of invalid format if phone has letters or is too short)
       const cleanedPhone = normalizePhoneNumber(log.phone);
       if (cleanedPhone.length < 8) {
         log.status = "failed";
@@ -618,10 +681,10 @@ async function processCampaign(campaignId: string, delayMs: number) {
   }
 
   // Update final status
-  if (campaign.sent + campaign.failed === campaign.total) {
+  if (campaign.sent + campaign.failed >= campaign.total) {
     campaign.status = "completed";
-  } else {
-    campaign.status = "paused";
+  } else if (campaign.status === "running") {
+    campaign.status = "completed";
   }
   campaign.endTime = new Date().toISOString();
 }

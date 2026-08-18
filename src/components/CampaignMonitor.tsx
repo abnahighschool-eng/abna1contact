@@ -87,10 +87,10 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     setSelectedStudentIds(prev => prev.filter(id => !filteredIds.includes(id)));
   };
 
-  // Poll campaign status when running
+  // Poll campaign status when running or initialized
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (campaignId && campaign?.status === "running") {
+    if (campaignId && campaign?.status !== "completed") {
       interval = setInterval(async () => {
         try {
           const response = await fetch(`/api/whatsapp/campaign/${campaignId}`);
@@ -107,13 +107,18 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
   }, [campaignId, campaign?.status]);
 
   const handleStartCampaign = async () => {
+    if (!isWhatsAppConnected) {
+      setValidationError("تنبيه: حساب الواتساب غير متصل حالياً. يرجى التوجه لتبويب «1. الربط والاتصال» لمسح الباركود أو إدخال رمز الربط أولاً.");
+      return;
+    }
+
     const studentsToSubmit = students.filter(s => selectedStudentIds.includes(s.id));
     if (studentsToSubmit.length === 0) {
-      setValidationError("يرجى تحديد طالب واحد على الأقل قبل بدء الإرسال.");
+      setValidationError("يرجى تحديد طالب واحد على الأقل قبل بدء الإرسال (تأكد من وجود علامة صح أمام أسماء الطلاب المستهدفين).");
       return;
     }
     if (!template || template.trim() === "") {
-      setValidationError("يرجى كتابة نص الرسالة أولاً.");
+      setValidationError("يرجى كتابة نص الرسالة أولاً في محرر الصياغة قبل إطلاق الحملة.");
       return;
     }
     
@@ -131,8 +136,9 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      const data = await response.json();
+
+      if (response.ok && data.campaignId) {
         setCampaignId(data.campaignId);
         
         // Fetch immediately
@@ -140,9 +146,12 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
         if (campRes.ok) {
           setCampaign(await campRes.json());
         }
+      } else {
+        setValidationError(data.error || "تعذر إطلاق الحملة، يرجى التحقق من صحة البيانات.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setValidationError("حدث خطأ أثناء الاتصال بالخادم لإطلاق الحملة.");
     } finally {
       setIsLoading(false);
     }
@@ -602,21 +611,40 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 </div>
               </div>
 
-              <div className="flex items-start gap-2 bg-amber-50/60 border border-amber-100 text-amber-800 p-3 rounded-xl text-[10px] leading-relaxed">
-                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>نوصي بـ 3 ثوانٍ أو أكثر لإرسال جماعي آمن ومستقر لمنع الحظر.</span>
+              {Math.round(delayMs / 1000) >= 3 ? (
+                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200/80 text-emerald-800 p-3 rounded-xl text-[11px] leading-relaxed shadow-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>الفاصل الزمني آمن ومثالي:</strong> تم اعتماد <strong>{Math.round(delayMs / 1000)} ثوانٍ</strong> بين كل رسالة لحماية حسابك وضمان وصول مستقر.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] leading-relaxed shadow-xs">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>تنبيه سرعة الإرسال:</strong> الفاصل المحدد ({Math.round(delayMs / 1000)} ثانية) سريع جداً. نوصي بـ 3 ثوانٍ أو أكثر لإرسال جماعي آمن ومستقر لمنع الحظر.
+                  </span>
+                </div>
+              )}
+
+              {/* Ready targets summary */}
+              <div className="flex justify-between items-center text-xs font-bold text-slate-700 bg-white border border-slate-200/80 px-3.5 py-2.5 rounded-xl">
+                <span>جاهز للإرسال الفعلي إلى:</span>
+                <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 rounded-lg text-xs">
+                  {students.filter(s => selectedStudentIds.includes(s.id)).length} طالب محدد
+                </span>
               </div>
 
               {validationError && (
-                <div className="bg-rose-50 border border-rose-100 text-rose-800 text-xs p-3 rounded-xl text-center font-bold">
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs p-3 rounded-xl text-center font-bold">
                   {validationError}
                 </div>
               )}
 
               <button
                 onClick={handleStartCampaign}
-                disabled={isLoading || !isWhatsAppConnected}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold text-sm py-3 px-6 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2.5 cursor-pointer mt-2"
+                disabled={isLoading}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-3.5 px-6 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2.5 cursor-pointer mt-1"
                 id="btn-trigger-campaign"
               >
                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
@@ -624,9 +652,9 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
               </button>
               
               {!isWhatsAppConnected && (
-                <p className="text-center text-[11px] text-rose-500 font-bold mt-1">
-                  ⚠️ يرجى ربط حساب الواتساب الخاص بك أولاً في خطوة "الربط والاتصال" لتفعيل الإرسال.
-                </p>
+                <div className="bg-amber-50/80 border border-amber-200 text-amber-900 rounded-xl p-2.5 text-center text-[11px] font-semibold mt-1">
+                  💡 تلميح: عند النقر سيتم التنبيه في حال كان حساب الواتساب غير متصل.
+                </div>
               )}
             </div>
 
