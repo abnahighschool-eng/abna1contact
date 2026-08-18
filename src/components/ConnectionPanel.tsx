@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link2, Unlink, QrCode, Shield, CheckCircle2, Loader2, Smartphone, Copy, Check, RotateCcw, AlertTriangle, Key, ExternalLink, HelpCircle } from "lucide-react";
+import { Link2, Unlink, QrCode, Globe, Shield, HelpCircle, CheckCircle2, Loader2, ArrowRight, Settings, Smartphone, Copy, Check } from "lucide-react";
 import { WhatsAppConfig } from "../types";
 
 interface ConnectionPanelProps {
@@ -9,87 +9,56 @@ interface ConnectionPanelProps {
 }
 
 export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfig }: ConnectionPanelProps) {
-  const [activeTab, setActiveTab] = useState<"real" | "simulated" | "cloud_api">("real");
-  const [realMethod, setRealMethod] = useState<"pairing_code" | "qr">("pairing_code");
-  const [phoneNumberInput, setPhoneNumberInput] = useState("");
+  const [activeTab, setActiveTab] = useState<"simulated" | "real" | "cloud_api">("real");
   const [cloudKey, setCloudKey] = useState("");
   const [phoneId, setPhoneId] = useState(config.cloudPhoneId || "");
   const [accountId, setAccountId] = useState(config.cloudAccountId || "");
+  const [simulatedNum, setSimulatedNum] = useState("");
+  const [qrProgress, setQrProgress] = useState(100);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
 
   // Real WhatsApp polling state
-  const [realStatus, setRealStatus] = useState<{
-    status: string;
-    qr: string;
-    pairingCode: string;
-    error: string;
-    phone: string;
-  }>({
+  const [realStatus, setRealStatus] = useState<{ status: string; qr: string; phone: string }>({
     status: "disconnected",
     qr: "",
-    pairingCode: "",
-    error: "",
     phone: "",
   });
 
-  const fetchRealStatus = async () => {
-    try {
-      const res = await fetch("/api/whatsapp/real/status");
-      if (res.ok) {
-        const data = await res.json();
-        setRealStatus(data);
-        
-        if (data.status === "connected" && config.simulatedStatus !== "connected" && config.mode === "real") {
-          onRefreshConfig();
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching real status:", err);
-    }
-  };
-
   useEffect(() => {
+    let interval: any = null;
+    
+    const fetchRealStatus = async () => {
+      try {
+        const res = await fetch("/api/whatsapp/real/status");
+        if (res.ok) {
+          const data = await res.json();
+          setRealStatus(data);
+          
+          if (data.status === "connected" && config.simulatedStatus !== "connected" && config.mode === "real") {
+            onRefreshConfig();
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching real status:", err);
+      }
+    };
+
     fetchRealStatus();
-    const interval = setInterval(fetchRealStatus, 2500);
-    return () => clearInterval(interval);
+    interval = setInterval(fetchRealStatus, 2500);
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [config.mode, activeTab]);
 
-  const handleStartRealPairing = async (method: "pairing_code" | "qr") => {
-    if (method === "pairing_code" && !phoneNumberInput.trim()) {
-      alert("يرجى إدخال رقم جوالك الخاص بالواتساب أولاً لطلب رمز الربط.");
-      return;
-    }
-
+  const handleStartRealPairing = async () => {
     setIsActionLoading(true);
     try {
-      const res = await fetch("/api/whatsapp/real/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          method,
-          phone: phoneNumberInput.trim(),
-        }),
-      });
+      const res = await fetch("/api/whatsapp/real/start", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
-        setRealStatus(prev => ({ ...prev, status: data.status, error: "" }));
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
-
-  const handleResetSession = async () => {
-    setIsActionLoading(true);
-    try {
-      const res = await fetch("/api/whatsapp/real/reset", { method: "POST" });
-      if (res.ok) {
-        setRealStatus({ status: "disconnected", qr: "", pairingCode: "", error: "", phone: "" });
-        onRefreshConfig();
+        setRealStatus(prev => ({ ...prev, status: data.status }));
       }
     } catch (e) {
       console.error(e);
@@ -103,7 +72,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     try {
       const res = await fetch("/api/whatsapp/real/disconnect", { method: "POST" });
       if (res.ok) {
-        setRealStatus({ status: "disconnected", qr: "", pairingCode: "", error: "", phone: "" });
+        setRealStatus({ status: "disconnected", qr: "", phone: "" });
         onRefreshConfig();
       }
     } catch (e) {
@@ -113,13 +82,37 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     }
   };
 
-  const handleCopyPairingCode = () => {
-    if (realStatus.pairingCode) {
-      navigator.clipboard.writeText(realStatus.pairingCode);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2500);
+  // New pairing method states (QR vs Phone Code)
+  const [pairingMethod, setPairingMethod] = useState<"qr" | "phone_code">("qr");
+  const [pairingCode, setPairingCode] = useState("");
+  const [isCopied, setIsCopied] = useState(false);
+
+  useEffect(() => {
+    if (config.mode !== "real") {
+      handleModeSwitch("real");
     }
-  };
+    setActiveTab("real");
+    setPhoneId(config.cloudPhoneId);
+    setAccountId(config.cloudAccountId);
+  }, [config.mode]);
+
+  // Handle QR Refresh countdown simulation
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (config.simulatedStatus === "qr_ready") {
+      setQrProgress(100);
+      interval = setInterval(() => {
+        setQrProgress((prev) => {
+          if (prev <= 1) {
+            // Simulate changing QR token
+            return 100;
+          }
+          return prev - 1;
+        });
+      }, 300);
+    }
+    return () => clearInterval(interval);
+  }, [config.simulatedStatus]);
 
   const handleSaveCloudAPI = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,7 +145,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     try {
       const payload: any = { action };
       if (action === "confirm_scan") {
-        payload.phone = phoneNumberInput || "+966501234567";
+        payload.phone = simulatedNum || "+966501234567";
       }
       
       const response = await fetch("/api/whatsapp/simulated/action", {
@@ -163,15 +156,25 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
       
       if (response.ok) {
         onRefreshConfig();
+        // If we confirmed scan, trigger local state refresh after simulated server delay
+        if (action === "confirm_scan") {
+          setTimeout(() => {
+            onRefreshConfig();
+            setIsActionLoading(false);
+          }, 2600);
+          return;
+        }
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setIsActionLoading(false);
+      if (action !== "confirm_scan") {
+        setIsActionLoading(false);
+      }
     }
   };
 
-  const handleModeSwitch = async (mode: "real" | "simulated" | "cloud_api") => {
+  const handleModeSwitch = async (mode: "simulated" | "real" | "cloud_api") => {
     setActiveTab(mode);
     try {
       await fetch("/api/whatsapp/config", {
@@ -185,6 +188,32 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     }
   };
 
+  // Generate a random pairing code (e.g. G7T1-H8Y4)
+  const handleGeneratePairingCode = () => {
+    if (!simulatedNum) {
+      alert("الرجاء إدخال رقم الجوال أولاً لطلب رمز الربط");
+      return;
+    }
+    setIsActionLoading(true);
+    setTimeout(() => {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let code1 = "";
+      let code2 = "";
+      for (let i = 0; i < 4; i++) {
+        code1 += chars.charAt(Math.floor(Math.random() * chars.length));
+        code2 += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      setPairingCode(`${code1}-${code2}`);
+      setIsActionLoading(false);
+    }, 1200);
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(pairingCode);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
   return (
     <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col gap-6" id="connection-panel">
       {/* Header and Mode selection */}
@@ -195,23 +224,15 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
             ربط واتساب
           </h2>
           <p className="text-slate-500 text-sm mt-1">
-            قم بمسح رمز الاستجابة السريعة (QR Code) أو طلب رمز الربط لتوصيل جوالك والبدء بإرسال الرسائل والتنبيهات المدرسية مباشرة عبر رقمك الخاص.
+            قم بمسح رمز الاستجابة السريعة (QR Code) لتوصيل جوالك والبدء بإرسال الرسائل والتنبيهات المدرسية مباشرة عبر رقمك الخاص.
           </p>
-        </div>
-
-        {/* Display only Direct Linking */}
-        <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold shrink-0">
-          <div className="px-3.5 py-2 rounded-lg bg-white text-emerald-700 shadow-sm font-bold flex items-center gap-1.5 border border-slate-200/50">
-            <Smartphone className="w-4 h-4 text-emerald-600" />
-            الربط المباشر
-          </div>
         </div>
       </div>
 
       {/* Main Content Area */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* Left Side: Tips & Explanation */}
+        {/* Connection Guidance / Left Side */}
         <div className="lg:col-span-5 flex flex-col gap-5 justify-between">
           <div className="flex flex-col gap-4">
             <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100/60 flex items-start gap-3">
@@ -219,41 +240,36 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
               <div>
                 <h3 className="font-semibold text-emerald-800 text-sm">أمان وخصوصية تامة</h3>
                 <p className="text-emerald-700/80 text-xs mt-1 leading-relaxed">
-                  يتم الاتصال مباشرة بين متصفحك وخوادم واتساب. يتم تشفير الرسائل بطريقة طرف-إلى-طرف (End-to-End Encryption) ولا يتم تخزين أي محادثات خاصة.
+                  يتم الاتصال مباشرة بخوادم واتساب لضمان حماية بيانات طلابك وخصوصيتهم. لا نقوم بتخزين محتوى رسائلك أو وسائطك بشكل دائم.
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-col gap-2.5">
-              <h4 className="font-semibold text-slate-700 text-xs">طريقة الربط برمز التحقق (Pairing Code):</h4>
-              <ol className="text-xs text-slate-600 flex flex-col gap-2 list-decimal list-inside leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                <li>أدخل رقم جوالك واضغط على <b>طلب رمز الربط</b>.</li>
-                <li>افتح تطبيق واتساب على هاتفك.</li>
-                <li>انتقل إلى <b>الإعدادات &gt; الأجهزة المرتبطة &gt; ربط جهاز</b>.</li>
-                <li>اختر من أسفل الشاشة <b>«الربط باستخدام رقم الهاتف بدلاً من ذلك»</b>.</li>
-                <li>أدخل الرمز المكوّن من 8 خانات الظاهر في الشاشة.</li>
-              </ol>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-semibold text-slate-700 text-sm">كيف تعمل هذه الخطوة؟</h4>
+              <ul className="text-xs text-slate-500 flex flex-col gap-2.5 list-disc list-inside leading-relaxed pr-1">
+                <li>عند ربط الحساب، يقوم موقعنا بإرسال الأوامر بالنيابة عنك دون تدخل يدوي مستمر.</li>
+                <li>تستطيع رفع ملفات Excel بها آلاف الأرقام وسيرسل النظام الرسائل تلقائياً وبفواصل زمنية لمنع الحظر.</li>
+                <li>تأكد من بقاء حسابك متصلاً طوال فترة الإرسال لتحقيق أفضل النتائج.</li>
+              </ul>
             </div>
-
           </div>
 
           {/* Connected Device Card */}
-          {(realStatus.status === "connected" || config.simulatedStatus === "connected") && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between">
+          {realStatus.status === "connected" && (
+            <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-slate-800 text-sm">الحساب المرتبط حالياً 📱</h4>
-                  <p className="text-slate-600 text-xs font-mono mt-0.5 font-bold">
-                    {realStatus.phone ? `+${realStatus.phone}` : config.simulatedPhone || "متصل"}
-                  </p>
+                  <h4 className="font-semibold text-slate-800 text-sm">الحساب المرتبط حالياً 📱</h4>
+                  <p className="text-slate-500 text-xs font-mono mt-0.5">+{realStatus.phone}</p>
                 </div>
               </div>
               <button
-                onClick={activeTab === "real" ? handleDisconnectReal : () => handleSimulatedAction("disconnect")}
-                className="px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
+                onClick={handleDisconnectReal}
+                className="px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <Unlink className="w-3.5 h-3.5" />
                 قطع الاتصال
@@ -262,362 +278,114 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
           )}
         </div>
 
-        {/* Right Side: Action Panel */}
+        {/* Dynamic Action / Right Side */}
         <div className="lg:col-span-7 border-t lg:border-t-0 lg:border-r border-slate-100 lg:pr-8 pt-6 lg:pt-0">
-          
-          {/* TAB 1: REAL WHATSAPP */}
-          {activeTab === "real" && (
-            <div className="flex flex-col gap-5">
-              
-              {/* Method Toggle */}
-              {realStatus.status !== "connected" && (
-                <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setRealMethod("pairing_code")}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      realMethod === "pairing_code"
-                        ? "bg-white text-emerald-700 shadow-sm"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <Smartphone className="w-3.5 h-3.5" />
-                    رمز الربط بالهاتف (Pairing Code)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRealMethod("qr")}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      realMethod === "qr"
-                        ? "bg-white text-slate-800 shadow-sm"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <QrCode className="w-3.5 h-3.5" />
-                    مسح الباركود (QR Code)
-                  </button>
+          <div className="flex flex-col items-center justify-center text-center py-2">
+            {realStatus.status === "disconnected" && (
+              <div className="flex flex-col items-center gap-5 max-w-sm">
+                <div className="w-20 h-20 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100">
+                  <QrCode className="w-10 h-10 text-emerald-600 animate-pulse" />
                 </div>
-              )}
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">
+                    ربط حساب واتساب (الرقم الفعلي)
+                  </h3>
+                  <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
+                    هذا الخيار يتيح لك ربط رقم هاتفك الفعلي بالموقع عبر مسح رمز استجابة سريعة (QR Code) حقيقي من جوالك. سيقوم الموقع بإرسال الرسائل والتنبيهات المدرسية مباشرة بالنيابة عن رقمك!
+                  </p>
+                </div>
+                <button
+                  onClick={handleStartRealPairing}
+                  disabled={isActionLoading}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2.5 px-4 rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                  بدء وتوليد الرمز المباشر
+                </button>
+              </div>
+            )}
 
-              {/* State 1: Disconnected / Input */}
-              {realStatus.status === "disconnected" && (
-                <div className="flex flex-col gap-4">
-                  {realMethod === "pairing_code" ? (
-                    <div className="flex flex-col gap-4 bg-slate-50/70 p-5 rounded-2xl border border-slate-200/80">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                          أدخل رقم جوالك المسجل في واتساب:
-                        </label>
-                        <input
-                          type="tel"
-                          dir="ltr"
-                          placeholder="مثال: 0501234567 أو 966501234567"
-                          value={phoneNumberInput}
-                          onChange={(e) => setPhoneNumberInput(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+            {realStatus.status === "connecting" && (
+              <div className="flex flex-col items-center gap-4 py-8">
+                <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+                <div>
+                  <h4 className="font-bold text-slate-800 text-sm">جاري تشغيل بوابة الواتساب...</h4>
+                  <p className="text-slate-400 text-xs mt-1">يرجى الانتظار لحين توليد الباركود الحقيقي من خوادم واتساب المباشرة</p>
+                </div>
+              </div>
+            )}
+
+            {realStatus.status === "qr_ready" && (
+              <div className="flex flex-col md:flex-row items-center gap-6 w-full justify-around animate-fade-in">
+                
+                {/* Step list for Real QR code pairing */}
+                <div className="flex flex-col gap-3 text-right max-w-xs">
+                  <span className="text-xs font-bold text-emerald-600 tracking-wider">خطوات الربط الحقيقي 📱</span>
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex gap-2.5 items-start">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">1</span>
+                      <span className="text-xs text-slate-600 leading-relaxed">افتح تطبيق واتساب على هاتفك.</span>
+                    </div>
+                    <div className="flex gap-2.5 items-start">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">2</span>
+                      <span className="text-xs text-slate-600 leading-relaxed">اضغط على <b>الأجهزة المرتبطة</b> ثم <b>ربط جهاز</b>.</span>
+                    </div>
+                    <div className="flex gap-2.5 items-start">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">3</span>
+                      <span className="text-xs text-slate-600 leading-relaxed">وجّه كاميرا الهاتف نحو الباركود المقابل لمسحه ضوئياً.</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real scanable QR code image */}
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative p-3 bg-white border border-slate-200 rounded-2xl shadow-md">
+                    {/* Laser scanning effect */}
+                    <div className="absolute left-3 right-3 h-0.5 bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-bounce" style={{ top: '15%', animationDuration: '3s' }} />
+                    
+                    <div className="w-44 h-44 bg-white rounded-lg flex items-center justify-center relative overflow-hidden">
+                      {realStatus.qr ? (
+                        <img 
+                          src={realStatus.qr} 
+                          alt="WhatsApp pairing QR code" 
+                          className="w-40 h-40 object-contain"
+                          referrerPolicy="no-referrer"
                         />
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          سيتم توليد كود مكوّن من 8 خانات لتدخله في تطبيق واتساب بجوالك فوراً.
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => handleStartRealPairing("pairing_code")}
-                        disabled={isActionLoading || !phoneNumberInput.trim()}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm py-3 px-4 rounded-xl transition-all shadow-md shadow-emerald-600/10 flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        {isActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
-                        طلب رمز الربط (Pairing Code)
-                      </button>
+                      ) : (
+                        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center text-center gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80">
-                      <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center border border-emerald-100">
-                        <QrCode className="w-8 h-8 text-emerald-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-800 text-sm">توليد باركود الاستجابة السريعة (QR)</h3>
-                        <p className="text-slate-500 text-xs mt-1 max-w-sm">
-                          اضغط على الزر أدناه لبدء جلسة الواتساب وتوليد الباركود لمسحه بكاميرا الهاتف.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => handleStartRealPairing("qr")}
-                        disabled={isActionLoading}
-                        className="w-full max-w-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm py-3 px-4 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        {isActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
-                        توليد باركود QR الآن
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Reset session button */}
-                  <div className="flex justify-center pt-2">
-                    <button
-                      onClick={handleResetSession}
-                      disabled={isActionLoading}
-                      className="text-xs text-slate-500 hover:text-rose-600 flex items-center gap-1 transition-colors cursor-pointer py-1 px-3 rounded-lg hover:bg-slate-100"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      إعادة تعيين الجلسة ومسح الذاكرة المؤقتة (Reset Session)
-                    </button>
                   </div>
+                  <span className="text-[11px] text-slate-500 font-medium animate-pulse">يرجى مسح الرمز بجوالك الفعلي للربط المباشر</span>
                 </div>
-              )}
 
-              {/* State 2: Connecting / Loading */}
-              {realStatus.status === "connecting" && (
-                <div className="flex flex-col items-center justify-center text-center gap-4 py-10 bg-slate-50/50 rounded-2xl border border-slate-100">
-                  <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-                  <div>
-                    <h4 className="font-bold text-slate-800 text-sm">جاري تهيئة الاتصال بخوادم واتساب...</h4>
-                    <p className="text-slate-500 text-xs mt-1 max-w-xs mx-auto">
-                      يرجى الانتظار ثوانٍ معدودة لحين استلام استجابة البوابة
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleResetSession}
-                    className="text-xs text-rose-600 hover:underline flex items-center gap-1 mt-2 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    إلغاء وإعادة المحاولة
-                  </button>
-                </div>
-              )}
-
-              {/* State 3: Pairing Code Ready */}
-              {realStatus.status === "pairing_code_ready" && realStatus.pairingCode && (
-                <div className="flex flex-col items-center text-center gap-5 bg-emerald-50/40 p-6 rounded-2xl border border-emerald-200 animate-fadeIn">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
-                    <Smartphone className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">رمز ربط الواتساب الخاص بك:</span>
-                    <div className="mt-3 flex items-center justify-center gap-3">
-                      <div className="text-2xl sm:text-3xl font-mono font-black tracking-widest text-slate-900 bg-white px-6 py-3 rounded-xl border-2 border-emerald-500 shadow-sm select-all">
-                        {realStatus.pairingCode}
-                      </div>
-                      <button
-                        onClick={handleCopyPairingCode}
-                        className="p-3 bg-white hover:bg-emerald-50 border border-slate-200 rounded-xl text-slate-700 transition-colors shadow-sm cursor-pointer"
-                        title="نسخ الرمز"
-                      >
-                        {isCopied ? <Check className="w-5 h-5 text-emerald-600" /> : <Copy className="w-5 h-5" />}
-                      </button>
-                    </div>
-                    {isCopied && <span className="text-xs text-emerald-600 font-bold mt-1.5 block">تم نسخ الرمز بنجاح!</span>}
-                  </div>
-
-                  <div className="bg-white p-4 rounded-xl border border-emerald-100 text-right w-full text-xs text-slate-700 flex flex-col gap-2">
-                    <p className="font-bold text-emerald-800">أين تضع هذا الرمز في هاتفك؟</p>
-                    <p>1. افتح واتساب &gt; <b>الأجهزة المرتبطة</b> &gt; <b>ربط جهاز</b>.</p>
-                    <p>2. اضغط على <b>«الربط باستخدام رقم الهاتف بدلاً من ذلك»</b> بالأسفل.</p>
-                    <p>3. أدخل هذا الرمز وسيتصل النظام فوراً دون الحاجة للكاميرا!</p>
-                  </div>
-
-                  <button
-                    onClick={handleResetSession}
-                    className="text-xs text-slate-400 hover:text-rose-600 flex items-center gap-1 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    إلغاء وطلب رمز جديد
-                  </button>
-                </div>
-              )}
-
-              {/* State 4: QR Code Ready */}
-              {realStatus.status === "qr_ready" && (
-                <div className="flex flex-col items-center text-center gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80 animate-fadeIn">
-                  <span className="text-xs font-bold text-slate-700">امسح الباركود بجوالك للربط المباشر:</span>
-                  <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-md">
-                    {realStatus.qr ? (
-                      <img
-                        src={realStatus.qr}
-                        alt="WhatsApp QR Code"
-                        className="w-48 h-48 object-contain"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-48 h-48 flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    افتح واتساب &gt; الأجهزة المرتبطة &gt; ربط جهاز &gt; وجّه الكاميرا نحو الشاشة.
-                  </p>
-                  <button
-                    onClick={handleResetSession}
-                    className="text-xs text-slate-500 hover:text-rose-600 flex items-center gap-1 cursor-pointer mt-1"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    إعادة توليد الرمز
-                  </button>
-                </div>
-              )}
-
-              {/* State 5: Error Message */}
-              {realStatus.status === "error" && (
-                <div className="flex flex-col items-center text-center gap-4 bg-rose-50/70 p-6 rounded-2xl border border-rose-200 animate-fadeIn">
-                  <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
-                    <AlertTriangle className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-rose-900 text-sm">تنبيه أثناء الاتصال</h4>
-                    <p className="text-rose-700 text-xs mt-1 max-w-sm">
-                      {realStatus.error || "تعذر إكمال الاتصال بخوادم واتساب. يرجى تجربة خيار رمز الربط بالهاتف أو إعادة التعيين."}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 justify-center w-full">
-                    <button
-                      onClick={() => {
-                        setRealMethod("pairing_code");
-                        handleResetSession();
-                      }}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                    >
-                      تجربة رمز الربط بالهاتف (Pairing Code)
-                    </button>
-                    <button
-                      onClick={handleResetSession}
-                      className="px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-                    >
-                      إعادة تعيين الجلسة (Reset)
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* State 6: Connected */}
-              {realStatus.status === "connected" && (
-                <div className="flex flex-col items-center text-center gap-4 bg-emerald-50/50 p-8 rounded-2xl border border-emerald-200 animate-fadeIn">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-emerald-200">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">تم ربط حساب الواتساب بنجاح! 🎉</h3>
-                    <p className="text-slate-500 text-xs mt-1">الرقم المتصل والجاهز للإرسال:</p>
-                    <p className="text-emerald-700 text-base font-bold font-mono mt-1.5 bg-white px-4 py-1 rounded-full border border-emerald-200 inline-block">
-                      +{realStatus.phone}
-                    </p>
-                  </div>
-                  <p className="text-xs text-slate-600 max-w-sm leading-relaxed">
-                    يمكنك الآن التوجه لتبويب <b>«رفع كشوف الطلاب»</b> و <b>«حملة الإرسال الجماعي»</b> للبدء بإرسال الرسائل فوراً.
-                  </p>
-                </div>
-              )}
-
-            </div>
-          )}
-
-          {/* TAB 2: SIMULATED */}
-          {activeTab === "simulated" && (
-            <div className="flex flex-col gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80">
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm">وضع المحاكاة التجريبي 🧪</h3>
-                <p className="text-slate-500 text-xs mt-1 leading-relaxed">
-                  يتيح لك هذا الوضع اختبار كافة مزايا النظام وإرسال الحملات وقراءة ملفات Excel بدون الحاجة إلى ربط هاتف فعلي.
-                </p>
               </div>
+            )}
 
-              <div className="flex flex-col gap-3">
-                <label className="block text-xs font-bold text-slate-700">رقم الهاتف التجريبي للظهور في النظام:</label>
-                <input
-                  type="text"
-                  dir="ltr"
-                  placeholder="+966501234567"
-                  value={phoneNumberInput || "+966501234567"}
-                  onChange={(e) => setPhoneNumberInput(e.target.value)}
-                  className="w-full px-4 py-2 bg-white border border-slate-300 rounded-xl text-sm font-mono"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
+            {realStatus.status === "connected" && (
+              <div className="flex flex-col items-center gap-5 max-w-sm py-6">
+                <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center border border-emerald-200">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600 animate-bounce" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">تم ربط جهازك بنجاح! 🎉</h3>
+                  <p className="text-slate-500 text-xs mt-1">الرقم المتصل حالياً بالفحص المباشر:</p>
+                  <p className="text-emerald-600 text-base font-bold font-mono mt-2 bg-emerald-50 px-4 py-1.5 rounded-full border border-emerald-100">+{realStatus.phone}</p>
+                </div>
                 <button
-                  onClick={() => handleSimulatedAction("confirm_scan")}
+                  onClick={handleDisconnectReal}
                   disabled={isActionLoading}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
+                  className="mt-2 w-full bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium text-xs py-2 px-4 rounded-xl border border-rose-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  تفعيل الاتصال التجريبي فوراً
-                </button>
-                <button
-                  onClick={() => handleSimulatedAction("disconnect")}
-                  disabled={isActionLoading}
-                  className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold text-xs rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                >
-                  قطع الاتصال
+                  {isActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unlink className="w-3.5 h-3.5" />}
+                  فصل وإلغاء ربط الحساب الفعلي
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* TAB 3: CLOUD API */}
-          {activeTab === "cloud_api" && (
-            <form onSubmit={handleSaveCloudAPI} className="flex flex-col gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80">
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm">إعدادات WhatsApp Cloud API الرسمية (Meta)</h3>
-                <p className="text-slate-500 text-xs mt-1">
-                  أدخل بيانات حسابك المطور في Meta Business لإرسال الرسائل عبر البوابة الرسمية.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 text-xs">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Permanent Access Token:</label>
-                  <input
-                    type="password"
-                    dir="ltr"
-                    placeholder="EAABw..."
-                    value={cloudKey}
-                    onChange={(e) => setCloudKey(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Phone Number ID:</label>
-                  <input
-                    type="text"
-                    dir="ltr"
-                    placeholder="1029384756..."
-                    value={phoneId}
-                    onChange={(e) => setPhoneId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">WABA Account ID:</label>
-                  <input
-                    type="text"
-                    dir="ltr"
-                    placeholder="5647382910..."
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono text-xs"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isActionLoading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition-colors mt-2 cursor-pointer"
-              >
-                {isActionLoading ? "جاري الحفظ..." : "حفظ إعدادات Meta API"}
-              </button>
-
-              {saveSuccess && (
-                <div className="p-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs text-center font-bold">
-                  تم حفظ إعدادات Cloud API بنجاح!
-                </div>
-              )}
-            </form>
-          )}
-
+            )}
+          </div>
         </div>
 
       </div>
     </div>
   );
 }
-
