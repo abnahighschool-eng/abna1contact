@@ -21,7 +21,8 @@ const Browsers = (BaileysModule as any).Browsers || baileysRaw.Browsers;
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // In-memory data store for WhatsApp states & Campaigns
 let whatsappConfig = {
@@ -485,70 +486,78 @@ function extractStudentName(std: any, fallbackIdx = 1): string {
 
 // Campaign sending endpoint
 app.post("/api/whatsapp/campaign/create", (req, res) => {
-  const { name, students, template, delayMs = 3000 } = req.body;
-  
-  if (!students || !Array.isArray(students) || students.length === 0) {
-    return res.status(400).json({ error: "قائمة الطلاب فارغة أو غير صالحة" });
-  }
-  
-  const campaignId = `camp_${Date.now()}`;
-  
-  // Helper to compile template placeholders
-  const compileTemplate = (tmpl: string, student: any) => {
-    let result = tmpl || "";
+  try {
+    const { name, students, template, delayMs = 3000 } = req.body;
     
-    // Extract first and last name for shortened student name
-    const studentFullName = extractStudentName(student, 1);
-    const getShortName = (nameStr: string) => {
-      if (!nameStr) return "";
-      const parts = nameStr.trim().split(/\s+/).filter(Boolean);
-      if (parts.length <= 1) return nameStr;
-      return `${parts[0]} ${parts[parts.length - 1]}`;
+    if (!students || !Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ error: "قائمة الطلاب فارغة أو غير صالحة" });
+    }
+    
+    const campaignId = `camp_${Date.now()}`;
+    
+    // Helper to compile template placeholders
+    const compileTemplate = (tmpl: string, student: any) => {
+      let result = tmpl || "";
+      
+      // Extract first and last name for shortened student name
+      const studentFullName = extractStudentName(student, 1);
+      const getShortName = (nameStr: string) => {
+        if (!nameStr) return "";
+        const parts = nameStr.trim().split(/\s+/).filter(Boolean);
+        if (parts.length <= 1) return nameStr;
+        return `${parts[0]} ${parts[parts.length - 1]}`;
+      };
+      const shortName = getShortName(studentFullName);
+
+      // Replace dynamic short-name tags
+      result = result.split("{اسم الطالب الأول والأخير}").join(shortName);
+      result = result.split("{الاسم الأول والأخير}").join(shortName);
+
+      if (student && typeof student === "object") {
+        Object.keys(student).forEach((key) => {
+          const val = String(student[key] ?? "");
+          // Use split & join to avoid any RegExp syntax errors with parentheses/brackets in column names
+          result = result.split(`{${key}}`).join(val);
+        });
+      }
+      return result;
     };
-    const shortName = getShortName(studentFullName);
 
-    // Replace dynamic short-name tags
-    result = result.replace(/{اسم الطالب الأول والأخير}/g, shortName);
-    result = result.replace(/{الاسم الأول والأخير}/g, shortName);
-
-    Object.keys(student).forEach((key) => {
-      const placeholder = `{${key}}`;
-      result = result.replace(new RegExp(placeholder, "g"), String(student[key] ?? ""));
+    const campaignLogs = students.map((std: any, idx: number) => {
+      const compiledMsg = compileTemplate(template, std);
+      const phone = extractStudentPhone(std);
+      const studentName = extractStudentName(std, idx + 1);
+      
+      return {
+        id: `log_${campaignId}_${idx}`,
+        studentName,
+        phone: String(phone).trim(),
+        message: compiledMsg,
+        status: "pending" as const,
+        timestamp: new Date().toISOString(),
+      };
     });
-    return result;
-  };
 
-  const campaignLogs = students.map((std: any, idx: number) => {
-    const compiledMsg = compileTemplate(template, std);
-    const phone = extractStudentPhone(std);
-    const studentName = extractStudentName(std, idx + 1);
-    
-    return {
-      id: `log_${campaignId}_${idx}`,
-      studentName,
-      phone: String(phone).trim(),
-      message: compiledMsg,
-      status: "pending" as const,
-      timestamp: new Date().toISOString(),
+    campaigns[campaignId] = {
+      id: campaignId,
+      name: name || `حملة إرسال جديدة ${new Date().toLocaleDateString("ar-SA")}`,
+      total: campaignLogs.length,
+      sent: 0,
+      failed: 0,
+      status: "running",
+      startTime: new Date().toISOString(),
+      endTime: null,
+      logs: campaignLogs,
     };
-  });
 
-  campaigns[campaignId] = {
-    id: campaignId,
-    name: name || `حملة إرسال جديدة ${new Date().toLocaleDateString("ar-SA")}`,
-    total: campaignLogs.length,
-    sent: 0,
-    failed: 0,
-    status: "running",
-    startTime: new Date().toISOString(),
-    endTime: null,
-    logs: campaignLogs,
-  };
+    // Start processing in background loop (simulated or real/cloud api)
+    processCampaign(campaignId, Number(delayMs) || 3000);
 
-  // Start processing in background loop (simulated or real/cloud api)
-  processCampaign(campaignId, Number(delayMs) || 3000);
-
-  res.json({ campaignId, message: "تم بدء الحملة بنجاح", total: campaignLogs.length });
+    return res.json({ campaignId, message: "تم بدء الحملة بنجاح", total: campaignLogs.length });
+  } catch (err: any) {
+    console.error("Error creating campaign:", err);
+    return res.status(500).json({ error: err.message || "حدث خطأ غير متوقع في الخادم أثناء إنشاء الحملة" });
+  }
 });
 
 // Retrieve specific campaign progress

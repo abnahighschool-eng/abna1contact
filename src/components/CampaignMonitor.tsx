@@ -122,6 +122,17 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
       return;
     }
     
+    // Sanitize students payload to keep it clean and lightweight
+    const sanitizedStudents = studentsToSubmit.map((std) => {
+      const cleanObj: Record<string, any> = {};
+      for (const [k, v] of Object.entries(std)) {
+        if (v !== undefined && v !== null) {
+          cleanObj[k] = typeof v === "object" ? JSON.stringify(v) : String(v);
+        }
+      }
+      return cleanObj;
+    });
+
     setValidationError("");
     setIsLoading(true);
     try {
@@ -130,28 +141,37 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: campaignName,
-          students: studentsToSubmit,
+          students: sanitizedStudents,
           template,
           delayMs,
         }),
       });
 
-      const data = await response.json();
+      let data: any = {};
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        data = { error: `استجابة الخادم غير متوقعة (رمز ${response.status})` };
+      }
 
       if (response.ok && data.campaignId) {
         setCampaignId(data.campaignId);
         
         // Fetch immediately
-        const campRes = await fetch(`/api/whatsapp/campaign/${data.campaignId}`);
-        if (campRes.ok) {
-          setCampaign(await campRes.json());
+        try {
+          const campRes = await fetch(`/api/whatsapp/campaign/${data.campaignId}`);
+          if (campRes.ok) {
+            setCampaign(await campRes.json());
+          }
+        } catch (fetchErr) {
+          console.error("Initial campaign fetch error:", fetchErr);
         }
       } else {
         setValidationError(data.error || "تعذر إطلاق الحملة، يرجى التحقق من صحة البيانات.");
       }
     } catch (err: any) {
-      console.error(err);
-      setValidationError("حدث خطأ أثناء الاتصال بالخادم لإطلاق الحملة.");
+      console.error("Campaign start error:", err);
+      setValidationError(err.message ? `فشل الاتصال: ${err.message}` : "حدث خطأ أثناء الاتصال بالخادم لإطلاق الحملة.");
     } finally {
       setIsLoading(false);
     }
