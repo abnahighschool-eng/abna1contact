@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, RefreshCw, Send, AlertCircle, CheckCircle2, XCircle, Loader2, ArrowRight, Clock, ShieldCheck, Search, Filter, MessageSquare, Plus, Smartphone, Smile, CheckCheck, Info, Users } from "lucide-react";
+import { Play, Pause, RefreshCw, Send, AlertCircle, CheckCircle2, XCircle, Loader2, ArrowRight, Clock, ShieldCheck, Search, Filter, MessageSquare, Plus, Smartphone, Smile, CheckCheck, Info, Users, CheckSquare, Square, UserCheck, UserX } from "lucide-react";
 import { Student, Campaign, CampaignLog } from "../types";
 
 interface CampaignMonitorProps {
@@ -23,6 +23,8 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [gradeFilter, setGradeFilter] = useState("all");
   const [classFilter, setClassFilter] = useState("all");
+  const [studentSearchQuery, setStudentSearchQuery] = useState("");
+  const [viewSelectionFilter, setViewSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
 
   // Template Preview states
   const [previewStudentIdx, setPreviewStudentIdx] = useState(0);
@@ -57,15 +59,30 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
   const uniqueGrades = Array.from(new Set(students.map(s => s.grade || s["الصف"] || "").filter(Boolean))) as string[];
   const uniqueClasses = Array.from(new Set(students.map(s => s.className || s["الفصل"] || "").filter(Boolean))) as string[];
 
-  // Filtered list
+  // Filtered list based on Grade, Class, Search Query, and View Selection Tab
   const filteredStudents = students.filter(student => {
     const studentGrade = student.grade || student["الصف"] || "";
     const studentClass = student.className || student["الفصل"] || "";
+    const studentName = student.name || student["اسم الطالب"] || student["الاسم"] || student["الاسم الكامل"] || "";
+    const studentPhone = student.phone || student["رقم الجوال"] || student["الجوال"] || "";
     
     const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
     const matchesClass = classFilter === "all" || studentClass === classFilter;
     
-    return matchesGrade && matchesClass;
+    const q = studentSearchQuery.trim().toLowerCase();
+    const matchesSearch = !q || 
+      studentName.toLowerCase().includes(q) ||
+      studentPhone.includes(q) ||
+      studentGrade.toLowerCase().includes(q) ||
+      studentClass.toLowerCase().includes(q);
+
+    const isSelected = selectedStudentIds.includes(student.id);
+    const matchesSelectionView = 
+      viewSelectionFilter === "all" ||
+      (viewSelectionFilter === "selected" && isSelected) ||
+      (viewSelectionFilter === "unselected" && !isSelected);
+    
+    return matchesGrade && matchesClass && matchesSearch && matchesSelectionView;
   });
 
   const toggleStudentSelection = (id: string) => {
@@ -86,6 +103,29 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     const filteredIds = filteredStudents.map(s => s.id);
     setSelectedStudentIds(prev => prev.filter(id => !filteredIds.includes(id)));
   };
+
+  const invertSelectionFiltered = () => {
+    const filteredIds = filteredStudents.map(s => s.id);
+    setSelectedStudentIds(prev => {
+      const newlySelected = filteredIds.filter(id => !prev.includes(id));
+      const kept = prev.filter(id => !filteredIds.includes(id));
+      return [...kept, ...newlySelected];
+    });
+  };
+
+  const isAllFilteredSelected = filteredStudents.length > 0 && filteredStudents.every(s => selectedStudentIds.includes(s.id));
+  const isSomeFilteredSelected = filteredStudents.some(s => selectedStudentIds.includes(s.id)) && !isAllFilteredSelected;
+
+  const toggleMasterCheckbox = () => {
+    if (isAllFilteredSelected) {
+      deselectAllFiltered();
+    } else {
+      selectAllFiltered();
+    }
+  };
+
+  const targetedCount = students.filter(s => selectedStudentIds.includes(s.id)).length;
+  const excludedCount = students.length - targetedCount;
 
   // Poll campaign status when running or initialized
   useEffect(() => {
@@ -412,7 +452,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                       AB
                     </div>
                     <div>
-                      <h4 className="text-[10px] font-bold leading-none">ABNA SCHOOL 1</h4>
+                      <h4 className="text-[10px] font-bold leading-none">ثانوية الأبناء الأولى</h4>
                       <span className="text-[7px] text-emerald-200">متصل الآن</span>
                     </div>
                   </div>
@@ -466,14 +506,28 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
           {/* LEFT COLUMN: Targeting, Grade, Class Filters, and Campaign Controls (5 Cols) */}
           <div className="lg:col-span-5 flex flex-col gap-6 text-right">
             
-            {/* Campaign Parameters Card */}
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex flex-col gap-4">
-              <h3 className="font-bold text-slate-800 text-xs flex items-center gap-2">
-                <Users className="w-4 h-4 text-emerald-600" />
-                2. تحديد المستهدفين واختيار الطلاب
-              </h3>
+            {/* Campaign Parameters & Student Selection Card */}
+            <div className="bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                  <Users className="w-4 h-4 text-emerald-600" />
+                  2. تحديد المستهدفين واختيار الطلاب
+                </h3>
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                  {targetedCount} محدد للإرسال
+                </span>
+              </div>
 
-              {/* Camp Name */}
+              {/* Explicit Rule Banner */}
+              <div className="bg-emerald-50/90 border border-emerald-200 text-emerald-950 p-3 rounded-xl text-xs leading-relaxed flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">تنبيه الإرسال: </span>
+                  <span>الأسماء التي تم وضع علامة الصح (<strong className="text-emerald-700">✓</strong>) أمامها هي فقط من سيتم إرسال الرسالة لها، بينما الأسماء غير المحددة سيتم استبعادها وتجاوزها تلقائياً.</span>
+                </div>
+              </div>
+
+              {/* Campaign Name */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-700">تسمية الحملة الدراسية:</label>
                 <input
@@ -481,26 +535,25 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                   value={campaignName}
                   onChange={(e) => setCampaignName(e.target.value)}
                   placeholder="أدخل اسماً للحملة للرجوع إليها لاحقاً..."
-                  className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                   id="input-campaign-name"
                 />
               </div>
 
-              {/* Filtering Controls */}
-              <div className="grid grid-cols-1 gap-3 border-t border-slate-200/50 pt-3">
-                
+              {/* Grade & Class Filters */}
+              <div className="grid grid-cols-2 gap-2.5 border-t border-slate-200/60 pt-3">
                 {/* Grade Filter */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-700">اختيار صف كامل:</label>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-slate-700">تصفية الصف:</label>
                   <select
                     value={gradeFilter}
                     onChange={(e) => {
                       setGradeFilter(e.target.value);
                       setPreviewStudentIdx(0);
                     }}
-                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                    className="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                   >
-                    <option value="all">كل الصفوف الدراسية ({uniqueGrades.length})</option>
+                    <option value="all">كل الصفوف ({uniqueGrades.length})</option>
                     {uniqueGrades.map(grade => (
                       <option key={grade} value={grade}>{grade}</option>
                     ))}
@@ -508,17 +561,17 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 </div>
 
                 {/* Class Filter */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-700">اختيار الشعبة / الفصل:</label>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-slate-700">تصفية الفصل/الشعبة:</label>
                   <select
                     value={classFilter}
                     onChange={(e) => {
                       setClassFilter(e.target.value);
                       setPreviewStudentIdx(0);
                     }}
-                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                    className="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                   >
-                    <option value="all">كل الفصول / الشعب ({uniqueClasses.length})</option>
+                    <option value="all">كل الفصول ({uniqueClasses.length})</option>
                     {uniqueClasses.map(cls => (
                       <option key={cls} value={cls}>{cls}</option>
                     ))}
@@ -526,75 +579,152 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 </div>
               </div>
 
-              {/* Quick selectors & Summary */}
-              <div className="flex flex-col gap-2 bg-white p-3 border border-slate-150 rounded-xl mt-1">
-                <div className="flex justify-between items-center text-[11px] font-bold text-slate-700">
-                  <span>الطلاب بالتصفية الحالية:</span>
-                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">{filteredStudents.length} طلاب</span>
-                </div>
-                
-                <div className="flex justify-between items-center text-[11px] font-bold text-slate-700">
-                  <span>المستهدفون المحددون للإرسال:</span>
-                  <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
-                    {students.filter(s => selectedStudentIds.includes(s.id)).length} طالب
-                  </span>
-                </div>
-
-                <div className="flex gap-2 border-t border-slate-100 pt-2.5 mt-1">
+              {/* Student Quick Search */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
+                <input
+                  type="text"
+                  value={studentSearchQuery}
+                  onChange={(e) => setStudentSearchQuery(e.target.value)}
+                  placeholder="بحث سريع باسم الطالب، رقم الجوال، أو الفصل..."
+                  className="w-full border border-slate-200 bg-white rounded-xl pr-8 pl-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+                {studentSearchQuery && (
                   <button
-                    type="button"
-                    onClick={selectAllFiltered}
-                    className="flex-1 text-center py-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all border border-emerald-100 cursor-pointer"
+                    onClick={() => setStudentSearchQuery("")}
+                    className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
                   >
-                    تحديد الكل بالتصفية
+                    ✕
                   </button>
-                  <button
-                    type="button"
-                    onClick={deselectAllFiltered}
-                    className="flex-1 text-center py-1.5 text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all border border-slate-200 cursor-pointer"
-                  >
-                    إلغاء الكل بالتصفية
-                  </button>
-                </div>
+                )}
               </div>
 
-              {/* Scrollable list of students with checkboxes */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto bg-white shadow-inner">
+              {/* View Selection Tabs (All / Checked / Unchecked) */}
+              <div className="flex items-center bg-slate-200/60 p-1 rounded-xl gap-1 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setViewSelectionFilter("all")}
+                  className={`flex-1 py-1 rounded-lg transition-all text-center ${viewSelectionFilter === "all" ? "bg-white text-slate-800 shadow-xs" : "text-slate-600 hover:text-slate-800"}`}
+                >
+                  الكل ({students.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewSelectionFilter("selected")}
+                  className={`flex-1 py-1 rounded-lg transition-all text-center ${viewSelectionFilter === "selected" ? "bg-emerald-600 text-white shadow-xs" : "text-emerald-700 hover:text-emerald-800"}`}
+                >
+                  ✓ محدد للإرسال ({targetedCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewSelectionFilter("unselected")}
+                  className={`flex-1 py-1 rounded-lg transition-all text-center ${viewSelectionFilter === "unselected" ? "bg-rose-600 text-white shadow-xs" : "text-slate-500 hover:text-rose-700"}`}
+                >
+                  ✕ مستبعد ({excludedCount})
+                </button>
+              </div>
+
+              {/* Quick Action Selector Buttons */}
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="flex-1 text-center py-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all border border-emerald-200 cursor-pointer flex items-center justify-center gap-1"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  تحديد الكل المعروض
+                </button>
+                <button
+                  type="button"
+                  onClick={deselectAllFiltered}
+                  className="flex-1 text-center py-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all border border-slate-200 cursor-pointer flex items-center justify-center gap-1"
+                >
+                  <UserX className="w-3.5 h-3.5 text-slate-500" />
+                  إلغاء تحديد المعروض
+                </button>
+                <button
+                  type="button"
+                  onClick={invertSelectionFiltered}
+                  className="text-center px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all border border-blue-200 cursor-pointer"
+                  title="عكس التحديد الحالي"
+                >
+                  عكس
+                </button>
+              </div>
+
+              {/* Scrollable List with Master Header Checkbox */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto bg-white shadow-inner">
                 <table className="w-full text-right border-collapse text-[11px]">
-                  <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 border-b border-slate-200 font-bold">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-slate-700 border-b border-slate-200 font-bold">
                     <tr>
-                      <th className="px-3 py-2 w-10 text-center">إرسال؟</th>
-                      <th className="px-2 py-2">اسم الطالب</th>
-                      <th className="px-2 py-2">الصف/الفصل</th>
+                      <th className="px-3 py-2 w-10 text-center">
+                        <div className="flex items-center justify-center">
+                          <input
+                            type="checkbox"
+                            checked={isAllFilteredSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = isSomeFilteredSelected;
+                            }}
+                            onChange={toggleMasterCheckbox}
+                            className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                            title="تحديد أو إلغاء تحديد جميع الطلاب الظاهرين بالقائمة"
+                          />
+                        </div>
+                      </th>
+                      <th className="px-2 py-2">اسم الطالب وبياناته</th>
+                      <th className="px-2 py-2 text-center w-24">حالة الإرسال</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-600 font-medium">
                     {filteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="px-3 py-6 text-center text-slate-400">
-                          لا يوجد طلاب يطابقون خيارات التصفية المحددة.
+                        <td colSpan={3} className="px-3 py-8 text-center text-slate-400">
+                          لا يوجد طلاب يطابقون معايير البحث والتصفية المحددة.
                         </td>
                       </tr>
                     ) : (
                       filteredStudents.map(student => {
                         const isSelected = selectedStudentIds.includes(student.id);
+                        const sName = student.name || student["اسم الطالب"] || student["الاسم"] || student["الاسم الكامل"] || "بدون اسم";
+                        const sPhone = student.phone || student["رقم الجوال"] || student["الجوال"] || "";
+                        const sGrade = student.grade || student["الصف"] || "";
+                        const sClass = student.className || student["الفصل"] || "";
+
                         return (
                           <tr
                             key={student.id}
                             onClick={() => toggleStudentSelection(student.id)}
-                            className={`hover:bg-slate-50 transition-colors cursor-pointer ${isSelected ? 'bg-emerald-50/20 font-semibold' : ''}`}
+                            className={`hover:bg-slate-50 transition-colors cursor-pointer ${isSelected ? 'bg-emerald-50/30' : 'opacity-60 bg-slate-50/40'}`}
                           >
                             <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="checkbox"
                                 checked={isSelected}
                                 onChange={() => toggleStudentSelection(student.id)}
-                                className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+                                className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                               />
                             </td>
-                            <td className="px-2 py-2 font-medium text-slate-800">{student.name}</td>
-                            <td className="px-2 py-2 text-slate-500 text-[10px]">
-                              {student.grade || student["الصف"] || ""}/{student.className || student["الفصل"] || ""}
+                            <td className="px-2 py-2">
+                              <div className="font-bold text-slate-800 text-xs">{sName}</div>
+                              <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                                {sPhone && <span className="font-mono text-slate-600">{sPhone}</span>}
+                                {(sGrade || sClass) && (
+                                  <span className="bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded text-[9px]">
+                                    {sGrade} {sClass ? `/ ${sClass}` : ""}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              {isSelected ? (
+                                <span className="inline-flex items-center gap-1 bg-emerald-100/90 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px] border border-emerald-200">
+                                  ✓ مشمول
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 font-semibold px-2 py-0.5 rounded-full text-[10px] border border-slate-200">
+                                  ✕ مستبعد
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -604,11 +734,19 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 </table>
               </div>
 
+              {/* Selection Summary footer */}
+              <div className="flex justify-between items-center bg-white p-2.5 border border-slate-200 rounded-xl text-xs">
+                <span className="font-medium text-slate-600">المشمولون بعلامة صح:</span>
+                <span className="font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg">
+                  {targetedCount} من أصل {students.length} طالب
+                </span>
+              </div>
+
             </div>
 
             {/* Delay & Launch Controls Card */}
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex flex-col gap-4">
-              <h3 className="font-bold text-slate-800 text-xs flex items-center gap-2">
+            <div className="bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
+              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
                 <Clock className="w-4 h-4 text-emerald-600" />
                 3. إعدادات الإرسال والتشغيل
               </h3>
@@ -648,11 +786,18 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
               )}
 
               {/* Ready targets summary */}
-              <div className="flex justify-between items-center text-xs font-bold text-slate-700 bg-white border border-slate-200/80 px-3.5 py-2.5 rounded-xl">
-                <span>جاهز للإرسال الفعلي إلى:</span>
-                <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 rounded-lg text-xs">
-                  {students.filter(s => selectedStudentIds.includes(s.id)).length} طالب محدد
-                </span>
+              <div className="flex flex-col gap-1.5 bg-white border border-slate-200/80 p-3 rounded-xl">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                  <span>المستهدفون المعتمدون للإرسال الفعلي:</span>
+                  <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-lg text-xs font-extrabold">
+                    {targetedCount} طالب محدد
+                  </span>
+                </div>
+                {excludedCount > 0 && (
+                  <div className="text-[11px] text-slate-500 font-medium">
+                    (سيتم استبعاد وتجاوز {excludedCount} طالب بدون علامة صح تلقائياً)
+                  </div>
+                )}
               </div>
 
               {validationError && (
@@ -663,12 +808,14 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
 
               <button
                 onClick={handleStartCampaign}
-                disabled={isLoading}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-3.5 px-6 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2.5 cursor-pointer mt-1"
+                disabled={isLoading || targetedCount === 0}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-sm py-3.5 px-6 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2.5 cursor-pointer mt-1"
                 id="btn-trigger-campaign"
               >
                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
-                أطلق حملة الإرسال الجماعي الآن 🚀
+                {targetedCount > 0 
+                  ? `أطلق حملة الإرسال لـ (${targetedCount}) طالب محدد 🚀`
+                  : "يرجى تحديد طالب واحد على الأقل بعلامة (✓)"}
               </button>
               
               {!isWhatsAppConnected && (

@@ -220,6 +220,18 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
 }
 
 // Store campaign states
+interface CampaignLogItem {
+  id: string;
+  studentName: string;
+  phone: string;
+  grade?: string;
+  className?: string;
+  message: string;
+  status: "pending" | "sending" | "success" | "failed";
+  timestamp: string;
+  error?: string;
+}
+
 interface Campaign {
   id: string;
   name: string;
@@ -229,18 +241,45 @@ interface Campaign {
   status: "idle" | "running" | "completed" | "paused";
   startTime: string | null;
   endTime: string | null;
-  logs: {
-    id: string;
-    studentName: string;
-    phone: string;
-    message: string;
-    status: "pending" | "sending" | "success" | "failed";
-    timestamp: string;
-    error?: string;
-  }[];
+  logs: CampaignLogItem[];
+}
+
+interface IndividualLogItem {
+  id: string;
+  studentName: string;
+  phone: string;
+  grade?: string;
+  className?: string;
+  message: string;
+  status: "success" | "failed";
+  timestamp: string;
+  error?: string;
 }
 
 const campaigns: Record<string, Campaign> = {};
+const individualLogs: IndividualLogItem[] = [];
+
+// Load persisted individual logs if any
+const INDIVIDUAL_LOGS_FILE = path.join(process.cwd(), "individual_logs.json");
+if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
+  try {
+    const raw = fs.readFileSync(INDIVIDUAL_LOGS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      individualLogs.push(...parsed);
+    }
+  } catch (e) {
+    console.error("Error reading individual_logs.json", e);
+  }
+}
+
+function saveIndividualLogs() {
+  try {
+    fs.writeFileSync(INDIVIDUAL_LOGS_FILE, JSON.stringify(individualLogs.slice(0, 500), null, 2), "utf-8");
+  } catch (e) {
+    console.error("Error saving individual_logs.json", e);
+  }
+}
 
 // Default initial config load
 const CONFIG_FILE = path.join(process.cwd(), "whatsapp_config.json");
@@ -527,11 +566,15 @@ app.post("/api/whatsapp/campaign/create", (req, res) => {
       const compiledMsg = compileTemplate(template, std);
       const phone = extractStudentPhone(std);
       const studentName = extractStudentName(std, idx + 1);
+      const grade = std.grade || std["الصف"] || std["المستوى"] || "";
+      const className = std.className || std["الفصل"] || std["الشعبة"] || "";
       
       return {
         id: `log_${campaignId}_${idx}`,
         studentName,
         phone: String(phone).trim(),
+        grade: String(grade).trim(),
+        className: String(className).trim(),
         message: compiledMsg,
         status: "pending" as const,
         timestamp: new Date().toISOString(),
@@ -726,10 +769,21 @@ app.post("/api/whatsapp/campaign/:id/resume", (req, res) => {
 
 // Single Message Send Endpoint
 app.post("/api/whatsapp/send-single", async (req, res) => {
-  const { phone, message } = req.body;
+  const { phone, message, studentName, grade, className } = req.body;
   if (!phone || !message) {
     return res.status(400).json({ error: "يرجى تحديد رقم الجوال ونص الرسالة" });
   }
+
+  const logEntry: IndividualLogItem = {
+    id: `ind_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    studentName: studentName || "رسالة فردية مباشرة",
+    phone: String(phone).trim(),
+    grade: grade ? String(grade).trim() : "",
+    className: className ? String(className).trim() : "",
+    message: String(message),
+    status: "success",
+    timestamp: new Date().toISOString(),
+  };
 
   const isCloudAPI = whatsappConfig.mode === "cloud_api" && whatsappConfig.cloudApiKey && whatsappConfig.cloudPhoneId;
   const isRealMode = whatsappConfig.mode === "real" || (sock && sock.user);
@@ -758,15 +812,26 @@ app.post("/api/whatsapp/send-single", async (req, res) => {
       const result = await response.json() as any;
 
       if (response.ok && result.messages) {
+        logEntry.status = "success";
+        individualLogs.unshift(logEntry);
+        saveIndividualLogs();
         return res.json({ success: true, message: "تم إرسال الرسالة الفردية بنجاح" });
       } else {
+        logEntry.status = "failed";
+        logEntry.error = result.error?.message || "فشل إرسال الرسالة عبر WhatsApp Cloud API";
+        individualLogs.unshift(logEntry);
+        saveIndividualLogs();
         return res.status(500).json({
-          error: result.error?.message || "فشل إرسال الرسالة عبر WhatsApp Cloud API"
+          error: logEntry.error
         });
       }
     } catch (err: any) {
+      logEntry.status = "failed";
+      logEntry.error = err.message || "حدث خطأ أثناء الاتصال بخوادم Meta";
+      individualLogs.unshift(logEntry);
+      saveIndividualLogs();
       return res.status(500).json({
-        error: err.message || "حدث خطأ أثناء الاتصال بخوادم Meta"
+        error: logEntry.error
       });
     }
   } else if (isRealMode) {
@@ -783,20 +848,100 @@ app.post("/api/whatsapp/send-single", async (req, res) => {
       const jid = `${formattedPhone}@s.whatsapp.net`;
       await sock.sendMessage(jid, { text: message });
 
+      logEntry.status = "success";
+      individualLogs.unshift(logEntry);
+      saveIndividualLogs();
       return res.json({ success: true, message: "تم إرسال الرسالة الفردية بنجاح عبر واتساب" });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message || "فشل إرسال الرسالة الفردية عبر ربط الواتساب" });
+      logEntry.status = "failed";
+      logEntry.error = err.message || "فشل إرسال الرسالة الفردية عبر ربط الواتساب";
+      individualLogs.unshift(logEntry);
+      saveIndividualLogs();
+      return res.status(500).json({ error: logEntry.error });
     }
   } else {
     // Simulated sending
     const cleanedPhone = normalizePhoneNumber(phone);
     if (cleanedPhone.length < 8) {
-      return res.status(400).json({ error: "رقم الجوال الفردي غير صالح أو قصير جداً" });
+      logEntry.status = "failed";
+      logEntry.error = "رقم الجوال الفردي غير صالح أو قصير جداً";
+      individualLogs.unshift(logEntry);
+      saveIndividualLogs();
+      return res.status(400).json({ error: logEntry.error });
     }
     // Simulate latency
-    await new Promise(resolve => setTimeout(resolve, 1200));
+    await new Promise(resolve => setTimeout(resolve, 800));
+    logEntry.status = "success";
+    individualLogs.unshift(logEntry);
+    saveIndividualLogs();
     return res.json({ success: true, message: "تمت محاكاة إرسال الرسالة الفردية بنجاح" });
   }
+});
+
+// Comprehensive Reports Endpoint: Aggregates all campaign logs and individual logs
+app.get("/api/whatsapp/reports", (req, res) => {
+  const allLogs: any[] = [];
+  
+  // 1. Extract from all Campaigns
+  Object.values(campaigns).forEach(camp => {
+    (camp.logs || []).forEach(log => {
+      allLogs.push({
+        id: log.id,
+        studentName: log.studentName,
+        phone: log.phone,
+        grade: log.grade || "",
+        className: log.className || "",
+        message: log.message,
+        status: log.status,
+        timestamp: log.timestamp,
+        campaignId: camp.id,
+        campaignName: camp.name,
+        type: "campaign",
+        error: log.error || ""
+      });
+    });
+  });
+
+  // 2. Extract from Individual Logs
+  individualLogs.forEach(log => {
+    allLogs.push({
+      id: log.id,
+      studentName: log.studentName || "إرسال فردي مباشر",
+      phone: log.phone,
+      grade: log.grade || "",
+      className: log.className || "",
+      message: log.message,
+      status: log.status,
+      timestamp: log.timestamp,
+      campaignId: "",
+      campaignName: "إرسال فردي سريع",
+      type: "individual",
+      error: log.error || ""
+    });
+  });
+
+  // Sort descending by timestamp
+  allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  res.json({
+    logs: allLogs,
+    total: allLogs.length,
+    sent: allLogs.filter(l => l.status === "success").length,
+    failed: allLogs.filter(l => l.status === "failed").length
+  });
+});
+
+// Clear historical logs if needed
+app.delete("/api/whatsapp/reports/clear", (req, res) => {
+  individualLogs.length = 0;
+  saveIndividualLogs();
+  // Clear campaign logs
+  Object.keys(campaigns).forEach(key => {
+    if (campaigns[key].status !== "running") {
+      delete campaigns[key];
+    }
+  });
+  res.json({ success: true, message: "تم مسح سجلات التقارير بنجاح" });
 });
 
 // Setup Vite Dev Server / Serve static assets in production

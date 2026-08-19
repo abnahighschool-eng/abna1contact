@@ -38,3 +38,37 @@ export interface Campaign {
   endTime: string | null;
   logs?: CampaignLog[];
 }
+
+export interface ReportItem {
+  id: string;
+  studentName: string;
+  phone: string;
+  grade?: string;
+  className?: string;
+  message: string;
+  status: "pending" | "sending" | "success" | "failed";
+  timestamp: string;
+  campaignId?: string;
+  campaignName?: string;
+  type: "campaign" | "individual";
+  error?: string;
+}
+
+export interface ReportFilterState {
+  dateMode: "all" | "today" | "yesterday" | "last7days" | "last30days" | "specific_date" | "range";
+  specificDate: string;
+  startDate: string;
+  endDate: string;
+  grade: string;
+  className: string;
+  studentSearch: string;
+  status: "all" | "success" | "failed";
+  sourceType: "all" | "campaign" | "individual";
+}
+
+export interface SchoolSignatories {
+  principalName: string;
+  vicePrincipalName: string;
+  counselorName: string;
+}
+
