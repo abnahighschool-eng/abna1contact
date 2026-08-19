@@ -1,5 +1,23 @@
-import React, { useState, useRef } from "react";
-import { Upload, FileSpreadsheet, X, HelpCircle, Check, Play, Edit, Trash2, Plus, ArrowLeft } from "lucide-react";
+import React, { useState, useRef, useMemo } from "react";
+import { 
+  Upload, 
+  FileSpreadsheet, 
+  X, 
+  Check, 
+  Edit3, 
+  Trash2, 
+  Plus, 
+  CheckCircle2, 
+  AlertCircle, 
+  Sparkles, 
+  Search, 
+  Save, 
+  Smartphone, 
+  User, 
+  GraduationCap, 
+  School,
+  RefreshCw
+} from "lucide-react";
 import * as XLSX from "xlsx";
 import { Student } from "../types";
 
@@ -11,39 +29,55 @@ interface ExcelUploaderProps {
 export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploaderProps) {
   const [dragActive, setDragActive] = useState(false);
   const [columns, setColumns] = useState<string[]>([]);
-  const [selectedPhoneCol, setSelectedPhoneCol] = useState("");
+  const [rawRowsData, setRawRowsData] = useState<any[]>([]);
   const [selectedNameCol, setSelectedNameCol] = useState("");
+  const [selectedPhoneCol, setSelectedPhoneCol] = useState("");
   const [selectedGradeCol, setSelectedGradeCol] = useState("");
   const [selectedClassCol, setSelectedClassCol] = useState("");
   const [isParsing, setIsParsing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Manual student form state
+  // Manual student modal / form state
   const [showManualForm, setShowManualForm] = useState(false);
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentPhone, setNewStudentPhone] = useState("");
   const [newStudentGrade, setNewStudentGrade] = useState("");
   const [newStudentClass, setNewStudentClass] = useState("");
 
+  // Edit student modal state
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editGrade, setEditGrade] = useState("");
+  const [editClass, setEditClass] = useState("");
+
   // Generate high fidelity demo roster
   const generateDemoRoster = () => {
     const demoStudents: Student[] = [
-      { id: "1", "اسم الطالب": "أحمد بن عبد العزيز الشمري", "رقم الجوال": "+966501234567", "الصف": "أول ثانوي", "الفصل": "أ", "حالة الغياب": "حاضر", "الدرجة": "98%", "ملاحظات": "طالب متميز ومشارك", grade: "أول ثانوي", className: "أ" },
-      { id: "2", "اسم الطالب": "سعد بن محمد القحطاني", "رقم الجوال": "+966505551234", "الصف": "أول ثانوي", "الفصل": "أ", "حالة الغياب": "غائب", "الدرجة": "85%", "ملاحظات": "الرجاء مراجعة الإدارة", grade: "أول ثانوي", className: "أ" },
-      { id: "3", "اسم الطالب": "خالد بن الوليد المطيري", "رقم الجوال": "+966509876543", "الصف": "أول ثانوي", "الفصل": "ب", "حالة الغياب": "حاضر", "الدرجة": "92%", "ملاحظات": "نشيط في الإذاعة", grade: "أول ثانوي", className: "ب" },
-      { id: "4", "اسم الطالب": "فيصل بن خالد الدوسري", "رقم الجوال": "+966556677889", "الصف": "ثاني ثانوي", "الفصل": "أ", "حالة الغياب": "حاضر", "الدرجة": "76%", "ملاحظات": "يحتاج لمزيد من التركيز", grade: "ثاني ثانوي", className: "أ" },
-      { id: "5", "اسم الطالب": "عبد الرحمن بن سليمان الفهد", "رقم الجوال": "0539871234", "الصف": "ثاني ثانوي", "الفصل": "ج", "حالة الغياب": "متأخر", "الدرجة": "88%", "ملاحظات": "تأخر 15 دقيقة صباحاً", grade: "ثاني ثانوي", className: "ج" },
-      { id: "6", "اسم الطالب": "نوف بنت عبد الله السبيعي", "رقم الجوال": "0541122334", "الصف": "ثالث ثانوي", "الفصل": "علمي", "حالة الغياب": "حاضر", "الدرجة": "99%", "ملاحظات": "مرشحة للمسابقة", grade: "ثالث ثانوي", className: "علمي" },
-      { id: "7", "اسم الطالب": "سارة بنت فهد الحارثي", "رقم الجوال": "0564455667", "الصف": "ثالث ثانوي", "الفصل": "علمي", "حالة الغياب": "غائب بعذر", "الدرجة": "95%", "ملاحظات": "مريض ولديه تقرير طبي", grade: "ثالث ثانوي", className: "علمي" }
+      { id: "1", "اسم الطالب": "أحمد بن عبد العزيز الشمري", name: "أحمد بن عبد العزيز الشمري", "رقم الجوال": "+966501234567", phone: "+966501234567", "الصف": "أول ثانوي", grade: "أول ثانوي", "الفصل": "أ", className: "أ" },
+      { id: "2", "اسم الطالب": "سعد بن محمد القحطاني", name: "سعد بن محمد القحطاني", "رقم الجوال": "+966505551234", phone: "+966505551234", "الصف": "أول ثانوي", grade: "أول ثانوي", "الفصل": "أ", className: "أ" },
+      { id: "3", "اسم الطالب": "خالد بن الوليد المطيري", name: "خالد بن الوليد المطيري", "رقم الجوال": "+966509876543", phone: "+966509876543", "الصف": "أول ثانوي", grade: "أول ثانوي", "الفصل": "ب", className: "ب" },
+      { id: "4", "اسم الطالب": "فيصل بن خالد الدوسري", name: "فيصل بن خالد الدوسري", "رقم الجوال": "+966556677889", phone: "+966556677889", "الصف": "ثاني ثانوي", grade: "ثاني ثانوي", "الفصل": "أ", className: "أ" },
+      { id: "5", "اسم الطالب": "عبد الرحمن بن سليمان الفهد", name: "عبد الرحمن بن سليمان الفهد", "رقم الجوال": "0539871234", phone: "0539871234", "الصف": "ثاني ثانوي", grade: "ثاني ثانوي", "الفصل": "ج", className: "ج" },
+      { id: "6", "اسم الطالب": "نوف بنت عبد الله السبيعي", name: "نوف بنت عبد الله السبيعي", "رقم الجوال": "0541122334", phone: "0541122334", "الصف": "ثالث ثانوي", grade: "ثالث ثانوي", "الفصل": "علمي", className: "علمي" },
+      { id: "7", "اسم الطالب": "سارة بنت فهد الحارثي", name: "سارة بنت فهد الحارثي", "رقم الجوال": "0564455667", phone: "0564455667", "الصف": "ثالث ثانوي", grade: "ثالث ثانوي", "الفصل": "علمي", className: "علمي" }
     ];
-    setColumns(["اسم الطالب", "رقم الجوال", "الصف", "الفصل", "حالة الغياب", "الدرجة", "ملاحظات"]);
+    setColumns(["اسم الطالب", "رقم الجوال", "الصف", "الفصل"]);
     setSelectedNameCol("اسم الطالب");
     setSelectedPhoneCol("رقم الجوال");
     setSelectedGradeCol("الصف");
     setSelectedClassCol("الفصل");
     onStudentsLoaded(demoStudents);
     setErrorMsg("");
+  };
+
+  // Helper to validate phone number format
+  const isValidPhone = (phoneStr: string) => {
+    if (!phoneStr) return false;
+    const cleaned = phoneStr.replace(/[\s\-\+\(\)]/g, "");
+    return /^\d{9,14}$/.test(cleaned);
   };
 
   const parseFile = (file: File) => {
@@ -60,202 +94,194 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Parse rows as raw 2D array of arrays (header: 1)
-        const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+        // Read sheet as raw 2D matrix
+        const rawMatrix: any[][] = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: "" });
 
-        if (rawRows.length === 0) {
+        if (!rawMatrix || rawMatrix.length === 0) {
           throw new Error("الملف فارغ أو لا يحتوي على صفوف بيانات صالحة");
         }
 
-        // Find the maximum number of columns across all rows to define our A, B, C... labels
-        let maxCols = 0;
-        rawRows.forEach(row => {
-          if (row && row.length > maxCols) {
-            maxCols = row.length;
+        // 1. Detect Header Row: Look at the first 5 rows to see which one looks like column headers
+        let headerRowIdx = -1;
+        const headerKeywords = ["اسم", "طالب", "هاتف", "جوال", "موبايل", "صف", "فصل", "شعبة", "رقم", "name", "phone", "mobile", "grade", "class", "section"];
+        
+        for (let r = 0; r < Math.min(rawMatrix.length, 5); r++) {
+          const row = rawMatrix[r];
+          if (!row || !Array.isArray(row)) continue;
+          const matchCount = row.filter(cell => {
+            const str = String(cell || "").toLowerCase().trim();
+            return headerKeywords.some(kw => str.includes(kw));
+          }).length;
+
+          if (matchCount >= 2) {
+            headerRowIdx = r;
+            break;
           }
-        });
-
-        // Ensure we support at least up to column H (8 columns) even if some rows are shorter
-        maxCols = Math.max(maxCols, 8);
-
-        // Helper to get Excel column letter (0 -> A, 1 -> B, etc.)
-        const getColumnLetter = (colIndex: number): string => {
-          let letter = "";
-          let temp = colIndex;
-          while (temp >= 0) {
-            letter = String.fromCharCode((temp % 26) + 65) + letter;
-            temp = Math.floor(temp / 26) - 1;
-          }
-          return letter;
-        };
-
-        const sortedKeys: string[] = [];
-        for (let i = 0; i < maxCols; i++) {
-          sortedKeys.push(getColumnLetter(i));
         }
 
-        // Map the 2D array rows to objects where keys are the column letters (A, B, C...)
-        const rawJsonData = rawRows.map(row => {
-          const obj: any = {};
-          sortedKeys.forEach((key, colIdx) => {
-            const val = row[colIdx];
-            obj[key] = val !== undefined && val !== null ? String(val).trim() : "";
+        // Determine columns
+        let detectedHeaders: string[] = [];
+        let dataStartIdx = 0;
+
+        if (headerRowIdx !== -1) {
+          detectedHeaders = rawMatrix[headerRowIdx].map((h, i) => {
+            const title = String(h || "").trim();
+            return title || `العمود ${String.fromCharCode(65 + i)}`;
           });
-          return obj;
-        });
-
-        // Filter out empty rows or rows that don't look like data (e.g. fewer than 2 columns filled)
-        const jsonData = rawJsonData.filter(row => {
-          const nonSec = Object.keys(row).filter(k => row[k] !== "");
-          return nonSec.length >= 2;
-        });
-
-        if (jsonData.length === 0) {
-          throw new Error("الملف فارغ أو لا يحتوي على صفوف بيانات صالحة");
+          dataStartIdx = headerRowIdx + 1;
+        } else {
+          // No text header row found, generate letters A, B, C...
+          const maxCols = Math.max(...rawMatrix.map(r => (r ? r.length : 0)), 4);
+          for (let i = 0; i < maxCols; i++) {
+            detectedHeaders.push(`العمود ${String.fromCharCode(65 + i)}`);
+          }
+          dataStartIdx = 0;
         }
 
-        // Map sorted keys to user-friendly column names
-        const keyToHeaderMap: { [key: string]: string } = {};
-        const headerToKeyMap: { [header: string]: string } = {};
-        const headers: string[] = [];
+        // Clean data rows
+        const parsedRows: any[] = [];
+        for (let r = dataStartIdx; r < rawMatrix.length; r++) {
+          const row = rawMatrix[r];
+          if (!row || !Array.isArray(row)) continue;
+          
+          const rowObj: any = {};
+          let hasContent = false;
+          
+          detectedHeaders.forEach((header, colIdx) => {
+            const cellVal = row[colIdx];
+            const cleanVal = cellVal !== undefined && cellVal !== null ? String(cellVal).trim() : "";
+            rowObj[header] = cleanVal;
+            if (cleanVal !== "") hasContent = true;
+          });
 
-        sortedKeys.forEach(k => {
-          const header = `العمود ${k}`;
-          keyToHeaderMap[k] = header;
-          headerToKeyMap[header] = k;
-          headers.push(header);
+          if (hasContent) {
+            parsedRows.push(rowObj);
+          }
+        }
+
+        if (parsedRows.length === 0) {
+          throw new Error("لم يتم العثور على سجلات طلاب صالحة داخل الملف.");
+        }
+
+        setColumns(detectedHeaders);
+        setRawRowsData(parsedRows);
+
+        // 2. Intelligent Scoring & Matching for the 4 core columns: Name, Phone, Grade, Class
+        const colScores: Record<string, { name: number; phone: number; grade: number; class: number }> = {};
+        detectedHeaders.forEach(h => {
+          colScores[h] = { name: 0, phone: 0, grade: 0, class: 0 };
         });
 
-        setColumns(headers);
-
-        // Auto-detect which column represents names and which represents phones
-        const colScores: { [key: string]: { phoneScore: number, nameScore: number } } = {};
-        sortedKeys.forEach(k => {
-          colScores[k] = { phoneScore: 0, nameScore: 0 };
+        // Header keyword bonuses
+        detectedHeaders.forEach(h => {
+          const lh = h.toLowerCase();
+          if (lh.includes("اسم") || lh.includes("طالب") || lh.includes("name") || lh.includes("student")) {
+            colScores[h].name += 15;
+          }
+          if (lh.includes("جوال") || lh.includes("هاتف") || lh.includes("موبايل") || lh.includes("phone") || lh.includes("mobile") || lh.includes("رقم")) {
+            colScores[h].phone += 15;
+          }
+          if (lh.includes("صف") || lh.includes("المستوى") || lh.includes("مستوى") || lh.includes("grade") || lh.includes("stage")) {
+            colScores[h].grade += 15;
+          }
+          if (lh.includes("فصل") || lh.includes("شعبة") || lh.includes("class") || lh.includes("section") || lh.includes("مجموعة")) {
+            colScores[h].class += 15;
+          }
         });
 
-        jsonData.slice(0, 15).forEach(row => {
-          sortedKeys.forEach(k => {
-            const val = row[k];
-            if (val === null || val === undefined) return;
-            const valStr = String(val).trim();
-            if (!valStr) return;
+        // Value analysis on sample rows
+        const sampleSlice = parsedRows.slice(0, 20);
+        sampleSlice.forEach(row => {
+          detectedHeaders.forEach(h => {
+            const val = String(row[h] || "").trim();
+            if (!val) return;
 
-            // Check if it's a phone number (e.g., 9665..., 05..., contains numbers)
-            const cleanedNum = valStr.replace(/[\s\-\+\(\)]/g, "");
+            // Phone check
+            const cleanedNum = val.replace(/[\s\-\+\(\)]/g, "");
             if (/^\d{9,14}$/.test(cleanedNum)) {
               if (cleanedNum.startsWith("9665") || cleanedNum.startsWith("05") || cleanedNum.startsWith("5")) {
-                colScores[k].phoneScore += 5;
+                colScores[h].phone += 8;
               } else {
-                colScores[k].phoneScore += 2;
+                colScores[h].phone += 4;
               }
-            } else if (/^\+?\d+$/.test(cleanedNum)) {
-              colScores[k].phoneScore += 1;
             }
 
-            // Check if it's an Arabic student name (Arabic characters, has spaces, multiple words, no digits)
-            const hasArabic = /[\u0600-\u06FF]/.test(valStr);
-            const words = valStr.split(/\s+/).filter(w => w.length > 1);
-            const hasDigits = /\d/.test(valStr);
-            if (hasArabic && words.length >= 3 && !hasDigits) {
-              colScores[k].nameScore += 5;
-            } else if (hasArabic && words.length >= 2 && !hasDigits) {
-              colScores[k].nameScore += 3;
-            } else if (hasArabic && !hasDigits) {
-              colScores[k].nameScore += 1;
+            // Arabic Name check (Multiple words, Arabic letters, no numbers)
+            const hasArabic = /[\u0600-\u06FF]/.test(val);
+            const words = val.split(/\s+/).filter(w => w.length > 1);
+            const hasDigits = /\d/.test(val);
+            if (hasArabic && words.length >= 2 && !hasDigits) {
+              colScores[h].name += 6;
+            }
+
+            // Grade check
+            const lVal = val.toLowerCase();
+            if (lVal.includes("ثانوي") || lVal.includes("متوسط") || lVal.includes("ابتدائي") || lVal.includes("أول") || lVal.includes("ثاني") || lVal.includes("ثالث") || lVal.includes("رابع") || lVal.includes("خامس") || lVal.includes("سادس")) {
+              colScores[h].grade += 6;
+            }
+
+            // Class check (short character like أ, ب, ج, 1, 2, 1/1, 2/3)
+            if ((val.length <= 4 && !val.includes("ثانوي")) || /^[أ-يA-Za-z0-9\/\-]+$/.test(val)) {
+              colScores[h].class += 3;
             }
           });
         });
 
-        // Determine best keys (with high-priority defaults: Column A for phone and Column D for name)
-        let bestPhoneKey = sortedKeys.includes("A") ? "A" : sortedKeys[0];
-        let maxPhoneScore = -1;
-        let bestNameKey = sortedKeys.includes("D") ? "D" : (sortedKeys[Math.min(1, sortedKeys.length - 1)]);
-        let maxNameScore = -1;
+        // Pick best distinct columns
+        let bestName = "";
+        let bestPhone = "";
+        let bestGrade = "";
+        let bestClass = "";
 
-        // If A and D are not both found, use our smart scoring as a fallback
-        if (!sortedKeys.includes("A") || !sortedKeys.includes("D")) {
-          sortedKeys.forEach(k => {
-            if (!sortedKeys.includes("A") && colScores[k].phoneScore > maxPhoneScore) {
-              maxPhoneScore = colScores[k].phoneScore;
-              bestPhoneKey = k;
-            }
-            if (!sortedKeys.includes("D") && colScores[k].nameScore > maxNameScore) {
-              maxNameScore = colScores[k].nameScore;
-              bestNameKey = k;
-            }
-          });
-        }
+        let maxName = -1;
+        let maxPhone = -1;
+        let maxGrade = -1;
+        let maxClass = -1;
 
-        // Ensure we don't map same column to both unless we only have one column
-        if (bestNameKey === bestPhoneKey && sortedKeys.length > 1) {
-          let secondBestNameKey = sortedKeys.find(k => k !== bestPhoneKey) || sortedKeys[0];
-          let secondMaxNameScore = -1;
-          sortedKeys.forEach(k => {
-            if (k !== bestPhoneKey && colScores[k].nameScore > secondMaxNameScore) {
-              secondMaxNameScore = colScores[k].nameScore;
-              secondBestNameKey = k;
-            }
-          });
-          bestNameKey = secondBestNameKey;
-        }
-
-        // Smart detect optional Grade & Class/Section keys
-        let bestGradeKey = "";
-        let bestClassKey = "";
-
-        sortedKeys.forEach(k => {
-          if (k !== bestNameKey && k !== bestPhoneKey) {
-            const sampleVals = jsonData.slice(0, 15).map(r => String(r[k] || "").toLowerCase());
-            const hasGradeKeyword = sampleVals.some(v => v.includes("صف") || v.includes("grade") || v.includes("سنة") || v.includes("مستوى"));
-            const hasClassKeyword = sampleVals.some(v => v.includes("فصل") || v.includes("شعبة") || v.includes("class") || v.includes("section") || v.includes("مجموعة"));
-            
-            if (hasGradeKeyword && !bestGradeKey) {
-              bestGradeKey = k;
-            } else if (hasClassKeyword && !bestClassKey) {
-              bestClassKey = k;
-            }
+        // 1. Pick best Phone
+        detectedHeaders.forEach(h => {
+          if (colScores[h].phone > maxPhone) {
+            maxPhone = colScores[h].phone;
+            bestPhone = h;
           }
         });
 
-        // Fallbacks for Grade/Class if columns C or D exist and aren't used
-        if (!bestGradeKey && sortedKeys.includes("C") && "C" !== bestPhoneKey && "C" !== bestNameKey) {
-          bestGradeKey = "C";
-        }
-        if (!bestClassKey && sortedKeys.includes("D") && "D" !== bestPhoneKey && "D" !== bestNameKey) {
-          bestClassKey = "D";
-        }
-
-        const autoPhoneHeader = keyToHeaderMap[bestPhoneKey];
-        const autoNameHeader = keyToHeaderMap[bestNameKey];
-        const autoGradeHeader = bestGradeKey ? keyToHeaderMap[bestGradeKey] : "";
-        const autoClassHeader = bestClassKey ? keyToHeaderMap[bestClassKey] : "";
-
-        setSelectedPhoneCol(autoPhoneHeader);
-        setSelectedNameCol(autoNameHeader);
-        setSelectedGradeCol(autoGradeHeader);
-        setSelectedClassCol(autoClassHeader);
-
-        // Map rows to structured Student objects
-        const formattedStudents: Student[] = jsonData.map((row: any, idx: number) => {
-          const studentObj: any = {
-            id: String(idx + 1),
-            name: row[bestNameKey] ? String(row[bestNameKey]).trim() : `طالب ${idx + 1}`,
-            phone: row[bestPhoneKey] ? String(row[bestPhoneKey]).trim() : "",
-            grade: bestGradeKey && row[bestGradeKey] ? String(row[bestGradeKey]).trim() : "",
-            className: bestClassKey && row[bestClassKey] ? String(row[bestClassKey]).trim() : "",
-          };
-
-          // Store other values under friendly header names so they show in the preview table
-          sortedKeys.forEach(k => {
-            const headerName = keyToHeaderMap[k];
-            studentObj[headerName] = row[k] !== undefined && row[k] !== null ? String(row[k]).trim() : "";
-          });
-
-          return studentObj;
+        // 2. Pick best Name (excluding Phone)
+        detectedHeaders.forEach(h => {
+          if (h !== bestPhone && colScores[h].name > maxName) {
+            maxName = colScores[h].name;
+            bestName = h;
+          }
         });
 
-        onStudentsLoaded(formattedStudents);
+        // 3. Pick best Grade (excluding Name and Phone)
+        detectedHeaders.forEach(h => {
+          if (h !== bestPhone && h !== bestName && colScores[h].grade > maxGrade) {
+            maxGrade = colScores[h].grade;
+            bestGrade = h;
+          }
+        });
+
+        // 4. Pick best Class (excluding others)
+        detectedHeaders.forEach(h => {
+          if (h !== bestPhone && h !== bestName && h !== bestGrade && colScores[h].class > maxClass) {
+            maxClass = colScores[h].class;
+            bestClass = h;
+          }
+        });
+
+        // Fallbacks if not detected
+        if (!bestName && detectedHeaders.length > 0) bestName = detectedHeaders[0];
+        if (!bestPhone && detectedHeaders.length > 1) bestPhone = detectedHeaders.find(h => h !== bestName) || detectedHeaders[1];
+
+        setSelectedNameCol(bestName);
+        setSelectedPhoneCol(bestPhone);
+        setSelectedGradeCol(bestGrade);
+        setSelectedClassCol(bestClass);
+
+        // Build formatted students list
+        buildAndLoadStudents(parsedRows, bestName, bestPhone, bestGrade, bestClass);
+
       } catch (err: any) {
         setErrorMsg(err.message || "حدث خطأ أثناء معالجة ملف Excel. يرجى التأكد من صياغة الملف بشكل صحيح.");
       } finally {
@@ -269,6 +295,75 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     };
 
     reader.readAsBinaryString(file);
+  };
+
+  const buildAndLoadStudents = (
+    rows: any[], 
+    nameCol: string, 
+    phoneCol: string, 
+    gradeCol: string, 
+    classCol: string
+  ) => {
+    const formatted: Student[] = rows.map((row, idx) => {
+      const nameVal = nameCol && row[nameCol] ? String(row[nameCol]).trim() : `طالب ${idx + 1}`;
+      const phoneVal = phoneCol && row[phoneCol] ? String(row[phoneCol]).trim() : "";
+      const gradeVal = gradeCol && row[gradeCol] ? String(row[gradeCol]).trim() : "";
+      const classVal = classCol && row[classCol] ? String(row[classCol]).trim() : "";
+
+      const studentObj: Student = {
+        id: String(idx + 1),
+        name: nameVal,
+        phone: phoneVal,
+        grade: gradeVal,
+        className: classVal,
+        // Standard Arabic aliases for message templates
+        "اسم الطالب": nameVal,
+        "الاسم": nameVal,
+        "رقم الجوال": phoneVal,
+        "الجوال": phoneVal,
+        "الصف": gradeVal,
+        "الفصل": classVal,
+        ...row // keep all other original row fields for custom tags
+      };
+
+      return studentObj;
+    });
+
+    onStudentsLoaded(formatted);
+  };
+
+  const handleRemapColumns = (nameCol: string, phoneCol: string, gradeCol: string, classCol: string) => {
+    setSelectedNameCol(nameCol);
+    setSelectedPhoneCol(phoneCol);
+    setSelectedGradeCol(gradeCol);
+    setSelectedClassCol(classCol);
+
+    if (rawRowsData.length > 0) {
+      buildAndLoadStudents(rawRowsData, nameCol, phoneCol, gradeCol, classCol);
+    } else {
+      // Remap existing students
+      const remapped = students.map(std => {
+        const nameVal = nameCol && std[nameCol] !== undefined ? String(std[nameCol]).trim() : (std.name || "");
+        const phoneVal = phoneCol && std[phoneCol] !== undefined ? String(std[phoneCol]).trim() : (std.phone || "");
+        const gradeVal = gradeCol && std[gradeCol] !== undefined ? String(std[gradeCol]).trim() : (std.grade || "");
+        const classVal = classCol && std[classCol] !== undefined ? String(std[classCol]).trim() : (std.className || "");
+
+        return {
+          ...std,
+          name: nameVal,
+          phone: phoneVal,
+          grade: gradeVal,
+          className: classVal,
+          "اسم الطالب": nameVal,
+          "الاسم": nameVal,
+          "رقم الجوال": phoneVal,
+          "الجوال": phoneVal,
+          "الصف": gradeVal,
+          "الفصل": classVal,
+        };
+      });
+      onStudentsLoaded(remapped);
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -304,20 +399,45 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     }
   };
 
-  const handleManualMapping = (phoneCol: string, nameCol: string, gradeCol: string = "", classCol: string = "") => {
-    setSelectedPhoneCol(phoneCol);
-    setSelectedNameCol(nameCol);
-    setSelectedGradeCol(gradeCol);
-    setSelectedClassCol(classCol);
+  // Student Actions: Delete & Edit
+  const deleteStudent = (id: string) => {
+    const updated = students.filter(s => s.id !== id);
+    onStudentsLoaded(updated);
+  };
 
-    const remapped = students.map((std) => ({
-      ...std,
-      name: String(std[nameCol] || ""),
-      phone: String(std[phoneCol] || ""),
-      grade: gradeCol ? String(std[gradeCol] || "") : (std.grade || ""),
-      className: classCol ? String(std[classCol] || "") : (std.className || ""),
-    }));
-    onStudentsLoaded(remapped);
+  const openEditStudent = (student: Student) => {
+    setEditingStudent(student);
+    setEditName(student.name || student["اسم الطالب"] || "");
+    setEditPhone(student.phone || student["رقم الجوال"] || "");
+    setEditGrade(student.grade || student["الصف"] || "");
+    setEditClass(student.className || student["الفصل"] || "");
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+
+    const updated = students.map(s => {
+      if (s.id === editingStudent.id) {
+        return {
+          ...s,
+          name: editName.trim(),
+          phone: editPhone.trim(),
+          grade: editGrade.trim(),
+          className: editClass.trim(),
+          "اسم الطالب": editName.trim(),
+          "الاسم": editName.trim(),
+          "رقم الجوال": editPhone.trim(),
+          "الجوال": editPhone.trim(),
+          "الصف": editGrade.trim(),
+          "الفصل": editClass.trim(),
+        };
+      }
+      return s;
+    });
+
+    onStudentsLoaded(updated);
+    setEditingStudent(null);
   };
 
   const handleAddManualStudent = (e: React.FormEvent) => {
@@ -334,22 +454,13 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
       phone: cleanPhone,
       grade: newStudentGrade.trim(),
       className: newStudentClass.trim(),
+      "اسم الطالب": newStudentName.trim(),
+      "الاسم": newStudentName.trim(),
+      "رقم الجوال": cleanPhone,
+      "الجوال": cleanPhone,
+      "الصف": newStudentGrade.trim(),
+      "الفصل": newStudentClass.trim(),
     };
-
-    // If there were no columns yet, initialize columns
-    if (columns.length === 0) {
-      setColumns(["الاسم", "رقم الجوال", "الصف", "الفصل"]);
-      setSelectedNameCol("الاسم");
-      setSelectedPhoneCol("رقم الجوال");
-      setSelectedGradeCol("الصف");
-      setSelectedClassCol("الفصل");
-    }
-
-    // Set custom keys on the student object for the table columns
-    newStudent[selectedNameCol || "الاسم"] = newStudentName.trim();
-    newStudent[selectedPhoneCol || "رقم الجوال"] = cleanPhone;
-    if (selectedGradeCol) newStudent[selectedGradeCol] = newStudentGrade.trim();
-    if (selectedClassCol) newStudent[selectedClassCol] = newStudentClass.trim();
 
     onStudentsLoaded([...students, newStudent]);
     setNewStudentName("");
@@ -360,41 +471,69 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     setErrorMsg("");
   };
 
-  const deleteStudent = (id: string) => {
-    const filtered = students.filter(s => s.id !== id);
-    onStudentsLoaded(filtered);
-  };
-
   const clearRoster = () => {
     onStudentsLoaded([]);
     setColumns([]);
+    setRawRowsData([]);
     setSelectedNameCol("");
     setSelectedPhoneCol("");
     setSelectedGradeCol("");
     setSelectedClassCol("");
+    setSearchQuery("");
   };
+
+  // Filter students by search
+  const filteredStudents = useMemo(() => {
+    if (!searchQuery.trim()) return students;
+    const q = searchQuery.toLowerCase().trim();
+    return students.filter(s => {
+      const name = (s.name || s["اسم الطالب"] || "").toLowerCase();
+      const phone = (s.phone || s["رقم الجوال"] || "").toLowerCase();
+      const grade = (s.grade || s["الصف"] || "").toLowerCase();
+      const cls = (s.className || s["الفصل"] || "").toLowerCase();
+      return name.includes(q) || phone.includes(q) || grade.includes(q) || cls.includes(q);
+    });
+  }, [students, searchQuery]);
+
+  // Phone stats
+  const validPhonesCount = useMemo(() => {
+    return students.filter(s => isValidPhone(s.phone || s["رقم الجوال"] || "")).length;
+  }, [students]);
 
   return (
     <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col gap-6" id="excel-uploader">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5 text-right">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-            رفع كشوف وأرقام الطلاب
+            رفع كشوف الطلاب والتعرف الذكي على الأعمدة
           </h2>
           <p className="text-slate-500 text-sm mt-1">
-            ارفع كشف الطلاب بصيغة Excel أو CSV لتوليد الرسائل بلمح البصر
+            يقوم النظام الذكي بالتعرف تلقائياً على أعمدة (الاسم، رقم الجوال، الصف، الفصل) مع إمكانية التعديل والحذف المباشر
           </p>
         </div>
 
         {students.length > 0 && (
-          <button
-            onClick={clearRoster}
-            className="text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition-all"
-            id="btn-clear-roster"
-          >
-            مسح الكشف الحالي
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+              title="رفع ملف إكسل آخر"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
+              <span>استبدال الملف</span>
+            </button>
+            <button
+              onClick={clearRoster}
+              className="text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-rose-200/60"
+              id="btn-clear-roster"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>مسح الكشف</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -409,7 +548,7 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-300 ${
               dragActive
-                ? "border-emerald-500 bg-emerald-50/40"
+                ? "border-emerald-500 bg-emerald-50/40 shadow-inner"
                 : "border-slate-200 hover:border-emerald-400 hover:bg-slate-50/50"
             }`}
             id="excel-dropzone"
@@ -422,63 +561,82 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
               onChange={handleChange}
             />
 
-            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 shadow-sm border border-emerald-100/30">
-              <Upload className="w-6 h-6" />
+            <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 shadow-sm border border-emerald-100/50">
+              <Upload className="w-7 h-7" />
             </div>
 
-            <h3 className="font-bold text-slate-800 text-base">اسحب وأفلت ملف Excel هنا</h3>
-            <p className="text-slate-500 text-xs mt-1.5 max-w-sm leading-relaxed">
-              يدعم الامتدادات <span className="font-semibold text-slate-600 font-mono">.xlsx</span>, <span className="font-semibold text-slate-600 font-mono">.xls</span>, <span className="font-semibold text-slate-600 font-mono">.csv</span>. تأكد من احتواء الملف على عمود للأسماء وعمود للأرقام.
+            <h3 className="font-bold text-slate-800 text-base">اسحب وأفلت ملف كشف الطلاب (Excel) هنا</h3>
+            <p className="text-slate-500 text-xs mt-1.5 max-w-md leading-relaxed">
+              يدعم ملفات <span className="font-bold text-slate-700 font-mono">.xlsx</span> و <span className="font-bold text-slate-700 font-mono">.xls</span> و <span className="font-bold text-slate-700 font-mono">.csv</span>.
+              <br />
+              <strong className="text-emerald-700">النظام الذكي يتعرف تلقائياً على:</strong> عمود الاسم، عمود رقم الجوال، عمود الصف، وعمود الفصل.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 border border-slate-100 p-4 rounded-xl">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 border border-slate-200/80 p-4 rounded-xl">
             <div className="flex items-center gap-2 text-right">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full shrink-0" />
-              <p className="text-xs text-slate-600 leading-relaxed">
-                ليس لديك كشف جاهز؟ جرب كشف الطلاب الافتراضي لاختبار النظام بضغطة زر.
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                هل ترغب في تجربة النظام مباشرة بدون ملف؟ يمكنك توليد كشف طلاب تجريبي فوري.
               </p>
             </div>
             <button
               onClick={generateDemoRoster}
-              className="px-4 py-2 text-xs font-semibold text-emerald-700 bg-emerald-100/80 hover:bg-emerald-100 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
               id="btn-demo-roster"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4" />
               توليد كشف تجريبي فوري
             </button>
           </div>
 
           {errorMsg && (
-            <div className="bg-rose-50 text-rose-800 text-xs p-3.5 rounded-xl border border-rose-100 leading-relaxed text-right">
-              {errorMsg}
+            <div className="bg-rose-50 text-rose-800 text-xs p-3.5 rounded-xl border border-rose-200 leading-relaxed text-right flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{errorMsg}</span>
             </div>
           )}
         </div>
       ) : (
-        // TABLE & MAPPING INTERFACE
-        <div className="flex flex-col gap-6" id="excel-mapping-interface">
-          {/* Mapping settings card */}
-          <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl flex flex-col gap-5 text-right">
-            <div className="flex items-center justify-between border-b border-slate-200/50 pb-3">
-              <h3 className="text-sm font-bold text-slate-800">إعدادات مطابقة أعمدة الكشف:</h3>
-              <button
-                onClick={() => setShowManualForm(!showManualForm)}
-                className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
-                id="btn-toggle-manual-form"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                إضافة طالب يدوياً
-              </button>
+        // TABLE & SMART MAPPING VERIFICATION INTERFACE
+        <div className="flex flex-col gap-5 text-right" id="excel-mapping-interface">
+          
+          {/* Smart Column Recognition & Verification Card */}
+          <div className="bg-slate-50 border border-slate-200/80 p-5 rounded-2xl flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-bold text-slate-800">مطابقة وتأكيد أعمدة ملف الإكسل الذكية:</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200/60 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  {students.length} طالب (منهم {validPhonesCount} رقم جوال صالح)
+                </span>
+                <button
+                  onClick={() => setShowManualForm(!showManualForm)}
+                  className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  id="btn-toggle-manual-form"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  إضافة طالب يدوياً
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-700">عمود اسم الطالب:</label>
+            {/* 4 Essential Column Mapping Selectors */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              
+              {/* Name Column */}
+              <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>1. عمود الاسم:</span>
+                </label>
                 <select
                   value={selectedNameCol}
-                  onChange={(e) => handleManualMapping(selectedPhoneCol, e.target.value, selectedGradeCol, selectedClassCol)}
-                  className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
+                  onChange={(e) => handleRemapColumns(e.target.value, selectedPhoneCol, selectedGradeCol, selectedClassCol)}
+                  className="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
                   id="select-name-col"
                 >
                   {columns.map((col) => (
@@ -487,12 +645,16 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                 </select>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-700">عمود رقم الجوال / الهاتف:</label>
+              {/* Phone Column */}
+              <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>2. عمود رقم الجوال:</span>
+                </label>
                 <select
                   value={selectedPhoneCol}
-                  onChange={(e) => handleManualMapping(e.target.value, selectedNameCol, selectedGradeCol, selectedClassCol)}
-                  className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
+                  onChange={(e) => handleRemapColumns(selectedNameCol, e.target.value, selectedGradeCol, selectedClassCol)}
+                  className="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
                   id="select-phone-col"
                 >
                   {columns.map((col) => (
@@ -501,82 +663,101 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                 </select>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-700">عمود الصف الدراسي (اختياري):</label>
+              {/* Grade Column */}
+              <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5 text-sky-600" />
+                  <span>3. عمود الصف الدراسي:</span>
+                </label>
                 <select
                   value={selectedGradeCol}
-                  onChange={(e) => handleManualMapping(selectedPhoneCol, selectedNameCol, e.target.value, selectedClassCol)}
-                  className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
+                  onChange={(e) => handleRemapColumns(selectedNameCol, selectedPhoneCol, e.target.value, selectedClassCol)}
+                  className="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
                   id="select-grade-col"
                 >
-                  <option value="">-- تخطي أو غير محدد --</option>
+                  <option value="">-- غير محدد أو اختياري --</option>
                   {columns.map((col) => (
                     <option key={col} value={col}>{col}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-700">عمود الفصل / الشعبة (اختياري):</label>
+              {/* Class Column */}
+              <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <School className="w-3.5 h-3.5 text-purple-600" />
+                  <span>4. عمود الفصل / الشعبة:</span>
+                </label>
                 <select
                   value={selectedClassCol}
-                  onChange={(e) => handleManualMapping(selectedPhoneCol, selectedNameCol, selectedGradeCol, e.target.value)}
-                  className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
+                  onChange={(e) => handleRemapColumns(selectedNameCol, selectedPhoneCol, selectedGradeCol, e.target.value)}
+                  className="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-full"
                   id="select-class-col"
                 >
-                  <option value="">-- تخطي أو غير محدد --</option>
+                  <option value="">-- غير محدد أو اختياري --</option>
                   {columns.map((col) => (
                     <option key={col} value={col}>{col}</option>
                   ))}
                 </select>
               </div>
+
             </div>
 
-            <div className="flex items-center gap-2 bg-emerald-50/60 border border-emerald-100/50 p-3 rounded-xl justify-center">
-              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="text-[11px] text-emerald-800 font-medium">
-                تم استيراد وتحليل وتصنيف كشوف <strong className="font-bold">{students.length}</strong> طالب بنجاح.
+            {/* Smart Confirmation Info Box */}
+            <div className="bg-emerald-50/80 border border-emerald-200 text-emerald-950 px-3.5 py-2.5 rounded-xl text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  تم التحقق من ملف الإكسل: <strong>الاسم:</strong> {selectedNameCol || "-"} | <strong>الجوال:</strong> {selectedPhoneCol || "-"} | <strong>الصف:</strong> {selectedGradeCol || "تلقائي"} | <strong>الفصل:</strong> {selectedClassCol || "تلقائي"}
+                </span>
+              </div>
+              <span className="text-[11px] text-emerald-700 font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">
+                جاهز للإرسال الفوري
               </span>
             </div>
+
           </div>
 
           {/* Manual Entry Form */}
           {showManualForm && (
-            <form onSubmit={handleAddManualStudent} className="bg-slate-50 border border-emerald-100 rounded-2xl p-5 flex flex-col gap-4 text-right animate-fadeIn">
-              <div className="flex items-center justify-between border-b border-slate-200/50 pb-2">
-                <h4 className="text-xs font-bold text-emerald-800">إضافة طالب جديد يدوياً إلى الكشف الحالي</h4>
-                <button type="button" onClick={() => setShowManualForm(false)} className="text-slate-400 hover:text-slate-600">
+            <form onSubmit={handleAddManualStudent} className="bg-slate-50 border border-emerald-200 rounded-2xl p-5 flex flex-col gap-4 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <h4 className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-emerald-600" />
+                  إضافة طالب جديد يدوياً إلى الكشف الحالي
+                </h4>
+                <button type="button" onClick={() => setShowManualForm(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-slate-700">الاسم الكامل للطالب *</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700">اسم الطالب *</label>
                   <input
                     type="text"
                     required
                     value={newStudentName}
                     onChange={(e) => setNewStudentName(e.target.value)}
                     placeholder="مثل: فيصل بن سعد القحطاني"
-                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                   />
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-slate-700">رقم جوال ولي الأمر *</label>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700">رقم الجوال *</label>
                   <input
                     type="text"
                     required
                     value={newStudentPhone}
                     onChange={(e) => setNewStudentPhone(e.target.value)}
-                    placeholder="مثل: 966500000000"
-                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                    placeholder="مثل: 0501234567"
+                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-left"
                   />
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-slate-700">الصف الدراسي (اختياري)</label>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700">الصف الدراسي</label>
                   <input
                     type="text"
                     value={newStudentGrade}
@@ -586,8 +767,8 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                   />
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-slate-700">الفصل / الشعبة (اختياري)</label>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700">الفصل / الشعبة</label>
                   <input
                     type="text"
                     value={newStudentClass}
@@ -598,17 +779,17 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2.5 mt-2">
+              <div className="flex justify-end gap-2 mt-1">
                 <button
                   type="button"
                   onClick={() => setShowManualForm(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-all cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all"
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-xs cursor-pointer"
                 >
                   حفظ وإضافة الطالب
                 </button>
@@ -616,68 +797,207 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
             </form>
           )}
 
-          {errorMsg && (
-            <div className="bg-rose-50 text-rose-800 text-xs p-3.5 rounded-xl border border-rose-100 leading-relaxed text-right">
-              {errorMsg}
+          {/* Quick Search & Table Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative w-full sm:w-72">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="بحث بالاسم، الجوال، الصف، الفصل..."
+                className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery("")}
+                  className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
             </div>
-          )}
 
-          {/* Student Grid Table */}
-          <div className="border border-slate-200/60 rounded-xl overflow-hidden shadow-sm" id="students-grid-container">
-            <div className="overflow-x-auto max-h-80">
+            <span className="text-xs text-slate-500 font-medium">
+              عرض <strong>{filteredStudents.length}</strong> من إجمالي <strong>{students.length}</strong> طالب
+            </span>
+          </div>
+
+          {/* Clean 4-Column + Actions Student Table */}
+          <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white" id="students-grid-container">
+            <div className="overflow-x-auto max-h-96">
               <table className="w-full text-right border-collapse text-xs">
                 <thead>
-                  <tr className="bg-slate-100/85 text-slate-700 border-b border-slate-200/80 font-semibold sticky top-0 backdrop-blur-sm z-10">
-                    <th className="px-4 py-3 w-16">#</th>
-                    <th className="px-4 py-3">الاسم (المطابق)</th>
-                    <th className="px-4 py-3">رقم الجوال (المطابق)</th>
-                    <th className="px-4 py-3">الصف</th>
-                    <th className="px-4 py-3">الفصل</th>
-                    {columns.filter(c => c !== selectedPhoneCol && c !== selectedNameCol && c !== selectedGradeCol && c !== selectedClassCol).slice(0, 2).map((col) => (
-                      <th key={col} className="px-4 py-3">{col}</th>
-                    ))}
-                    <th className="px-4 py-3 w-16 text-center">إجراء</th>
+                  <tr className="bg-slate-100/90 text-slate-800 border-b border-slate-200 font-bold sticky top-0 backdrop-blur-sm z-10">
+                    <th className="px-4 py-3 w-12 text-center">#</th>
+                    <th className="px-4 py-3">اسم الطالب</th>
+                    <th className="px-4 py-3">رقم الجوال</th>
+                    <th className="px-4 py-3">الصف الدراسي</th>
+                    <th className="px-4 py-3">الفصل / الشعبة</th>
+                    <th className="px-4 py-3 w-28 text-center">الإجراءات</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-600">
-                  {students.map((student, idx) => (
-                    <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-4 py-2.5 font-mono text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-2.5 font-medium text-slate-800">{student.name}</td>
-                      <td className="px-4 py-2.5 font-mono text-slate-500">{student.phone}</td>
-                      <td className="px-4 py-2.5">
-                        <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-semibold">
-                          {student.grade || student[selectedGradeCol] || "-"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md text-[10px] font-semibold">
-                          {student.className || student[selectedClassCol] || "-"}
-                        </span>
-                      </td>
-                      {columns.filter(c => c !== selectedPhoneCol && c !== selectedNameCol && c !== selectedGradeCol && c !== selectedClassCol).slice(0, 2).map((col) => (
-                        <td key={col} className="px-4 py-2.5 max-w-[150px] truncate" title={String(student[col] || "")}>
-                          {student[col] !== undefined ? String(student[col]) : "-"}
-                        </td>
-                      ))}
-                      <td className="px-4 py-2.5 text-center">
-                        <button
-                          onClick={() => deleteStudent(student.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                          title="حذف الطالب"
-                          id={`btn-delete-${student.id}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-slate-400 font-medium text-xs">
+                        لا توجد نتائج مطابقة للبحث
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredStudents.map((student, idx) => {
+                      const sName = student.name || student["اسم الطالب"] || student["الاسم"] || "-";
+                      const sPhone = student.phone || student["رقم الجوال"] || student["الجوال"] || "";
+                      const sGrade = student.grade || student["الصف"] || "-";
+                      const sClass = student.className || student["الفصل"] || "-";
+                      const phoneValid = isValidPhone(sPhone);
+
+                      return (
+                        <tr key={student.id || idx} className="hover:bg-slate-50/90 transition-colors">
+                          <td className="px-4 py-3 font-mono text-slate-400 text-center">{idx + 1}</td>
+                          <td className="px-4 py-3 font-bold text-slate-900">{sName}</td>
+                          <td className="px-4 py-3 font-mono text-slate-700">
+                            <div className="flex items-center gap-1.5">
+                              <span dir="ltr" className="font-semibold">{sPhone || "بدون رقم"}</span>
+                              {phoneValid ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="رقم جوال صالح" />
+                              ) : (
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" title="يرجى مراجعة رقم الجوال" />
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="bg-sky-50 text-sky-800 border border-sky-200/60 px-2 py-0.5 rounded-md text-[11px] font-semibold">
+                              {sGrade}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="bg-emerald-50 text-emerald-800 border border-emerald-200/60 px-2 py-0.5 rounded-md text-[11px] font-semibold">
+                              {sClass}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* Edit Action */}
+                              <button
+                                onClick={() => openEditStudent(student)}
+                                className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors border border-slate-200 hover:border-emerald-300 cursor-pointer"
+                                title="تعديل بيانات الطالب"
+                                id={`btn-edit-${student.id}`}
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Delete Action */}
+                              <button
+                                onClick={() => deleteStudent(student.id)}
+                                className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200 hover:border-rose-300 cursor-pointer"
+                                title="حذف الطالب من الكشف"
+                                id={`btn-delete-${student.id}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
+
         </div>
       )}
+
+      {/* Edit Student Modal */}
+      {editingStudent && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-xl text-right flex flex-col gap-4">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-emerald-600" />
+                تعديل بيانات الطالب
+              </h3>
+              <button 
+                onClick={() => setEditingStudent(null)} 
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-700">اسم الطالب الكامل:</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="border border-slate-200 bg-slate-50 focus:bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold text-slate-800"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-700">رقم جوال ولي الأمر:</label>
+                <input
+                  type="text"
+                  required
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  className="border border-slate-200 bg-slate-50 focus:bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-left font-bold text-slate-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700">الصف الدراسي:</label>
+                  <input
+                    type="text"
+                    value={editGrade}
+                    onChange={(e) => setEditGrade(e.target.value)}
+                    placeholder="مثل: أول ثانوي"
+                    className="border border-slate-200 bg-slate-50 focus:bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700">الفصل / الشعبة:</label>
+                  <input
+                    type="text"
+                    value={editClass}
+                    onChange={(e) => setEditClass(e.target.value)}
+                    placeholder="مثل: أ"
+                    className="border border-slate-200 bg-slate-50 focus:bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingStudent(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  حفظ التعديلات
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -130,6 +130,8 @@ export default function ReportsPrinter({ students, signatories, onNavigateToTab 
 
   useEffect(() => {
     fetchReportLogs();
+    const interval = setInterval(fetchReportLogs, 3500);
+    return () => clearInterval(interval);
   }, [students]);
 
   // Extract unique grades and classes
@@ -342,10 +344,10 @@ export default function ReportsPrinter({ students, signatories, onNavigateToTab 
           <div>
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2.5">
               <Printer className="w-5 h-5 text-emerald-600" />
-              التقارير والطباعة (PDF مقاس A4 بهوامش 1.5 سم)
+              التقارير والطباعة
             </h2>
             <p className="text-slate-500 text-xs mt-1">
-              استعلام واستعراض تقارير دقيقة لمن تم الإرسال لهم، مجهزة للطباعة والتصدير بصيغة A4 وهوامش معتمدة
+              استعلام واستعراض تقارير دقيقة لمن تم الإرسال لهم، مجهزة للطباعة والتصدير
             </p>
           </div>
 
@@ -356,10 +358,10 @@ export default function ReportsPrinter({ students, signatories, onNavigateToTab 
               disabled={filteredLogs.length === 0}
               className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold text-xs py-2.5 px-4 rounded-xl transition-all shadow-sm flex items-center gap-2 cursor-pointer"
               id="btn-print-report"
-              title="طباعة التقرير أو حفظه بصيغة PDF مقاس A4"
+              title="طباعة التقرير أو حفظه بصيغة PDF"
             >
               <Printer className="w-4 h-4" />
-              طباعة التقرير / حفظ PDF (A4)
+              طباعة التقرير / حفظ PDF
             </button>
 
             <button

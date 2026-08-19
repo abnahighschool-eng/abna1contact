@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, RefreshCw, Send, AlertCircle, CheckCircle2, XCircle, Loader2, ArrowRight, Clock, ShieldCheck, Search, Filter, MessageSquare, Plus, Smartphone, Smile, CheckCheck, Info, Users, CheckSquare, Square, UserCheck, UserX } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Play, Pause, RefreshCw, Send, AlertCircle, CheckCircle2, XCircle, Loader2, ArrowRight, Clock, ShieldCheck, Search, Filter, MessageSquare, Plus, Smartphone, Smile, CheckCheck, Info, Users, CheckSquare, Square, UserCheck, UserX, GraduationCap, School } from "lucide-react";
 import { Student, Campaign, CampaignLog } from "../types";
 
 interface CampaignMonitorProps {
@@ -12,7 +12,8 @@ interface CampaignMonitorProps {
 export default function CampaignMonitor({ students, template, onTemplateChange, isWhatsAppConnected }: CampaignMonitorProps) {
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [delayMs, setDelayMs] = useState(3000);
+  const [delayMs, setDelayMs] = useState(15000);
+  const [delayPreset, setDelayPreset] = useState<"safe" | "balanced" | "custom">("safe");
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed" | "pending">("all");
@@ -22,7 +23,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
   // Filtering & Selection state
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [gradeFilter, setGradeFilter] = useState("all");
-  const [classFilter, setClassFilter] = useState("all");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [studentSearchQuery, setStudentSearchQuery] = useState("");
   const [viewSelectionFilter, setViewSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
 
@@ -48,41 +49,160 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     setCampaignName(`حملة إشعار الطلاب - ${formattedDate}`);
   }, []);
 
-  // Synchronize selection on students load
+  // Dynamic extraction of unique grades and classes per grade from students
+  const uniqueGrades = useMemo(() => {
+    const gSet = new Set<string>();
+    students.forEach(s => {
+      const g = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+      if (g) gSet.add(g);
+    });
+    return Array.from(gSet);
+  }, [students]);
+
+  const gradeToClassesMap = useMemo(() => {
+    const map: Record<string, string[]> = { all: [] };
+    const allClsSet = new Set<string>();
+
+    uniqueGrades.forEach(g => {
+      map[g] = [];
+    });
+
+    students.forEach(s => {
+      const g = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+      const c = (s.className || s["الفصل"] || s["الشعبة"] || "").trim();
+      if (c) {
+        allClsSet.add(c);
+        if (g && map[g] && !map[g].includes(c)) {
+          map[g].push(c);
+        }
+      }
+    });
+
+    map.all = Array.from(allClsSet);
+    return map;
+  }, [students, uniqueGrades]);
+
+  // Current available classes for the active grade
+  const availableClassesForCurrentGrade = useMemo(() => {
+    if (gradeFilter === "all") {
+      return gradeToClassesMap.all || [];
+    }
+    return gradeToClassesMap[gradeFilter] || [];
+  }, [gradeFilter, gradeToClassesMap]);
+
+  // Synchronize selection on initial load of students
   useEffect(() => {
     if (students && students.length > 0) {
       setSelectedStudentIds(students.map(s => s.id));
+      setSelectedClasses(gradeToClassesMap.all || []);
     }
   }, [students]);
 
-  // Extract unique grades and classes
-  const uniqueGrades = Array.from(new Set(students.map(s => s.grade || s["الصف"] || "").filter(Boolean))) as string[];
-  const uniqueClasses = Array.from(new Set(students.map(s => s.className || s["الفصل"] || "").filter(Boolean))) as string[];
+  // Handle Grade Change: "كل الصفوف" vs Specific Grade
+  const handleGradeChange = (newGrade: string) => {
+    setGradeFilter(newGrade);
+    setPreviewStudentIdx(0);
 
-  // Filtered list based on Grade, Class, Search Query, and View Selection Tab
+    if (newGrade === "all") {
+      // Default: Check all classes, select all students
+      const allClassList = gradeToClassesMap.all || [];
+      setSelectedClasses(allClassList);
+      setSelectedStudentIds(students.map(s => s.id));
+    } else {
+      // Default: Only check classes and students belonging to this specific grade!
+      // "عند اختيار صف محدد لا يتم وضع صح على بقية الصفوف لاني لن اقوم بالارسال اليها"
+      const gradeClasses = gradeToClassesMap[newGrade] || [];
+      setSelectedClasses(gradeClasses);
+      
+      const gradeStudentIds = students
+        .filter(s => (s.grade || s["الصف"] || s["المستوى"] || "").trim() === newGrade)
+        .map(s => s.id);
+      setSelectedStudentIds(gradeStudentIds);
+    }
+  };
+
+  // Handle Toggling individual Class / Section checkbox
+  const handleToggleClass = (cls: string) => {
+    const isCurrentlySelected = selectedClasses.includes(cls);
+    const nextSelectedClasses = isCurrentlySelected
+      ? selectedClasses.filter(c => c !== cls)
+      : [...selectedClasses, cls];
+    
+    setSelectedClasses(nextSelectedClasses);
+
+    // Identify affected students within the current grade view
+    const affectedStudents = students.filter(s => {
+      const studentGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+      const studentClass = (s.className || s["الفصل"] || s["الشعبة"] || "").trim();
+      const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
+      return matchesGrade && studentClass === cls;
+    });
+    const affectedIds = affectedStudents.map(s => s.id);
+
+    if (isCurrentlySelected) {
+      // Remove these students from active send list
+      setSelectedStudentIds(prev => prev.filter(id => !affectedIds.includes(id)));
+    } else {
+      // Add these students back into active send list
+      setSelectedStudentIds(prev => Array.from(new Set([...prev, ...affectedIds])));
+    }
+  };
+
+  // Select all classes for the active grade
+  const handleSelectAllClassesForCurrentGrade = () => {
+    setSelectedClasses(availableClassesForCurrentGrade);
+    const targetStudents = students.filter(s => {
+      const studentGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+      return gradeFilter === "all" || studentGrade === gradeFilter;
+    });
+    const targetIds = targetStudents.map(s => s.id);
+    setSelectedStudentIds(prev => Array.from(new Set([...prev, ...targetIds])));
+  };
+
+  // Deselect all classes for the active grade
+  const handleDeselectAllClassesForCurrentGrade = () => {
+    setSelectedClasses([]);
+    const targetStudents = students.filter(s => {
+      const studentGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+      return gradeFilter === "all" || studentGrade === gradeFilter;
+    });
+    const targetIds = targetStudents.map(s => s.id);
+    setSelectedStudentIds(prev => prev.filter(id => !targetIds.includes(id)));
+  };
+
+  // Filtered list based on Search Query, Grade, and Selection view tabs
   const filteredStudents = students.filter(student => {
-    const studentGrade = student.grade || student["الصف"] || "";
-    const studentClass = student.className || student["الفصل"] || "";
-    const studentName = student.name || student["اسم الطالب"] || student["الاسم"] || student["الاسم الكامل"] || "";
-    const studentPhone = student.phone || student["رقم الجوال"] || student["الجوال"] || "";
+    const studentGrade = (student.grade || student["الصف"] || student["المستوى"] || "").trim();
+    const studentClass = (student.className || student["الفصل"] || student["الشعبة"] || "").trim();
+    const studentName = (student.name || student["اسم الطالب"] || student["الاسم"] || student["الاسم الكامل"] || "").trim();
+    const studentPhone = (student.phone || student["رقم الجوال"] || student["الجوال"] || "").trim();
     
-    const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
-    const matchesClass = classFilter === "all" || studentClass === classFilter;
-    
-    const q = studentSearchQuery.trim().toLowerCase();
-    const matchesSearch = !q || 
-      studentName.toLowerCase().includes(q) ||
-      studentPhone.includes(q) ||
-      studentGrade.toLowerCase().includes(q) ||
-      studentClass.toLowerCase().includes(q);
-
     const isSelected = selectedStudentIds.includes(student.id);
-    const matchesSelectionView = 
-      viewSelectionFilter === "all" ||
-      (viewSelectionFilter === "selected" && isSelected) ||
-      (viewSelectionFilter === "unselected" && !isSelected);
+
+    // If search query is entered, search across entire roster or current filter
+    const q = studentSearchQuery.trim().toLowerCase();
+    if (q) {
+      const matchesSearch = 
+        studentName.toLowerCase().includes(q) ||
+        studentPhone.includes(q) ||
+        studentGrade.toLowerCase().includes(q) ||
+        studentClass.toLowerCase().includes(q);
+      
+      if (!matchesSearch) return false;
+
+      if (viewSelectionFilter === "selected") return isSelected;
+      if (viewSelectionFilter === "unselected") return !isSelected;
+      return true;
+    }
+
+    // Standard filter by Grade
+    const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
+    if (!matchesGrade) return false;
+
+    if (viewSelectionFilter === "selected") return isSelected;
+    if (viewSelectionFilter === "unselected") return !isSelected;
     
-    return matchesGrade && matchesClass && matchesSearch && matchesSelectionView;
+    return true;
   });
 
   const toggleStudentSelection = (id: string) => {
@@ -93,10 +213,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
 
   const selectAllFiltered = () => {
     const filteredIds = filteredStudents.map(s => s.id);
-    setSelectedStudentIds(prev => {
-      const otherIds = prev.filter(id => !filteredIds.includes(id));
-      return [...otherIds, ...filteredIds];
-    });
+    setSelectedStudentIds(prev => Array.from(new Set([...prev, ...filteredIds])));
   };
 
   const deselectAllFiltered = () => {
@@ -126,6 +243,48 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
 
   const targetedCount = students.filter(s => selectedStudentIds.includes(s.id)).length;
   const excludedCount = students.length - targetedCount;
+
+  // Automatically check and restore any active running or saved campaign on component mount
+  useEffect(() => {
+    const checkActiveCampaign = async () => {
+      try {
+        // 1. Check if there's an ongoing running or paused campaign on the server
+        const res = await fetch("/api/whatsapp/campaigns");
+        if (res.ok) {
+          const campaignsList = await res.json();
+          if (Array.isArray(campaignsList)) {
+            const runningOrPaused = campaignsList.find((c: any) => c.status === "running" || c.status === "paused");
+            if (runningOrPaused) {
+              setCampaignId(runningOrPaused.id);
+              localStorage.setItem("active_campaign_id", runningOrPaused.id);
+              const detailRes = await fetch(`/api/whatsapp/campaign/${runningOrPaused.id}`);
+              if (detailRes.ok) {
+                setCampaign(await detailRes.json());
+              }
+              return;
+            }
+          }
+        }
+
+        // 2. Otherwise check if there is a saved recent campaign ID in localStorage
+        const savedId = localStorage.getItem("active_campaign_id");
+        if (savedId) {
+          const detailRes = await fetch(`/api/whatsapp/campaign/${savedId}`);
+          if (detailRes.ok) {
+            const data = await detailRes.json();
+            if (data && data.id) {
+              setCampaignId(data.id);
+              setCampaign(data);
+            }
+          }
+        }
+      } catch {
+        // ignore background restore errors
+      }
+    };
+
+    checkActiveCampaign();
+  }, []);
 
   // Poll campaign status when running or initialized
   useEffect(() => {
@@ -196,6 +355,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
 
       if (response.ok && data.campaignId) {
         setCampaignId(data.campaignId);
+        localStorage.setItem("active_campaign_id", data.campaignId);
         
         // Fetch immediately
         try {
@@ -518,15 +678,6 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 </span>
               </div>
 
-              {/* Explicit Rule Banner */}
-              <div className="bg-emerald-50/90 border border-emerald-200 text-emerald-950 p-3 rounded-xl text-xs leading-relaxed flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold">تنبيه الإرسال: </span>
-                  <span>الأسماء التي تم وضع علامة الصح (<strong className="text-emerald-700">✓</strong>) أمامها هي فقط من سيتم إرسال الرسالة لها، بينما الأسماء غير المحددة سيتم استبعادها وتجاوزها تلقائياً.</span>
-                </div>
-              </div>
-
               {/* Campaign Name */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-700">تسمية الحملة الدراسية:</label>
@@ -540,63 +691,151 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 />
               </div>
 
-              {/* Grade & Class Filters */}
-              <div className="grid grid-cols-2 gap-2.5 border-t border-slate-200/60 pt-3">
-                {/* Grade Filter */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-bold text-slate-700">تصفية الصف:</label>
-                  <select
-                    value={gradeFilter}
-                    onChange={(e) => {
-                      setGradeFilter(e.target.value);
-                      setPreviewStudentIdx(0);
-                    }}
-                    className="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
-                  >
-                    <option value="all">كل الصفوف ({uniqueGrades.length})</option>
-                    {uniqueGrades.map(grade => (
-                      <option key={grade} value={grade}>{grade}</option>
-                    ))}
-                  </select>
+              {/* Grade Selection (4 primary choices & dynamic list) */}
+              <div className="flex flex-col gap-2 border-t border-slate-200/60 pt-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>تحديد الصف المستهدف للإرسال:</span>
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    {gradeFilter === "all" ? "محدد: كافة المراحل والصفوف" : `محدد: ${gradeFilter} فقط`}
+                  </span>
                 </div>
 
-                {/* Class Filter */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-bold text-slate-700">تصفية الفصل/الشعبة:</label>
-                  <select
-                    value={classFilter}
-                    onChange={(e) => {
-                      setClassFilter(e.target.value);
-                      setPreviewStudentIdx(0);
-                    }}
-                    className="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                {/* Grade Segmented Buttons */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {/* Choice 1: All Grades */}
+                  <button
+                    type="button"
+                    onClick={() => handleGradeChange("all")}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                      gradeFilter === "all"
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                    id="btn-grade-all"
                   >
-                    <option value="all">كل الفصول ({uniqueClasses.length})</option>
-                    {uniqueClasses.map(cls => (
-                      <option key={cls} value={cls}>{cls}</option>
-                    ))}
-                  </select>
+                    <span>كل الصفوف</span>
+                    <span className={`text-[9px] ${gradeFilter === "all" ? "text-emerald-100" : "text-slate-400"}`}>
+                      ({students.length} طالب)
+                    </span>
+                  </button>
+
+                  {/* Choice 2, 3, 4... Specific Grades */}
+                  {uniqueGrades.map((grade) => {
+                    const gradeStudentsCount = students.filter(s => (s.grade || s["الصف"] || s["المستوى"] || "").trim() === grade).length;
+                    const isSelected = gradeFilter === grade;
+                    return (
+                      <button
+                        key={grade}
+                        type="button"
+                        onClick={() => handleGradeChange(grade)}
+                        className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                          isSelected
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        }`}
+                        id={`btn-grade-${grade}`}
+                      >
+                        <span className="truncate max-w-[100px]">{grade}</span>
+                        <span className={`text-[9px] ${isSelected ? "text-emerald-100" : "text-slate-400"}`}>
+                          ({gradeStudentsCount} طالب)
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Student Quick Search */}
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
-                <input
-                  type="text"
-                  value={studentSearchQuery}
-                  onChange={(e) => setStudentSearchQuery(e.target.value)}
-                  placeholder="بحث سريع باسم الطالب، رقم الجوال، أو الفصل..."
-                  className="w-full border border-slate-200 bg-white rounded-xl pr-8 pl-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                {studentSearchQuery && (
-                  <button
-                    onClick={() => setStudentSearchQuery("")}
-                    className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
-                  >
-                    ✕
-                  </button>
+              {/* Sections / Classes Checkbox Area (خانة الفصول والشعب) */}
+              <div className="flex flex-col gap-2 bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <School className="w-3.5 h-3.5 text-purple-600" />
+                    <label className="text-xs font-bold text-slate-800">
+                      الفصول والشعب ({gradeFilter === "all" ? "لكل الصفوف" : gradeFilter}):
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllClassesForCurrentGrade}
+                      className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
+                    >
+                      تحديد كل الشعب (✓)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeselectAllClassesForCurrentGrade}
+                      className="text-[10px] font-bold text-slate-600 hover:text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 cursor-pointer"
+                    >
+                      إلغاء التحديد (✕)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Interactive Checkbox Chips for Sections */}
+                {availableClassesForCurrentGrade.length === 0 ? (
+                  <div className="text-center py-2 text-slate-400 text-xs font-medium">
+                    لا توجد فصول أو شعب محددة في هذا الصف.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {availableClassesForCurrentGrade.map((cls) => {
+                      const isChecked = selectedClasses.includes(cls);
+                      const classStudentsCount = students.filter(s => {
+                        const sGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+                        const sClass = (s.className || s["الفصل"] || s["الشعبة"] || "").trim();
+                        const matchesGrade = gradeFilter === "all" || sGrade === gradeFilter;
+                        return matchesGrade && sClass === cls;
+                      }).length;
+
+                      return (
+                        <button
+                          key={cls}
+                          type="button"
+                          onClick={() => handleToggleClass(cls)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+                            isChecked
+                              ? "bg-emerald-50 text-emerald-900 border-emerald-300 shadow-xs ring-1 ring-emerald-400/40"
+                              : "bg-slate-50 text-slate-400 border-slate-200 line-through opacity-70 hover:opacity-100"
+                          }`}
+                          id={`btn-class-${cls}`}
+                        >
+                          <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[10px] font-mono border ${isChecked ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-transparent border-slate-300"}`}>
+                            {isChecked ? "✓" : ""}
+                          </span>
+                          <span>شعبة / فصل {cls}</span>
+                          <span className="text-[10px] font-normal text-slate-500">({classStudentsCount})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
+              </div>
+
+              {/* Student Quick Search with Multi-Selection Preservation */}
+              <div className="flex flex-col gap-1">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={studentSearchQuery}
+                    onChange={(e) => setStudentSearchQuery(e.target.value)}
+                    placeholder="ابحث باسم الطالب لإضافته أو استبعاده من الإرسال..."
+                    className="w-full border border-slate-200 bg-white rounded-xl pr-8 pl-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                    id="input-student-search"
+                  />
+                  {studentSearchQuery && (
+                    <button
+                      onClick={() => setStudentSearchQuery("")}
+                      className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* View Selection Tabs (All / Checked / Unchecked) */}
@@ -744,46 +983,92 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
 
             </div>
 
-            {/* Delay & Launch Controls Card */}
+            {/* Delay & Launch Controls Card with Anti-Ban Protection */}
             <div className="bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
-              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <Clock className="w-4 h-4 text-emerald-600" />
-                3. إعدادات الإرسال والتشغيل
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-emerald-600" />
+                  3. إعدادات الفاصل الزمني والحماية ضد الحظر
+                </h3>
+                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  درع الأمان نشط
+                </span>
+              </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                  الفاصل الزمني المُحدد بين الرسائل (بالثواني):
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={60}
-                    value={Math.round(delayMs / 1000)}
-                    onChange={(e) => setDelayMs(Math.max(1, Number(e.target.value)) * 1000)}
-                    className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24 text-center font-bold"
-                    id="input-delay"
-                  />
-                  <span className="text-xs text-slate-500 font-semibold">ثوانٍ بين كل رسالة</span>
+              {/* Delay Preset Buttons */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-slate-700">اختر نمط الإرسال الموصى به:</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDelayPreset("safe");
+                      setDelayMs(15000);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition-all text-center flex flex-col items-center gap-1 ${
+                      delayPreset === "safe"
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>🛡️ مدرسي آمن (موصى)</span>
+                    <span className={`text-[9px] font-normal ${delayPreset === "safe" ? "text-emerald-100" : "text-slate-400"}`}>15 ثانية + تفاوت</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDelayPreset("balanced");
+                      setDelayMs(10000);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition-all text-center flex flex-col items-center gap-1 ${
+                      delayPreset === "balanced"
+                        ? "bg-sky-600 text-white border-sky-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>⚡ وضع متوازن</span>
+                    <span className={`text-[9px] font-normal ${delayPreset === "balanced" ? "text-sky-100" : "text-slate-400"}`}>10 ثوانٍ</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDelayPreset("custom")}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition-all text-center flex flex-col items-center gap-1 ${
+                      delayPreset === "custom"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>⏱️ مخصص يدوي</span>
+                    <span className={`text-[9px] font-normal ${delayPreset === "custom" ? "text-purple-100" : "text-slate-400"}`}>تحديد الثواني</span>
+                  </button>
                 </div>
               </div>
 
-              {Math.round(delayMs / 1000) >= 3 ? (
-                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200/80 text-emerald-800 p-3 rounded-xl text-[11px] leading-relaxed shadow-xs">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  <span>
-                    <strong>الفاصل الزمني آمن ومثالي:</strong> تم اعتماد <strong>{Math.round(delayMs / 1000)} ثوانٍ</strong> بين كل رسالة لحماية حسابك وضمان وصول مستقر.
-                  </span>
+              {/* Custom Delay Input (Visible when custom or always as fine-tune) */}
+              <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">الفاصل الأساسي (بالثواني):</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={5}
+                      max={90}
+                      value={Math.round(delayMs / 1000)}
+                      onChange={(e) => {
+                        const val = Math.max(1, Number(e.target.value)) * 1000;
+                        setDelayMs(val);
+                        setDelayPreset("custom");
+                      }}
+                      className="border border-slate-200 bg-slate-50 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 w-16 text-center font-extrabold"
+                      id="input-delay"
+                    />
+                    <span className="text-xs text-slate-500 font-bold">ثوانٍ</span>
+                  </div>
                 </div>
-              ) : (
-                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] leading-relaxed shadow-xs">
-                  <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <span>
-                    <strong>تنبيه سرعة الإرسال:</strong> الفاصل المحدد ({Math.round(delayMs / 1000)} ثانية) سريع جداً. نوصي بـ 3 ثوانٍ أو أكثر لإرسال جماعي آمن ومستقر لمنع الحظر.
-                  </span>
-                </div>
-              )}
+              </div>
 
               {/* Ready targets summary */}
               <div className="flex flex-col gap-1.5 bg-white border border-slate-200/80 p-3 rounded-xl">
@@ -845,6 +1130,20 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
 
               {/* Campaign Control Buttons */}
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    localStorage.removeItem("active_campaign_id");
+                    setCampaignId(null);
+                    setCampaign(null);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  id="btn-back-to-editor"
+                  title="الرجوع لشاشة الصياغة وتحديد الطلاب"
+                >
+                  <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                  <span>بدء حملة جديدة / المحرر</span>
+                </button>
+
                 {campaign?.status === "running" && (
                   <button
                     onClick={handlePauseCampaign}
@@ -893,6 +1192,19 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
               </div>
 
             </div>
+
+            {/* Active Safety Rest Break Alert */}
+            {campaign?.restBreakUntil && campaign.restBreakUntil > Date.now() && (
+              <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 p-3 rounded-xl flex items-center justify-between text-xs font-bold animate-pulse">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>🛡️ استراحة أمان ذكية جارية لحماية الحساب من الحظر... سيستأنف الإرسال تلقائياً بعد ثوانٍ</span>
+                </div>
+                <span className="text-emerald-700 font-mono text-[11px] bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-xs">
+                  درع الحماية نشط
+                </span>
+              </div>
+            )}
 
             {/* Progress Bar & Percentage */}
             <div className="flex flex-col gap-1.5">

@@ -17,6 +17,15 @@ const DisconnectReason = (BaileysModule as any).DisconnectReason || baileysRaw.D
 const fetchLatestBaileysVersion = (BaileysModule as any).fetchLatestBaileysVersion || baileysRaw.fetchLatestBaileysVersion;
 const Browsers = (BaileysModule as any).Browsers || baileysRaw.Browsers;
 
+// Process Safety Guards to prevent crashes on socket drops
+process.on("uncaughtException", (err) => {
+  console.warn("Recovered from uncaughtException:", err?.message || err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.warn("Recovered from unhandledRejection:", reason);
+});
+
 // Initialize Express app
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -626,12 +635,22 @@ app.get("/api/whatsapp/campaigns", (req, res) => {
   })));
 });
 
-// Background Campaign Processing
-async function processCampaign(campaignId: string, delayMs: number) {
+// Injects an invisible unique zero-width character sequence so every message has a unique payload hash
+function injectAntiSpamVariation(text: string): string {
+  if (!text) return text;
+  const zeroWidthChars = ["\u200B", "\u200C", "\u200D", "\uFEFF"];
+  const randomChars = Array.from({ length: 3 }, () => zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)]).join("");
+  return text + randomChars;
+}
+
+// Background Campaign Processing with Anti-Ban Protection
+async function processCampaign(campaignId: string, baseDelayMs: number) {
   const campaign = campaigns[campaignId];
   if (!campaign || campaign.status !== "running") return;
 
+  let messagesInCurrentBatch = 0;
   const totalLogs = campaign.logs.length;
+
   for (let i = 0; i < totalLogs; i++) {
     // Check if campaign was paused or cancelled in between
     if (!campaigns[campaignId] || campaigns[campaignId].status !== "running") {
@@ -641,13 +660,27 @@ async function processCampaign(campaignId: string, delayMs: number) {
     const log = campaign.logs[i];
     if (log.status !== "pending") continue;
 
+    // Automated Safety Break: Take a rest break after every 15 consecutive messages
+    if (messagesInCurrentBatch >= 15 && i < totalLogs) {
+      messagesInCurrentBatch = 0;
+      const restBreakDuration = Math.floor(45000 + Math.random() * 25000); // 45 to 70 seconds
+      (campaign as any).restBreakUntil = Date.now() + restBreakDuration;
+      console.log(`[Anti-Ban Protection] Automated safety break active for ${Math.round(restBreakDuration / 1000)}s after 15 messages...`);
+      await new Promise(resolve => setTimeout(resolve, restBreakDuration));
+      (campaign as any).restBreakUntil = null;
+    }
+
     log.status = "sending";
     
-    // For the first message send immediately (short 150ms buffer), for subsequent messages wait the specified delayMs
-    if (i > 0 && delayMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+    // Dynamic Human Jitter: add random variance (+/- 3000ms) to prevent fixed periodicity bot detection
+    const jitter = Math.floor(Math.random() * 5000) - 2000;
+    const actualDelay = Math.max(6000, Number(baseDelayMs || 12000) + jitter);
+
+    if (i > 0) {
+      await new Promise(resolve => setTimeout(resolve, actualDelay));
     } else {
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Initial human hesitation buffer (2 seconds)
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     // Check again after delay
@@ -685,6 +718,7 @@ async function processCampaign(campaignId: string, delayMs: number) {
         if (response.ok && result.messages) {
           log.status = "success";
           campaign.sent += 1;
+          messagesInCurrentBatch += 1;
         } else {
           log.status = "failed";
           log.error = result.error?.message || "فشل إرسال الرسالة عبر WhatsApp Cloud API";
@@ -707,10 +741,32 @@ async function processCampaign(campaignId: string, delayMs: number) {
         }
         
         const jid = `${formattedPhone}@s.whatsapp.net`;
-        await sock.sendMessage(jid, { text: log.message });
+        
+        // 1. Simulate Human Presence & Chat Composing (Typing state)
+        try {
+          await sock.sendPresenceUpdate("available");
+          await sock.sendPresenceUpdate("composing", jid);
+        } catch (presenceErr) {
+          // ignore presence non-blocking errors
+        }
+
+        // Realistic typing duration based on message length (2000ms - 4200ms)
+        const typingDuration = Math.min(4200, Math.max(1800, log.message.length * 22 + Math.random() * 600));
+        await new Promise(resolve => setTimeout(resolve, typingDuration));
+
+        try {
+          await sock.sendPresenceUpdate("paused", jid);
+        } catch (e) {
+          // ignore
+        }
+
+        // 2. Inject anti-spam zero-width hash variance to break repetitive broadcast fingerprint
+        const randomizedMessage = injectAntiSpamVariation(log.message);
+        await sock.sendMessage(jid, { text: randomizedMessage });
         
         log.status = "success";
         campaign.sent += 1;
+        messagesInCurrentBatch += 1;
       } catch (err: any) {
         log.status = "failed";
         log.error = err.message || "فشل الإرسال عبر ربط الواتساب المباشر";
@@ -726,6 +782,7 @@ async function processCampaign(campaignId: string, delayMs: number) {
       } else {
         log.status = "success";
         campaign.sent += 1;
+        messagesInCurrentBatch += 1;
       }
     }
 

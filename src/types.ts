@@ -36,6 +36,7 @@ export interface Campaign {
   status: "idle" | "running" | "completed" | "paused";
   startTime: string | null;
   endTime: string | null;
+  restBreakUntil?: number | null;
   logs?: CampaignLog[];
 }
 

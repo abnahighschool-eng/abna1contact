@@ -45,8 +45,8 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
           onRefreshConfig();
         }
       }
-    } catch (err) {
-      console.error("Error fetching real status:", err);
+    } catch {
+      // Quietly handle transient network hiccups during server restart/initialization
     }
   };
 

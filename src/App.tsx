@@ -74,8 +74,8 @@ export default function App() {
         const data = await response.json();
         setConfig(data);
       }
-    } catch (err) {
-      console.error("Error fetching WhatsApp configuration", err);
+    } catch {
+      // Quietly handle transient network hiccups during server restart/initialization
     }
   };
 
@@ -336,43 +336,43 @@ export default function App() {
 
         </div>
 
-        {/* Wizard Main Panel */}
+        {/* Wizard Main Panel with Keep-Alive View Preservation */}
         <div className="flex-1" id="wizard-panels-viewport">
-          {activeTab === "connection" && (
+          <div className={activeTab === "connection" ? "block" : "hidden"}>
             <ConnectionPanel 
               config={config} 
               onUpdateConfig={(updated) => setConfig((prev) => ({ ...prev, ...updated }))} 
               onRefreshConfig={fetchConfig}
             />
-          )}
+          </div>
 
-          {activeTab === "upload" && (
+          <div className={activeTab === "upload" ? "block" : "hidden"}>
             <ExcelUploader 
               students={students} 
               onStudentsLoaded={handleUpdateStudents} 
             />
-          )}
+          </div>
 
-          {activeTab === "send" && (
+          <div className={activeTab === "send" ? "block" : "hidden"}>
             <CampaignMonitor 
               students={students} 
               template={template} 
               onTemplateChange={handleTemplateChange}
               isWhatsAppConnected={isWhatsAppConnected}
             />
-          )}
+          </div>
 
-          {activeTab === "individual" && (
+          <div className={activeTab === "individual" ? "block" : "hidden"}>
             <IndividualSender isWhatsAppConnected={isWhatsAppConnected} />
-          )}
+          </div>
 
-          {activeTab === "reports" && (
+          <div className={activeTab === "reports" ? "block" : "hidden"}>
             <ReportsPrinter 
               students={students}
               signatories={signatories}
               onNavigateToTab={(tab) => setActiveTab(tab)}
             />
-          )}
+          </div>
         </div>
 
       </main>
