@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Link2, 
   FileSpreadsheet, 
@@ -19,7 +19,9 @@ import {
   Award,
   Building,
   School,
-  Settings
+  Settings,
+  CloudCheck,
+  Cloud
 } from "lucide-react";
 import ConnectionPanel from "./components/ConnectionPanel";
 import ExcelUploader from "./components/ExcelUploader";
@@ -27,6 +29,11 @@ import CampaignMonitor from "./components/CampaignMonitor";
 import IndividualSender from "./components/IndividualSender";
 import ReportsPrinter from "./components/ReportsPrinter";
 import { Student, WhatsAppConfig, SchoolSignatories } from "./types";
+import { 
+  loadInitialAppData, 
+  saveSchoolDataToCloud, 
+  saveStudentsDataToCloud 
+} from "./firebaseService";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"connection" | "upload" | "send" | "individual" | "reports">("connection");
@@ -84,7 +91,10 @@ export default function App() {
   const [showSignatoriesConfig, setShowSignatoriesConfig] = useState(false);
   const [signatoriesSavedToast, setSignatoriesSavedToast] = useState(false);
 
-  // Sync state to server & local storage
+  // Debounced cloud sync timer ref for template edits
+  const templateSyncTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync state to Cloud Firestore, server & local storage
   const handleUpdateSignatory = (field: keyof SchoolSignatories, val: any) => {
     const updated = { ...signatories, [field]: val };
     setSignatories(updated);
@@ -92,6 +102,10 @@ export default function App() {
     setSignatoriesSavedToast(true);
     setTimeout(() => setSignatoriesSavedToast(false), 2000);
 
+    // Save to Cloud Firestore (Single lightweight write)
+    saveSchoolDataToCloud(updated, template).catch(console.error);
+
+    // Save to local server
     fetch("/api/app-state/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -106,6 +120,10 @@ export default function App() {
     setSignatoriesSavedToast(true);
     setTimeout(() => setSignatoriesSavedToast(false), 2000);
 
+    // Save to Cloud Firestore (Single lightweight write)
+    saveSchoolDataToCloud(updated, template).catch(console.error);
+
+    // Save to local server
     fetch("/api/app-state/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -125,21 +143,38 @@ export default function App() {
     }
   };
 
-  // Hydrate full state from server on app mount
+  // Hydrate full state from Cloud Firestore and Server on app mount
   const fetchFullAppState = async () => {
     try {
+      // 1. First fetch from Cloud Firestore (Permanent storage across devices/browsers)
+      const cloudData = await loadInitialAppData();
+      
+      if (cloudData.schoolSignatories) {
+        setSignatories(prev => ({ ...prev, ...cloudData.schoolSignatories }));
+        localStorage.setItem("school_signatories", JSON.stringify(cloudData.schoolSignatories));
+      }
+      if (Array.isArray(cloudData.students) && cloudData.students.length > 0) {
+        setStudents(cloudData.students);
+        localStorage.setItem("whatsapp_student_list", JSON.stringify(cloudData.students));
+      }
+      if (cloudData.savedTemplate) {
+        setTemplate(cloudData.savedTemplate);
+        localStorage.setItem("whatsapp_student_template", cloudData.savedTemplate);
+      }
+
+      // 2. Fallback / Sync from local server state
       const res = await fetch("/api/app-state");
       if (res.ok) {
         const data = await res.json();
-        if (data.settings) {
+        if (data.settings && !cloudData.schoolSignatories) {
           setSignatories(prev => ({ ...prev, ...data.settings }));
           localStorage.setItem("school_signatories", JSON.stringify(data.settings));
         }
-        if (Array.isArray(data.students) && data.students.length > 0) {
+        if (Array.isArray(data.students) && data.students.length > 0 && (!cloudData.students || cloudData.students.length === 0)) {
           setStudents(data.students);
           localStorage.setItem("whatsapp_student_list", JSON.stringify(data.students));
         }
-        if (data.template) {
+        if (data.template && !cloudData.savedTemplate) {
           setTemplate(data.template);
           localStorage.setItem("whatsapp_student_template", data.template);
         }
@@ -175,6 +210,9 @@ export default function App() {
     setStudents(newStudents);
     localStorage.setItem("whatsapp_student_list", JSON.stringify(newStudents));
     
+    // Save to Cloud Firestore (1 Single Write for all students list)
+    saveStudentsDataToCloud(newStudents).catch(console.error);
+
     // Save to server for cross-device/browser sync
     fetch("/api/app-state/students", {
       method: "POST",
@@ -186,6 +224,12 @@ export default function App() {
   const handleTemplateChange = (newTmpl: string) => {
     setTemplate(newTmpl);
     localStorage.setItem("whatsapp_student_template", newTmpl);
+
+    // Debounced Cloud Save to avoid high write counts while typing (1 write after done typing)
+    if (templateSyncTimeout.current) clearTimeout(templateSyncTimeout.current);
+    templateSyncTimeout.current = setTimeout(() => {
+      saveSchoolDataToCloud(signatories, newTmpl).catch(console.error);
+    }, 1500);
 
     // Save to server for cross-device/browser sync
     fetch("/api/app-state/template", {

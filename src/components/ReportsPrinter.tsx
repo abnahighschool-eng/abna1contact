@@ -31,6 +31,7 @@ import {
   Maximize2
 } from "lucide-react";
 import { Student, ReportItem, ReportFilterState, SchoolSignatories, ReportPrintOptions } from "../types";
+import { saveReportsDataToCloud, saveSchoolDataToCloud } from "../firebaseService";
 
 interface ReportsPrinterProps {
   students: Student[];
@@ -197,6 +198,11 @@ export default function ReportsPrinter({
 
         setLogs(serverLogs);
         setLastRefreshed(new Date().toLocaleTimeString("ar-SA"));
+        
+        // Persist reports to Cloud if new logs are received
+        if (serverLogs.length > 0) {
+          saveReportsDataToCloud(serverLogs).catch(console.error);
+        }
       }
     } catch (err) {
       console.error("Error fetching report logs", err);
@@ -370,6 +376,8 @@ export default function ReportsPrinter({
         await fetch("/api/whatsapp/reports/clear", { method: "DELETE" });
         localStorage.removeItem("whatsapp_individual_history");
         setLogs([]);
+        // Clear in Cloud Firestore (Single write on manual user request)
+        saveReportsDataToCloud([]).catch(console.error);
       } catch (e) {
         console.error(e);
       }
@@ -416,6 +424,10 @@ export default function ReportsPrinter({
       onUpdateSignatory(updatedData);
     }
     localStorage.setItem("school_signatories", JSON.stringify(updatedData));
+    
+    // Save to Cloud Firestore
+    saveSchoolDataToCloud(updatedData, template).catch(console.error);
+
     try {
       await fetch("/api/app-state/settings", {
         method: "POST",
