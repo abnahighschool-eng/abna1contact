@@ -268,8 +268,73 @@ interface IndividualLogItem {
 const campaigns: Record<string, Campaign> = {};
 const individualLogs: IndividualLogItem[] = [];
 
-// Load persisted individual logs if any
+// Persistent files paths
 const INDIVIDUAL_LOGS_FILE = path.join(process.cwd(), "individual_logs.json");
+const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_store.json");
+const APP_SETTINGS_FILE = path.join(process.cwd(), "app_settings.json");
+const STUDENTS_FILE = path.join(process.cwd(), "students_store.json");
+const TEMPLATE_FILE = path.join(process.cwd(), "template_store.json");
+
+// Default initial school settings
+let appSettings = {
+  countryName: "المملكة العربية السعودية",
+  ministryName: "وزارة التعليم",
+  administrationName: "الإدارة العامة للتعليم",
+  schoolName: "ثانوية الأبناء الأولى",
+  principalName: "",
+  vicePrincipalName: "",
+  counselorName: "",
+  systemManagerName: "",
+  logoUrl: "",
+  logoWidth: 60,
+  logoHeight: 60,
+};
+
+let activeStudentsList: any[] = [];
+let activeTemplate: string = "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة";
+
+// Load persisted state safely on startup
+if (fs.existsSync(APP_SETTINGS_FILE)) {
+  try {
+    const raw = fs.readFileSync(APP_SETTINGS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    appSettings = { ...appSettings, ...parsed };
+  } catch (e) {
+    console.error("Error reading app_settings.json", e);
+  }
+}
+
+if (fs.existsSync(STUDENTS_FILE)) {
+  try {
+    const raw = fs.readFileSync(STUDENTS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) activeStudentsList = parsed;
+  } catch (e) {
+    console.error("Error reading students_store.json", e);
+  }
+}
+
+if (fs.existsSync(TEMPLATE_FILE)) {
+  try {
+    const raw = fs.readFileSync(TEMPLATE_FILE, "utf-8");
+    if (raw && typeof raw === "string") activeTemplate = raw;
+  } catch (e) {
+    console.error("Error reading template_store.json", e);
+  }
+}
+
+if (fs.existsSync(CAMPAIGNS_FILE)) {
+  try {
+    const raw = fs.readFileSync(CAMPAIGNS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      Object.assign(campaigns, parsed);
+    }
+  } catch (e) {
+    console.error("Error reading campaigns_store.json", e);
+  }
+}
+
 if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
   try {
     const raw = fs.readFileSync(INDIVIDUAL_LOGS_FILE, "utf-8");
@@ -284,9 +349,41 @@ if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
 
 function saveIndividualLogs() {
   try {
-    fs.writeFileSync(INDIVIDUAL_LOGS_FILE, JSON.stringify(individualLogs.slice(0, 500), null, 2), "utf-8");
+    fs.writeFileSync(INDIVIDUAL_LOGS_FILE, JSON.stringify(individualLogs.slice(0, 1000), null, 2), "utf-8");
   } catch (e) {
     console.error("Error saving individual_logs.json", e);
+  }
+}
+
+function saveCampaigns() {
+  try {
+    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Error saving campaigns_store.json", e);
+  }
+}
+
+function saveAppSettings() {
+  try {
+    fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(appSettings, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Error saving app_settings.json", e);
+  }
+}
+
+function saveStudentsList() {
+  try {
+    fs.writeFileSync(STUDENTS_FILE, JSON.stringify(activeStudentsList, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Error saving students_store.json", e);
+  }
+}
+
+function saveTemplate() {
+  try {
+    fs.writeFileSync(TEMPLATE_FILE, activeTemplate, "utf-8");
+  } catch (e) {
+    console.error("Error saving template_store.json", e);
   }
 }
 
@@ -308,6 +405,77 @@ const saveConfig = () => {
     console.error("Error writing config file", e);
   }
 };
+
+// API Endpoints for Full App State Synchronization across Mobile & Desktop Browsers
+app.get("/api/app-state", (req, res) => {
+  res.json({
+    settings: appSettings,
+    students: activeStudentsList,
+    template: activeTemplate,
+    totalCampaigns: Object.keys(campaigns).length,
+    totalIndividualLogs: individualLogs.length,
+  });
+});
+
+app.post("/api/app-state/settings", (req, res) => {
+  const incoming = req.body || {};
+  appSettings = { ...appSettings, ...incoming };
+  saveAppSettings();
+  res.json({ success: true, settings: appSettings });
+});
+
+app.post("/api/app-state/students", (req, res) => {
+  const { students } = req.body || {};
+  if (Array.isArray(students)) {
+    activeStudentsList = students;
+    saveStudentsList();
+  }
+  res.json({ success: true, count: activeStudentsList.length });
+});
+
+app.post("/api/app-state/template", (req, res) => {
+  const { template } = req.body || {};
+  if (typeof template === "string") {
+    activeTemplate = template;
+    saveTemplate();
+  }
+  res.json({ success: true, template: activeTemplate });
+});
+
+// Cache & Temporary Files Cleanup Endpoint
+app.post("/api/app-state/cleanup", (req, res) => {
+  try {
+    let freedItems = 0;
+    // Clean completed stale campaigns logs older than 30 days if any
+    const oneMonthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    Object.keys(campaigns).forEach(id => {
+      const camp = campaigns[id];
+      if (camp.status === "completed" && camp.endTime && new Date(camp.endTime).getTime() < oneMonthAgo) {
+        delete campaigns[id];
+        freedItems++;
+      }
+    });
+    saveCampaigns();
+
+    // Trim individual logs exceeding 500 records
+    if (individualLogs.length > 500) {
+      individualLogs.splice(500);
+      saveIndividualLogs();
+    }
+
+    if (global.gc) {
+      global.gc();
+    }
+
+    res.json({
+      success: true,
+      message: "تم تنظيف الذاكرة المؤقتة والسجلات القديمة بنجاح لضمان أقصى سرعة واستجابة للنظام",
+      freedItems,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "فشل تنظيف الملفات المؤقتة" });
+  }
+});
 
 // API Endpoints for WhatsApp Config
 app.get("/api/whatsapp/config", (req, res) => {
@@ -601,6 +769,7 @@ app.post("/api/whatsapp/campaign/create", (req, res) => {
       endTime: null,
       logs: campaignLogs,
     };
+    saveCampaigns();
 
     // Start processing in background loop (simulated or real/cloud api)
     processCampaign(campaignId, Number(delayMs) || 3000);
@@ -796,6 +965,7 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
     campaign.status = "completed";
   }
   campaign.endTime = new Date().toISOString();
+  saveCampaigns();
 }
 
 // Pause Campaign
@@ -803,6 +973,7 @@ app.post("/api/whatsapp/campaign/:id/pause", (req, res) => {
   const campaign = campaigns[req.params.id];
   if (!campaign) return res.status(404).json({ error: "الحملة غير موجودة" });
   campaign.status = "paused";
+  saveCampaigns();
   res.json({ success: true, status: "paused" });
 });
 
@@ -812,6 +983,7 @@ app.post("/api/whatsapp/campaign/:id/resume", (req, res) => {
   if (!campaign) return res.status(404).json({ error: "الحملة غير موجودة" });
   
   campaign.status = "running";
+  saveCampaigns();
   // Restart background loop
   const delayMs = req.body.delayMs || 3000;
   
@@ -998,6 +1170,7 @@ app.delete("/api/whatsapp/reports/clear", (req, res) => {
       delete campaigns[key];
     }
   });
+  saveCampaigns();
   res.json({ success: true, message: "تم مسح سجلات التقارير بنجاح" });
 });
 

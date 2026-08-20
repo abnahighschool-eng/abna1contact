@@ -16,7 +16,10 @@ import {
   ChevronDown,
   ChevronUp,
   Check,
-  Award
+  Award,
+  Building,
+  School,
+  Settings
 } from "lucide-react";
 import ConnectionPanel from "./components/ConnectionPanel";
 import ExcelUploader from "./components/ExcelUploader";
@@ -40,31 +43,74 @@ export default function App() {
     "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة"
   );
 
-  // Subtle School Signatories State for Reports
+  // School Information & Signatories State (synced across server & browsers)
   const [signatories, setSignatories] = useState<SchoolSignatories>(() => {
     const saved = localStorage.getItem("school_signatories");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          countryName: parsed.countryName || "المملكة العربية السعودية",
+          ministryName: parsed.ministryName || "وزارة التعليم",
+          administrationName: parsed.administrationName || "الإدارة العامة للتعليم",
+          schoolName: parsed.schoolName || "ثانوية الأبناء الأولى",
+          principalName: parsed.principalName || "",
+          vicePrincipalName: parsed.vicePrincipalName || "",
+          counselorName: parsed.counselorName || "",
+          systemManagerName: parsed.systemManagerName || "",
+          logoUrl: parsed.logoUrl || "",
+          logoWidth: parsed.logoWidth || 60,
+          logoHeight: parsed.logoHeight || 60,
+        };
       } catch (e) {
         console.error(e);
       }
     }
     return {
+      countryName: "المملكة العربية السعودية",
+      ministryName: "وزارة التعليم",
+      administrationName: "الإدارة العامة للتعليم",
+      schoolName: "ثانوية الأبناء الأولى",
       principalName: "",
       vicePrincipalName: "",
       counselorName: "",
+      systemManagerName: "",
+      logoUrl: "",
+      logoWidth: 60,
+      logoHeight: 60,
     };
   });
+  
   const [showSignatoriesConfig, setShowSignatoriesConfig] = useState(false);
   const [signatoriesSavedToast, setSignatoriesSavedToast] = useState(false);
 
-  const handleUpdateSignatory = (field: keyof SchoolSignatories, val: string) => {
+  // Sync state to server & local storage
+  const handleUpdateSignatory = (field: keyof SchoolSignatories, val: any) => {
     const updated = { ...signatories, [field]: val };
     setSignatories(updated);
     localStorage.setItem("school_signatories", JSON.stringify(updated));
     setSignatoriesSavedToast(true);
     setTimeout(() => setSignatoriesSavedToast(false), 2000);
+
+    fetch("/api/app-state/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    }).catch(console.error);
+  };
+
+  const handleBulkUpdateSignatories = (updatedFields: Partial<SchoolSignatories>) => {
+    const updated = { ...signatories, ...updatedFields };
+    setSignatories(updated);
+    localStorage.setItem("school_signatories", JSON.stringify(updated));
+    setSignatoriesSavedToast(true);
+    setTimeout(() => setSignatoriesSavedToast(false), 2000);
+
+    fetch("/api/app-state/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    }).catch(console.error);
   };
 
   const fetchConfig = async () => {
@@ -75,19 +121,44 @@ export default function App() {
         setConfig(data);
       }
     } catch {
-      // Quietly handle transient network hiccups during server restart/initialization
+      // Handled quietly
+    }
+  };
+
+  // Hydrate full state from server on app mount
+  const fetchFullAppState = async () => {
+    try {
+      const res = await fetch("/api/app-state");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.settings) {
+          setSignatories(prev => ({ ...prev, ...data.settings }));
+          localStorage.setItem("school_signatories", JSON.stringify(data.settings));
+        }
+        if (Array.isArray(data.students) && data.students.length > 0) {
+          setStudents(data.students);
+          localStorage.setItem("whatsapp_student_list", JSON.stringify(data.students));
+        }
+        if (data.template) {
+          setTemplate(data.template);
+          localStorage.setItem("whatsapp_student_template", data.template);
+        }
+      }
+    } catch (e) {
+      console.error("Could not fetch remote app-state", e);
     }
   };
 
   useEffect(() => {
     fetchConfig();
-    const interval = setInterval(fetchConfig, 2500);
+    fetchFullAppState();
 
-    // Load local state template if any
+    const interval = setInterval(fetchConfig, 3000);
+
+    // Initial local fallback if server hasn't responded yet
     const savedTemplate = localStorage.getItem("whatsapp_student_template");
-    if (savedTemplate) {
-      setTemplate(savedTemplate);
-    }
+    if (savedTemplate) setTemplate(savedTemplate);
+
     const savedStudents = localStorage.getItem("whatsapp_student_list");
     if (savedStudents) {
       try {
@@ -103,11 +174,25 @@ export default function App() {
   const handleUpdateStudents = (newStudents: Student[]) => {
     setStudents(newStudents);
     localStorage.setItem("whatsapp_student_list", JSON.stringify(newStudents));
+    
+    // Save to server for cross-device/browser sync
+    fetch("/api/app-state/students", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ students: newStudents }),
+    }).catch(console.error);
   };
 
   const handleTemplateChange = (newTmpl: string) => {
     setTemplate(newTmpl);
     localStorage.setItem("whatsapp_student_template", newTmpl);
+
+    // Save to server for cross-device/browser sync
+    fetch("/api/app-state/template", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template: newTmpl }),
+    }).catch(console.error);
   };
 
   const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;
@@ -117,37 +202,51 @@ export default function App() {
       
       {/* Dynamic Navigation Banner */}
       <header className="bg-white border-b border-slate-200/80 sticky top-0 z-30 shadow-sm" id="main-header">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4">
           
-          {/* Logo & Brand */}
+          {/* Logo & Dynamic School Name */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/10 shrink-0">
-              <Send className="w-5 h-5 rotate-180" />
-            </div>
+            {signatories.logoUrl ? (
+              <img
+                src={signatories.logoUrl}
+                alt="شعار"
+                referrerPolicy="no-referrer"
+                className="w-10 h-10 object-contain rounded-xl border border-slate-200 p-0.5 bg-white shrink-0"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/10 shrink-0">
+                <Send className="w-5 h-5 rotate-180" />
+              </div>
+            )}
+
             <div className="text-right">
-              <h1 className="text-lg font-bold text-slate-800 leading-none">ثانوية الأبناء الأولى - مرسل الطلاب الذكي</h1>
-              <span className="text-[10px] text-slate-400 font-medium">نظام إرسال رسائل وتنبيهات الطلاب عبر واتساب</span>
+              <h1 className="text-base sm:text-lg font-bold text-slate-800 leading-none">
+                {signatories.schoolName || "ثانوية الأبناء الأولى"} - مرسل الطلاب الذكي
+              </h1>
+              <span className="text-[10px] text-slate-400 font-medium">
+                {signatories.administrationName || "الإدارة العامة للتعليم"} • نظام الإرسال والتقارير الرسمية
+              </span>
             </div>
           </div>
 
-          {/* Core Applet Status Indicators & Subtle Signatories Toggle */}
-          <div className="flex flex-wrap items-center gap-2.5 text-xs" id="header-status-indicators">
+          {/* Core Applet Status Indicators & Signatories Toggle */}
+          <div className="flex flex-wrap items-center gap-2 text-xs" id="header-status-indicators">
             
-            {/* Subtle Signatories Configuration Trigger (Non-intrusive / Secondary) */}
+            {/* School & Signatories Configuration Trigger */}
             <button
               onClick={() => setShowSignatoriesConfig(prev => !prev)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-[11px] font-medium cursor-pointer ${
                 showSignatoriesConfig
                   ? "bg-slate-800 text-white border-slate-700 shadow-sm"
-                  : (signatories.principalName || signatories.vicePrincipalName || signatories.counselorName)
-                    ? "bg-amber-50/80 text-amber-900 border-amber-200 hover:bg-amber-100/80"
-                    : "bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-700 hover:bg-slate-100"
+                  : (signatories.principalName || signatories.schoolName)
+                    ? "bg-amber-50/90 text-amber-900 border-amber-200 hover:bg-amber-100"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:text-slate-800 hover:bg-slate-100"
               }`}
-              title="تخصيص أسماء المعتمدين والموقعين بالتقارير (اختياري)"
+              title="تخصيص بيانات المدرسة، الإدارة وأسماء المعتمدين بالتقارير"
               id="btn-toggle-signatories"
             >
-              <Award className="w-3.5 h-3.5" />
-              <span>أسماء المعتمدين بالتقارير</span>
+              <Building className="w-3.5 h-3.5 text-amber-500" />
+              <span>بيانات المدرسة والمعتمدين</span>
               {showSignatoriesConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
 
@@ -182,28 +281,95 @@ export default function App() {
 
         </div>
 
-        {/* SUBTLE / SECONDARY COLLAPSIBLE SIGNATORIES CONFIG PANEL */}
+        {/* EXPANDED EDITABLE SCHOOL, ADMINISTRATION & SIGNATORIES PANEL */}
         {showSignatoriesConfig && (
-          <div className="bg-slate-50 border-t border-slate-200/90 py-3 px-4 animate-fadeIn no-print" id="subtle-signatories-panel">
-            <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="bg-slate-50 border-t border-slate-200/90 py-4 px-4 animate-fadeIn no-print" id="subtle-signatories-panel">
+            <div className="max-w-7xl mx-auto flex flex-col gap-3">
               
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-slate-600 shrink-0">
-                  أسماء معتمدي التقرير:
-                </span>
-                <span className="text-[10px] text-slate-400 hidden lg:inline">
-                  (أدخل الأسماء يدوياً هنا لتنعكس مباشرة في تذييل وخانات توقيعات التقارير المطبوعة)
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                <div className="flex items-center gap-2">
+                  <School className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-800">
+                    تعديل بيانات المدرسة والإدارة وأسماء المعتمدين (تنعكس فوراً على الترويسة والتقارير المطبوعة):
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {signatoriesSavedToast && (
+                    <span className="text-emerald-600 font-bold text-xs flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      <Check className="w-3 h-3" />
+                      تم الحفظ سحابياً ومحلياً
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setShowSignatoriesConfig(false)}
+                    className="text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded text-xs cursor-pointer"
+                  >
+                    إغلاق ✕
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 flex-1 max-w-3xl">
+              {/* Editable Fields Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
                 
-                {/* Principal Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 focus-within:ring-1 focus-within:ring-emerald-500">
+                {/* 1. Country Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
+                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الدولة:</span>
+                  <input
+                    type="text"
+                    value={signatories.countryName || "المملكة العربية السعودية"}
+                    onChange={(e) => handleUpdateSignatory("countryName", e.target.value)}
+                    placeholder="المملكة العربية السعودية"
+                    className="w-full text-xs font-bold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
+                    id="input-country-name"
+                  />
+                </div>
+
+                {/* 2. Ministry Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
+                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الوزارة:</span>
+                  <input
+                    type="text"
+                    value={signatories.ministryName || "وزارة التعليم"}
+                    onChange={(e) => handleUpdateSignatory("ministryName", e.target.value)}
+                    placeholder="وزارة التعليم"
+                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
+                    id="input-ministry-name"
+                  />
+                </div>
+
+                {/* 3. Administration Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
+                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الإدارة:</span>
+                  <input
+                    type="text"
+                    value={signatories.administrationName || ""}
+                    onChange={(e) => handleUpdateSignatory("administrationName", e.target.value)}
+                    placeholder="الإدارة العامة للتعليم..."
+                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
+                    id="input-admin-name"
+                  />
+                </div>
+
+                {/* 4. School Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
+                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">المدرسة:</span>
+                  <input
+                    type="text"
+                    value={signatories.schoolName || ""}
+                    onChange={(e) => handleUpdateSignatory("schoolName", e.target.value)}
+                    placeholder="ثانوية الأبناء الأولى"
+                    className="w-full text-xs font-bold text-emerald-950 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
+                    id="input-school-name"
+                  />
+                </div>
+
+                {/* 5. Principal Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
                   <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">المدير:</span>
                   <input
                     type="text"
-                    value={signatories.principalName}
+                    value={signatories.principalName || ""}
                     onChange={(e) => handleUpdateSignatory("principalName", e.target.value)}
                     placeholder="اسم مدير المدرسة..."
                     className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
@@ -211,12 +377,12 @@ export default function App() {
                   />
                 </div>
 
-                {/* Vice Principal Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 focus-within:ring-1 focus-within:ring-emerald-500">
+                {/* 6. Vice Principal Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
                   <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الوكيل:</span>
                   <input
                     type="text"
-                    value={signatories.vicePrincipalName}
+                    value={signatories.vicePrincipalName || ""}
                     onChange={(e) => handleUpdateSignatory("vicePrincipalName", e.target.value)}
                     placeholder="اسم وكيل شؤون الطلاب..."
                     className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
@@ -224,12 +390,12 @@ export default function App() {
                   />
                 </div>
 
-                {/* Counselor Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 focus-within:ring-1 focus-within:ring-emerald-500">
+                {/* 5. Counselor Name */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
                   <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الموجه:</span>
                   <input
                     type="text"
-                    value={signatories.counselorName}
+                    value={signatories.counselorName || ""}
                     onChange={(e) => handleUpdateSignatory("counselorName", e.target.value)}
                     placeholder="اسم الموجه الطلابي..."
                     className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
@@ -239,23 +405,6 @@ export default function App() {
 
               </div>
 
-              {/* Status Indicator feedback */}
-              <div className="flex items-center justify-end gap-2 text-[10px]">
-                {signatoriesSavedToast ? (
-                  <span className="text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    <Check className="w-3 h-3" />
-                    تم الحفظ
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setShowSignatoriesConfig(false)}
-                    className="text-slate-400 hover:text-slate-600 px-2 py-1 rounded text-[11px] cursor-pointer"
-                  >
-                    إغلاق ✕
-                  </button>
-                )}
-              </div>
-
             </div>
           </div>
         )}
@@ -263,7 +412,7 @@ export default function App() {
       </header>
 
       {/* Primary Dashboard Container */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex flex-col gap-8">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex flex-col gap-6">
         
         {/* Navigation / Wizard Tab Links */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-sm text-sm font-semibold text-slate-500 animate-fadeIn gap-1" id="wizard-navigation-tabs">
@@ -370,6 +519,8 @@ export default function App() {
             <ReportsPrinter 
               students={students}
               signatories={signatories}
+              template={template}
+              onUpdateSignatory={handleBulkUpdateSignatories}
               onNavigateToTab={(tab) => setActiveTab(tab)}
             />
           </div>
@@ -378,17 +529,19 @@ export default function App() {
       </main>
 
       {/* System Footer Info */}
-      <footer className="bg-white border-t border-slate-200/80 py-6 text-center text-xs text-slate-500 select-none mt-12" id="main-footer">
+      <footer className="bg-white border-t border-slate-200/80 py-5 text-center text-xs text-slate-500 select-none mt-8" id="main-footer">
         <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-3">
-          <p className="font-medium">جميع الحقوق محفوظة لثانوية الأبناء الأولى 2026 - 2027</p>
+          <p className="font-medium">
+            جميع الحقوق محفوظة لـ {signatories.schoolName || "ثانوية الأبناء الأولى"} 2026 - 2027
+          </p>
           <div className="flex items-center gap-4 text-[10px] font-bold">
             <span className="flex items-center gap-1 text-emerald-600">
               <ShieldCheck className="w-3.5 h-3.5" />
-              تشفير اتصالات آمن
+              تشفير واتصال آمن
             </span>
             <span className="flex items-center gap-1 text-slate-500">
               <Smartphone className="w-3.5 h-3.5" />
-              واجهة مخصصة للهواتف
+              متوافق مع الجوال والمتصفحات
             </span>
           </div>
         </div>
@@ -397,4 +550,3 @@ export default function App() {
     </div>
   );
 }
-

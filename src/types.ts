@@ -68,8 +68,24 @@ export interface ReportFilterState {
 }
 
 export interface SchoolSignatories {
+  countryName?: string;
+  ministryName?: string;
+  administrationName?: string;
+  schoolName?: string;
   principalName: string;
   vicePrincipalName: string;
   counselorName: string;
+  systemManagerName?: string;
+  logoUrl?: string;
+  logoWidth?: number;
+  logoHeight?: number;
+}
+
+export interface ReportPrintOptions {
+  messageDisplayMode: "header_summary" | "table_column" | "both" | "hidden";
+  tableFontSize: "normal" | "compact" | "ultra_compact";
+  removeBlankLines: boolean;
+  showSignatures: boolean;
+  showStatsBox: boolean;
 }
 
