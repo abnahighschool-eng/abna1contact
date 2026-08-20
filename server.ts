@@ -829,27 +829,14 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
     const log = campaign.logs[i];
     if (log.status !== "pending") continue;
 
-    // Automated Safety Break: Take a rest break after every 15 consecutive messages
-    if (messagesInCurrentBatch >= 15 && i < totalLogs) {
-      messagesInCurrentBatch = 0;
-      const restBreakDuration = Math.floor(45000 + Math.random() * 25000); // 45 to 70 seconds
-      (campaign as any).restBreakUntil = Date.now() + restBreakDuration;
-      console.log(`[Anti-Ban Protection] Automated safety break active for ${Math.round(restBreakDuration / 1000)}s after 15 messages...`);
-      await new Promise(resolve => setTimeout(resolve, restBreakDuration));
-      (campaign as any).restBreakUntil = null;
-    }
-
     log.status = "sending";
     
-    // Dynamic Human Jitter: add random variance (+/- 3000ms) to prevent fixed periodicity bot detection
-    const jitter = Math.floor(Math.random() * 5000) - 2000;
-    const actualDelay = Math.max(6000, Number(baseDelayMs || 12000) + jitter);
+    // Dynamic Human Jitter: slight natural variance (+/- 500ms)
+    const jitter = Math.floor(Math.random() * 1000) - 500;
+    const actualDelay = Math.max(1000, Number(baseDelayMs || 3000) + jitter);
 
     if (i > 0) {
       await new Promise(resolve => setTimeout(resolve, actualDelay));
-    } else {
-      // Initial human hesitation buffer (2 seconds)
-      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     // Check again after delay
@@ -911,25 +898,12 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
         
         const jid = `${formattedPhone}@s.whatsapp.net`;
         
-        // 1. Simulate Human Presence & Chat Composing (Typing state)
+        // Quick presence update (non-blocking)
         try {
-          await sock.sendPresenceUpdate("available");
-          await sock.sendPresenceUpdate("composing", jid);
-        } catch (presenceErr) {
-          // ignore presence non-blocking errors
-        }
+          sock.sendPresenceUpdate("available").catch(() => {});
+        } catch (presenceErr) {}
 
-        // Realistic typing duration based on message length (2000ms - 4200ms)
-        const typingDuration = Math.min(4200, Math.max(1800, log.message.length * 22 + Math.random() * 600));
-        await new Promise(resolve => setTimeout(resolve, typingDuration));
-
-        try {
-          await sock.sendPresenceUpdate("paused", jid);
-        } catch (e) {
-          // ignore
-        }
-
-        // 2. Inject anti-spam zero-width hash variance to break repetitive broadcast fingerprint
+        // Inject anti-spam zero-width hash variance to ensure unique payload hash
         const randomizedMessage = injectAntiSpamVariation(log.message);
         await sock.sendMessage(jid, { text: randomizedMessage });
         
