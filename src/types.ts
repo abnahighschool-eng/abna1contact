@@ -114,3 +114,48 @@ export interface ReportPrintOptions {
   showStatsBox: boolean;
 }
 
+// Noor System Student Absence Record
+export interface NoorStudentAbsence {
+  id: string;
+  studentName: string;
+  nationalId?: string;
+  grade?: string;
+  className?: string;
+  phone?: string;
+  // Excused absence count and specific dates from Noor
+  excusedDaysCount: number;
+  excusedDates: string[]; // e.g. ["1447/08/10", "1447/08/15", ...]
+  // Unexcused absence count and specific dates from Noor
+  unexcusedDaysCount: number;
+  unexcusedDates: string[]; // e.g. ["1447/08/12", "1447/08/14", ...]
+  // Tardiness count
+  tardyCount?: number;
+  lastUpdated?: string;
+  source?: "noor_tool" | "manual" | "excel_import";
+  notes?: string;
+}
+
+// Guidance & Counseling Procedural Action History
+export interface GuidanceStudentAction {
+  id: string;
+  studentId: string;
+  studentName: string;
+  absenceType: "excused" | "unexcused";
+  threshold: "3_days" | "5_days" | "10_days";
+  actionType: "learning_plan" | "case_study" | "parent_whatsapp" | "committee_meeting" | "principal_referral" | "child_protection_escalation";
+  title: string;
+  details?: string;
+  generatedDocumentType?: "learning_plan" | "case_study" | "committee_minutes" | "principal_referral";
+  generatedDocumentContent?: string;
+  whatsappMessageSent?: string;
+  whatsappSentAt?: string;
+  createdAt: string;
+  status: "completed" | "pending";
+}
+
+// Guidance Committee Member
+export interface GuidanceCommitteeMember {
+  role: string;
+  name: string;
+}
+

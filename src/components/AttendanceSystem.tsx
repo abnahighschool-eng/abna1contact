@@ -18,10 +18,14 @@ import {
   Zap,
   PauseCircle,
   XCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ShieldCheck,
+  Bookmark,
+  FileText
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../types";
 import { saveAttendanceDataToCloud } from "../firebaseService";
+import GuidanceAbsenceWorkflow from "./GuidanceAbsenceWorkflow";
 
 interface AttendanceSystemProps {
   students: Student[];
@@ -29,6 +33,7 @@ interface AttendanceSystemProps {
   isWhatsAppConnected: boolean;
   onNavigateToMessages: (tab?: "connection" | "upload" | "send" | "individual" | "reports") => void;
 }
+
 
 // Utility: Normalize and extract phone number from any Excel column format
 export function extractStudentPhone(student: any): string {
@@ -128,9 +133,30 @@ export default function AttendanceSystem({
   isWhatsAppConnected,
   onNavigateToMessages,
 }: AttendanceSystemProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"daily_absence" | "daily_tardiness" | "notifications" | "reports">("daily_absence");
+  const [activeSubTab, setActiveSubTab] = useState<"guidance_workflow" | "daily_absence" | "daily_tardiness" | "notifications" | "reports">("guidance_workflow");
   
+  // Direct send message handler for Guidance workflow
+  const handleDirectSendSingleMessage = async (
+    phone: string, 
+    message: string, 
+    studentName: string, 
+    grade?: string, 
+    className?: string
+  ): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/whatsapp/send-single", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, message, studentName, grade, className })
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
   // Selected date for attendance (YYYY-MM-DD)
+
   const getTodayISO = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -804,8 +830,8 @@ export default function AttendanceSystem({
         </div>
       )}
 
-      {/* Warning when no students exist yet */}
-      {students.length === 0 && (
+      {/* Warning when no students exist yet for daily manual tabs */}
+      {activeSubTab !== "guidance_workflow" && students.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-3xl p-8 text-center space-y-4 no-print">
           <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
             <AlertTriangle className="w-7 h-7" />
@@ -829,80 +855,105 @@ export default function AttendanceSystem({
       )}
 
       {/* Main Attendance Module Interface */}
-      {students.length > 0 && (
-        <div className="space-y-6">
+      <div className="space-y-6">
+        
+        {/* Subtabs for Attendance Module */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-xs text-xs font-semibold text-slate-600 gap-1.5 no-print" id="attendance-subtabs">
           
-          {/* Subtabs for Attendance Module */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-xs text-xs font-semibold text-slate-600 gap-1 no-print" id="attendance-subtabs">
-            <button
-              onClick={() => setActiveSubTab("daily_absence")}
-              className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                activeSubTab === "daily_absence"
-                  ? "bg-slate-900 text-white shadow-sm font-bold"
-                  : "hover:bg-slate-50 hover:text-slate-900"
-              }`}
-              id="tab-btn-daily-absence"
-            >
-              <UserX className="w-4 h-4" />
-              <span>رصد الغياب اليومي</span>
-              {attendanceStats.totalAbsent > 0 && (
-                <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-                  {attendanceStats.totalAbsent}
-                </span>
-              )}
-            </button>
+          {/* 1. Noor Extractor & Guidance Actions Tab (Default Primary) */}
+          <button
+            onClick={() => setActiveSubTab("guidance_workflow")}
+            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+              activeSubTab === "guidance_workflow"
+                ? "bg-emerald-600 text-white shadow-sm font-black"
+                : "hover:bg-slate-50 hover:text-slate-900 bg-emerald-50/60 text-emerald-900 border border-emerald-200/70"
+            }`}
+            id="tab-btn-guidance-workflow"
+          >
+            <Zap className="w-4 h-4 text-amber-300" />
+            <span>سحب غيابات نور وإجراءات التوجيه</span>
+          </button>
 
-            <button
-              onClick={() => setActiveSubTab("daily_tardiness")}
-              className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                activeSubTab === "daily_tardiness"
-                  ? "bg-slate-900 text-white shadow-sm font-bold"
-                  : "hover:bg-slate-50 hover:text-slate-900"
-              }`}
-              id="tab-btn-daily-tardiness"
-            >
-              <Clock className="w-4 h-4" />
-              <span>رصد التأخر الصباحي</span>
-              {attendanceStats.tardy > 0 && (
-                <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-                  {attendanceStats.tardy}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setActiveSubTab("daily_absence")}
+            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === "daily_absence"
+                ? "bg-slate-900 text-white shadow-sm font-bold"
+                : "hover:bg-slate-50 hover:text-slate-900"
+            }`}
+            id="tab-btn-daily-absence"
+          >
+            <UserX className="w-4 h-4" />
+            <span>رصد الغياب اليومي</span>
+            {attendanceStats.totalAbsent > 0 && (
+              <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                {attendanceStats.totalAbsent}
+              </span>
+            )}
+          </button>
 
-            <button
-              onClick={() => setActiveSubTab("notifications")}
-              className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                activeSubTab === "notifications"
-                  ? "bg-slate-900 text-white shadow-sm font-bold"
-                  : "hover:bg-slate-50 hover:text-slate-900"
-              }`}
-              id="tab-btn-attendance-notifications"
-            >
-              <Bell className="w-4 h-4" />
-              <span>إشعارات أولياء الأمور</span>
-              {recordedStudents.length > 0 && (
-                <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-                  {recordedStudents.length}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setActiveSubTab("daily_tardiness")}
+            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === "daily_tardiness"
+                ? "bg-slate-900 text-white shadow-sm font-bold"
+                : "hover:bg-slate-50 hover:text-slate-900"
+            }`}
+            id="tab-btn-daily-tardiness"
+          >
+            <Clock className="w-4 h-4" />
+            <span>رصد التأخر الصباحي</span>
+            {attendanceStats.tardy > 0 && (
+              <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                {attendanceStats.tardy}
+              </span>
+            )}
+          </button>
 
-            <button
-              onClick={() => setActiveSubTab("reports")}
-              className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                activeSubTab === "reports"
-                  ? "bg-emerald-700 text-white shadow-sm font-bold"
-                  : "hover:bg-slate-50 hover:text-slate-900"
-              }`}
-              id="tab-btn-attendance-reports"
-            >
-              <Printer className="w-4 h-4" />
-              <span>تقارير الانضباط والطباعة</span>
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveSubTab("notifications")}
+            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === "notifications"
+                ? "bg-slate-900 text-white shadow-sm font-bold"
+                : "hover:bg-slate-50 hover:text-slate-900"
+            }`}
+            id="tab-btn-attendance-notifications"
+          >
+            <Bell className="w-4 h-4" />
+            <span>إشعارات أولياء الأمور</span>
+            {recordedStudents.length > 0 && (
+              <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                {recordedStudents.length}
+              </span>
+            )}
+          </button>
 
-          {/* Global Attendance Controls & Stats Bar (Date Selector + Counters) */}
+          <button
+            onClick={() => setActiveSubTab("reports")}
+            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === "reports"
+                ? "bg-emerald-700 text-white shadow-sm font-bold"
+                : "hover:bg-slate-50 hover:text-slate-900"
+            }`}
+            id="tab-btn-attendance-reports"
+          >
+            <Printer className="w-4 h-4" />
+            <span>كشف الانضباط والطباعة</span>
+          </button>
+        </div>
+
+        {/* 0. Subtab: Noor Extractor & Guidance Procedures Workflow */}
+        {activeSubTab === "guidance_workflow" && (
+          <GuidanceAbsenceWorkflow
+            students={students}
+            signatories={signatories}
+            isWhatsAppConnected={isWhatsAppConnected}
+            onSendSingleMessage={handleDirectSendSingleMessage}
+          />
+        )}
+
+        {/* Global Attendance Controls & Stats Bar for Manual Daily Tabs */}
+        {activeSubTab !== "guidance_workflow" && (
           <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs space-y-4 no-print">
             
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
@@ -971,6 +1022,8 @@ export default function AttendanceSystem({
             </div>
 
           </div>
+        )}
+
 
           {/* 1. Subtab: Daily Absence Recording */}
           {activeSubTab === "daily_absence" && (
@@ -1771,7 +1824,6 @@ export default function AttendanceSystem({
           )}
 
         </div>
-      )}
 
       {/* Live Interactive Batch Sender Modal */}
       {batchProgress.isOpen && (

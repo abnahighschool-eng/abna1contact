@@ -1190,7 +1190,46 @@ app.delete("/api/whatsapp/reports/clear", (req, res) => {
   res.json({ success: true, message: "تم مسح سجلات التقارير بنجاح" });
 });
 
+// Noor Extractor Absences State
+let noorAbsencesList: any[] = [];
+let guidanceActionsHistory: any[] = [];
+
+// Noor Sync Endpoints
+app.get("/api/noor/absences", (req, res) => {
+  res.json({ absences: noorAbsencesList, total: noorAbsencesList.length });
+});
+
+app.post("/api/noor/sync-absences", (req, res) => {
+  const { absences } = req.body;
+  if (Array.isArray(absences)) {
+    noorAbsencesList = absences;
+    console.log(`[Noor Extractor] Synced ${absences.length} student absence records.`);
+    return res.json({ success: true, count: absences.length, message: "تمت مزامنة غيابات نظام نور بنجاح" });
+  }
+  res.status(400).json({ error: "بيانات الغياب غير صالحة" });
+});
+
+// Guidance Student Actions Log Endpoints
+app.get("/api/guidance/actions", (req, res) => {
+  res.json({ actions: guidanceActionsHistory });
+});
+
+app.post("/api/guidance/actions", (req, res) => {
+  const action = req.body;
+  if (action && action.studentId) {
+    const newAction = {
+      id: `act_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      ...action,
+      createdAt: new Date().toISOString()
+    };
+    guidanceActionsHistory.unshift(newAction);
+    return res.json({ success: true, action: newAction });
+  }
+  res.status(400).json({ error: "بيانات الإجراء غير مكتملة" });
+});
+
 // Setup Vite Dev Server / Serve static assets in production
+
 async function startServer() {
   // 1. Restore server state from Firestore if available (useful on fresh cloud container boots)
   try {
