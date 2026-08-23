@@ -21,13 +21,18 @@ import {
   School,
   Settings,
   CloudCheck,
-  Cloud
+  Cloud,
+  Menu,
+  X
 } from "lucide-react";
 import ConnectionPanel from "./components/ConnectionPanel";
 import ExcelUploader from "./components/ExcelUploader";
 import CampaignMonitor from "./components/CampaignMonitor";
 import IndividualSender from "./components/IndividualSender";
 import ReportsPrinter from "./components/ReportsPrinter";
+import Sidebar, { MainSectionType } from "./components/Sidebar";
+import HomeDashboard from "./components/HomeDashboard";
+import AttendanceSystem from "./components/AttendanceSystem";
 import { Student, WhatsAppConfig, SchoolSignatories } from "./types";
 import { 
   loadInitialAppData, 
@@ -36,7 +41,10 @@ import {
 } from "./firebaseService";
 
 export default function App() {
+  const [mainSection, setMainSection] = useState<MainSectionType>("messages");
   const [activeTab, setActiveTab] = useState<"connection" | "upload" | "send" | "individual" | "reports">("connection");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   const [config, setConfig] = useState<WhatsAppConfig>({
     mode: "simulated",
     simulatedStatus: "disconnected",
@@ -246,7 +254,7 @@ export default function App() {
       
       {/* Dynamic Navigation Banner */}
       <header className="bg-white border-b border-slate-200/80 sticky top-0 z-30 shadow-sm" id="main-header">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="w-full px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4">
           
           {/* Logo & Dynamic School Name */}
           <div className="flex items-center gap-3">
@@ -455,122 +463,171 @@ export default function App() {
 
       </header>
 
-      {/* Primary Dashboard Container */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex flex-col gap-6">
+      {/* Primary Dashboard Container with Sidebar and Content Area */}
+      <div className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col md:flex-row gap-5 items-start">
         
-        {/* Navigation / Wizard Tab Links */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-sm text-sm font-semibold text-slate-500 animate-fadeIn gap-1" id="wizard-navigation-tabs">
+        {/* Main Side Navigation Bar */}
+        <Sidebar
+          currentSection={mainSection}
+          onSelectSection={(sec) => setMainSection(sec)}
+          studentsCount={students.length}
+          isWhatsAppConnected={isWhatsAppConnected}
+          schoolName={signatories.schoolName}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
+        />
+
+        {/* Dynamic Section Content Viewport */}
+        <main className="flex-1 min-w-0 flex flex-col gap-6" id="primary-content-viewport">
           
-          <button
-            onClick={() => setActiveTab("connection")}
-            className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm ${
-              activeTab === "connection"
-                ? "bg-slate-900 text-white shadow-sm font-bold"
-                : "hover:text-slate-800 hover:bg-slate-50"
-            }`}
-            id="tab-btn-connection"
-          >
-            <Link2 className="w-4 h-4 shrink-0" />
-            <span>الربط والاتصال</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("upload")}
-            className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm ${
-              activeTab === "upload"
-                ? "bg-slate-900 text-white shadow-sm font-bold"
-                : "hover:text-slate-800 hover:bg-slate-50"
-            }`}
-            id="tab-btn-upload"
-          >
-            <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span>رفع كشوف الطلاب</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("send")}
-            disabled={students.length === 0}
-            className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm ${
-              activeTab === "send"
-                ? "bg-slate-900 text-white shadow-sm font-bold"
-                : "hover:text-slate-800 hover:bg-slate-50"
-            }`}
-            id="tab-btn-send"
-          >
-            <Send className="w-4 h-4 shrink-0 rotate-180" />
-            <span>حملة الإرسال الجماعي</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("individual")}
-            className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm ${
-              activeTab === "individual"
-                ? "bg-slate-900 text-white shadow-sm font-bold"
-                : "hover:text-slate-800 hover:bg-slate-50"
-            }`}
-            id="tab-btn-individual"
-          >
-            <User className="w-4 h-4 shrink-0" />
-            <span>إرسال فردي سريع</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("reports")}
-            className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm col-span-2 sm:col-span-1 ${
-              activeTab === "reports"
-                ? "bg-emerald-700 text-white shadow-sm font-bold"
-                : "hover:text-emerald-800 hover:bg-emerald-50/60 text-emerald-700"
-            }`}
-            id="tab-btn-reports"
-          >
-            <Printer className="w-4 h-4 shrink-0" />
-            <span>التقارير والطباعة</span>
-          </button>
-
-        </div>
-
-        {/* Wizard Main Panel with Keep-Alive View Preservation */}
-        <div className="flex-1" id="wizard-panels-viewport">
-          <div className={activeTab === "connection" ? "block" : "hidden"}>
-            <ConnectionPanel 
-              config={config} 
-              onUpdateConfig={(updated) => setConfig((prev) => ({ ...prev, ...updated }))} 
-              onRefreshConfig={fetchConfig}
-            />
-          </div>
-
-          <div className={activeTab === "upload" ? "block" : "hidden"}>
-            <ExcelUploader 
-              students={students} 
-              onStudentsLoaded={handleUpdateStudents} 
-            />
-          </div>
-
-          <div className={activeTab === "send" ? "block" : "hidden"}>
-            <CampaignMonitor 
-              students={students} 
-              template={template} 
-              onTemplateChange={handleTemplateChange}
-              isWhatsAppConnected={isWhatsAppConnected}
-            />
-          </div>
-
-          <div className={activeTab === "individual" ? "block" : "hidden"}>
-            <IndividualSender isWhatsAppConnected={isWhatsAppConnected} />
-          </div>
-
-          <div className={activeTab === "reports" ? "block" : "hidden"}>
-            <ReportsPrinter 
+          {/* 1. Main Section: Home / Dashboard */}
+          {mainSection === "home" && (
+            <HomeDashboard
               students={students}
               signatories={signatories}
-              template={template}
-              onUpdateSignatory={handleBulkUpdateSignatories}
-              onNavigateToTab={(tab) => setActiveTab(tab)}
+              config={config}
+              onNavigateToMessages={(tab) => {
+                setMainSection("messages");
+                if (tab) setActiveTab(tab);
+              }}
+              onNavigateToAttendance={() => setMainSection("attendance")}
+              onOpenSignatoriesConfig={() => setShowSignatoriesConfig(true)}
             />
-          </div>
-        </div>
+          )}
 
-      </main>
+          {/* 2. Main Section: Messaging System (Existing tabs & features) */}
+          <div className={mainSection === "messages" ? "flex flex-col gap-6 w-full animate-fadeIn" : "hidden"}>
+            
+            {/* Navigation / Wizard Tab Links */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-sm text-sm font-semibold text-slate-500 gap-1" id="wizard-navigation-tabs">
+              
+              <button
+                onClick={() => setActiveTab("connection")}
+                className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm ${
+                  activeTab === "connection"
+                    ? "bg-slate-900 text-white shadow-sm font-bold"
+                    : "hover:text-slate-800 hover:bg-slate-50"
+                }`}
+                id="tab-btn-connection"
+              >
+                <Link2 className="w-4 h-4 shrink-0" />
+                <span>الربط والاتصال</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("upload")}
+                className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm ${
+                  activeTab === "upload"
+                    ? "bg-slate-900 text-white shadow-sm font-bold"
+                    : "hover:text-slate-800 hover:bg-slate-50"
+                }`}
+                id="tab-btn-upload"
+              >
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>رفع كشوف الطلاب</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("send")}
+                disabled={students.length === 0}
+                className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm ${
+                  activeTab === "send"
+                    ? "bg-slate-900 text-white shadow-sm font-bold"
+                    : "hover:text-slate-800 hover:bg-slate-50"
+                }`}
+                id="tab-btn-send"
+              >
+                <Send className="w-4 h-4 shrink-0 rotate-180" />
+                <span>حملة الإرسال الجماعي</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("individual")}
+                className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm ${
+                  activeTab === "individual"
+                    ? "bg-slate-900 text-white shadow-sm font-bold"
+                    : "hover:text-slate-800 hover:bg-slate-50"
+                }`}
+                id="tab-btn-individual"
+              >
+                <User className="w-4 h-4 shrink-0" />
+                <span>إرسال فردي سريع</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("reports")}
+                className={`py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer text-xs sm:text-sm col-span-2 sm:col-span-1 ${
+                  activeTab === "reports"
+                    ? "bg-emerald-700 text-white shadow-sm font-bold"
+                    : "hover:text-emerald-800 hover:bg-emerald-50/60 text-emerald-700"
+                }`}
+                id="tab-btn-reports"
+              >
+                <Printer className="w-4 h-4 shrink-0" />
+                <span>التقارير والطباعة</span>
+              </button>
+
+            </div>
+
+            {/* Wizard Main Panel with Keep-Alive View Preservation */}
+            <div className="flex-1" id="wizard-panels-viewport">
+              <div className={activeTab === "connection" ? "block" : "hidden"}>
+                <ConnectionPanel 
+                  config={config} 
+                  onUpdateConfig={(updated) => setConfig((prev) => ({ ...prev, ...updated }))} 
+                  onRefreshConfig={fetchConfig}
+                />
+              </div>
+
+              <div className={activeTab === "upload" ? "block" : "hidden"}>
+                <ExcelUploader 
+                  students={students} 
+                  onStudentsLoaded={handleUpdateStudents} 
+                />
+              </div>
+
+              <div className={activeTab === "send" ? "block" : "hidden"}>
+                <CampaignMonitor 
+                  students={students} 
+                  template={template} 
+                  onTemplateChange={handleTemplateChange}
+                  isWhatsAppConnected={isWhatsAppConnected}
+                />
+              </div>
+
+              <div className={activeTab === "individual" ? "block" : "hidden"}>
+                <IndividualSender isWhatsAppConnected={isWhatsAppConnected} />
+              </div>
+
+              <div className={activeTab === "reports" ? "block" : "hidden"}>
+                <ReportsPrinter 
+                  students={students}
+                  signatories={signatories}
+                  template={template}
+                  onUpdateSignatory={handleBulkUpdateSignatories}
+                  onNavigateToTab={(tab) => setActiveTab(tab)}
+                />
+              </div>
+            </div>
+
+          </div>
+
+          {/* 3. Main Section: Attendance & Tardiness */}
+          {mainSection === "attendance" && (
+            <AttendanceSystem
+              students={students}
+              signatories={signatories}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onNavigateToMessages={(tab) => {
+                setMainSection("messages");
+                if (tab) setActiveTab(tab);
+              }}
+            />
+          )}
+
+        </main>
+
+      </div>
 
       {/* System Footer Info */}
       <footer className="bg-white border-t border-slate-200/80 py-5 text-center text-xs text-slate-500 select-none mt-8" id="main-footer">

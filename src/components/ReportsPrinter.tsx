@@ -168,7 +168,7 @@ export default function ReportsPrinter({
                     status: item.status || "success",
                     timestamp: item.timestamp || new Date().toISOString(),
                     type: "individual",
-                    error: item.error
+                    ...(item.error ? { error: item.error } : {})
                   });
                 }
               });
@@ -205,7 +205,19 @@ export default function ReportsPrinter({
         }
       }
     } catch (err) {
-      console.error("Error fetching report logs", err);
+      console.warn("Report logs fetch notice (relying on local state):", err);
+      // Fallback to local individual history if server is initializing
+      const localIndHistory = localStorage.getItem("whatsapp_individual_history");
+      if (localIndHistory) {
+        try {
+          const parsed = JSON.parse(localIndHistory);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setLogs((prev) => prev.length > 0 ? prev : parsed);
+          }
+        } catch {
+          // ignore
+        }
+      }
     } finally {
       setIsLoading(false);
     }

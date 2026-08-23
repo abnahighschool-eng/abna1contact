@@ -81,6 +81,31 @@ export interface SchoolSignatories {
   logoHeight?: number;
 }
 
+export interface AttendanceRecord {
+  id: string;
+  studentId: string;
+  studentName: string;
+  phone?: string;
+  grade?: string;
+  className?: string;
+  date: string; // YYYY-MM-DD
+  status: "present" | "absent_unexcused" | "absent_excused" | "tardy";
+  tardyMinutes?: number;
+  notes?: string;
+  notified?: boolean;
+  notifiedAt?: string;
+  timestamp: string;
+}
+
+export interface DailyAttendanceSummary {
+  date: string;
+  totalStudents: number;
+  presentCount: number;
+  absentUnexcusedCount: number;
+  absentExcusedCount: number;
+  tardyCount: number;
+}
+
 export interface ReportPrintOptions {
   messageDisplayMode: "header_summary" | "table_column" | "both" | "hidden";
   tableFontSize: "normal" | "compact" | "ultra_compact";
