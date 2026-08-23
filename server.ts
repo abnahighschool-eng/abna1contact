@@ -5,6 +5,13 @@ import fs from "fs";
 import * as BaileysModule from "@whiskeysockets/baileys";
 import pino from "pino";
 import QRCode from "qrcode";
+import {
+  backupBaileysSessionToFirestore,
+  restoreBaileysSessionFromFirestore,
+  deleteBaileysSessionInFirestore,
+  syncServerStateToFirestore,
+  loadServerStateFromFirestore,
+} from "./src/serverFirebase";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -26,12 +33,25 @@ process.on("unhandledRejection", (reason) => {
   console.warn("Recovered from unhandledRejection:", reason);
 });
 
-// Initialize Express app
+// Initialize Express app with dynamic PORT for Render / Cloud platforms
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Health Check Endpoints for Render, Uptime Monitors, and Cloud Probes
+app.get(["/api/health", "/health", "/ping"], (req, res) => {
+  const isConnected = realConnectionStatus === "connected" || !!(sock && sock.user);
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    whatsappMode: whatsappConfig.mode,
+    isConnected,
+    realStatus: realConnectionStatus,
+    connectedPhone: connectedPhoneNumber ? `+${connectedPhoneNumber}` : (whatsappConfig.simulatedPhone || ""),
+  });
+});
 
 // In-memory data store for WhatsApp states & Campaigns
 let whatsappConfig = {
@@ -65,6 +85,17 @@ let realErrorMessage: string = "";
 let realConnectionStatus: "disconnected" | "qr_ready" | "pairing_code_ready" | "connecting" | "connected" | "error" = "disconnected";
 let connectedPhoneNumber: string = "";
 let connectionTimeoutTimer: NodeJS.Timeout | null = null;
+let firestoreSessionBackupTimer: NodeJS.Timeout | null = null;
+
+function scheduleFirestoreSessionBackup() {
+  if (firestoreSessionBackupTimer) clearTimeout(firestoreSessionBackupTimer);
+  firestoreSessionBackupTimer = setTimeout(() => {
+    const authFolder = path.join(process.cwd(), "auth_info_baileys");
+    backupBaileysSessionToFirestore(authFolder).catch((err) => {
+      console.warn("[Firebase] WhatsApp session auto-backup error:", err);
+    });
+  }, 2000);
+}
 
 async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr", targetPhone?: string) {
   try {
@@ -129,6 +160,7 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
     
     sock.ev.on("creds.update", async () => {
       await saveCreds();
+      scheduleFirestoreSessionBackup();
     });
     
     sock.ev.on("connection.update", async (update: any) => {
@@ -164,6 +196,7 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
         whatsappConfig.simulatedStatus = "connected";
         whatsappConfig.simulatedPhone = "+" + connectedPhoneNumber;
         saveConfig();
+        scheduleFirestoreSessionBackup();
         console.log(`Real WhatsApp linked successfully: +${connectedPhoneNumber}`);
       }
       
@@ -181,6 +214,7 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
           whatsappConfig.simulatedStatus = "disconnected";
           whatsappConfig.simulatedPhone = "";
           saveConfig();
+          deleteBaileysSessionInFirestore().catch(() => {});
         } else if (shouldReconnect) {
           // Reconnect automatically on 515 (restartRequired) or temporary closed socket during handshake
           console.log("Automatically resuming Baileys socket handshake / session...");
@@ -350,6 +384,7 @@ if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
 function saveIndividualLogs() {
   try {
     fs.writeFileSync(INDIVIDUAL_LOGS_FILE, JSON.stringify(individualLogs.slice(0, 1000), null, 2), "utf-8");
+    syncServerStateToFirestore({ individualLogs: individualLogs.slice(0, 500) }).catch(() => {});
   } catch (e) {
     console.error("Error saving individual_logs.json", e);
   }
@@ -358,6 +393,7 @@ function saveIndividualLogs() {
 function saveCampaigns() {
   try {
     fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf-8");
+    syncServerStateToFirestore({ campaigns }).catch(() => {});
   } catch (e) {
     console.error("Error saving campaigns_store.json", e);
   }
@@ -366,6 +402,7 @@ function saveCampaigns() {
 function saveAppSettings() {
   try {
     fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(appSettings, null, 2), "utf-8");
+    syncServerStateToFirestore({ appSettings }).catch(() => {});
   } catch (e) {
     console.error("Error saving app_settings.json", e);
   }
@@ -374,6 +411,7 @@ function saveAppSettings() {
 function saveStudentsList() {
   try {
     fs.writeFileSync(STUDENTS_FILE, JSON.stringify(activeStudentsList, null, 2), "utf-8");
+    syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
   } catch (e) {
     console.error("Error saving students_store.json", e);
   }
@@ -382,6 +420,7 @@ function saveStudentsList() {
 function saveTemplate() {
   try {
     fs.writeFileSync(TEMPLATE_FILE, activeTemplate, "utf-8");
+    syncServerStateToFirestore({ activeTemplate }).catch(() => {});
   } catch (e) {
     console.error("Error saving template_store.json", e);
   }
@@ -401,6 +440,7 @@ if (fs.existsSync(CONFIG_FILE)) {
 const saveConfig = () => {
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(whatsappConfig, null, 2), "utf-8");
+    syncServerStateToFirestore({ whatsappConfig }).catch(() => {});
   } catch (e) {
     console.error("Error writing config file", e);
   }
@@ -592,6 +632,7 @@ app.post("/api/whatsapp/real/reset", async (req, res) => {
   whatsappConfig.simulatedStatus = "disconnected";
   whatsappConfig.simulatedPhone = "";
   saveConfig();
+  await deleteBaileysSessionInFirestore().catch(() => {});
   
   const authFolder = path.join(process.cwd(), "auth_info_baileys");
   if (fs.existsSync(authFolder)) {
@@ -625,6 +666,7 @@ app.post("/api/whatsapp/real/disconnect", async (req, res) => {
   whatsappConfig.simulatedStatus = "disconnected";
   whatsappConfig.simulatedPhone = "";
   saveConfig();
+  await deleteBaileysSessionInFirestore().catch(() => {});
   
   const authFolder = path.join(process.cwd(), "auth_info_baileys");
   if (fs.existsSync(authFolder)) {
@@ -1150,6 +1192,35 @@ app.delete("/api/whatsapp/reports/clear", (req, res) => {
 
 // Setup Vite Dev Server / Serve static assets in production
 async function startServer() {
+  // 1. Restore server state from Firestore if available (useful on fresh cloud container boots)
+  try {
+    const cloudState = await loadServerStateFromFirestore();
+    if (cloudState) {
+      if (cloudState.appSettings && Object.keys(cloudState.appSettings).length > 0) {
+        appSettings = { ...appSettings, ...cloudState.appSettings };
+      }
+      if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
+        if (activeStudentsList.length === 0) activeStudentsList = cloudState.activeStudentsList;
+      }
+      if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
+        activeTemplate = cloudState.activeTemplate;
+      }
+      if (cloudState.whatsappConfig) {
+        whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
+      }
+      if (cloudState.campaigns && Object.keys(campaigns).length === 0) {
+        Object.assign(campaigns, cloudState.campaigns);
+      }
+      if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
+        individualLogs.push(...cloudState.individualLogs);
+      }
+      console.log("[Firebase] System state successfully synchronized from Firestore.");
+    }
+  } catch (e) {
+    console.warn("[Firebase] Could not restore initial server state:", e);
+  }
+
+  // 2. Setup Vite Dev Server or Serve static assets
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1164,9 +1235,18 @@ async function startServer() {
     });
   }
 
-  // Restore existing registered WhatsApp sessions automatically on reboot
+  // 3. Restore existing registered WhatsApp sessions from disk or Firestore on reboot/redeploy
   const authFolder = path.join(process.cwd(), "auth_info_baileys");
   const credsFile = path.join(authFolder, "creds.json");
+  
+  try {
+    if (!fs.existsSync(credsFile)) {
+      await restoreBaileysSessionFromFirestore(authFolder);
+    }
+  } catch (e) {
+    console.warn("[Firebase] Could not restore WhatsApp session from Firestore:", e);
+  }
+
   if (fs.existsSync(credsFile)) {
     try {
       const credsData = JSON.parse(fs.readFileSync(credsFile, "utf-8"));
@@ -1178,6 +1258,22 @@ async function startServer() {
       console.warn("Could not inspect creds.json", e);
     }
   }
+
+  // 4. Background Reconnection Watchdog for Render sleep/wake cycles & network drops
+  setInterval(() => {
+    if (whatsappConfig.mode === "real" && (realConnectionStatus === "disconnected" || realConnectionStatus === "error")) {
+      const localCreds = path.join(authFolder, "creds.json");
+      if (fs.existsSync(localCreds)) {
+        try {
+          const creds = JSON.parse(fs.readFileSync(localCreds, "utf-8"));
+          if (creds?.registered) {
+            console.log("[Watchdog] Auto-reconnecting registered WhatsApp session...");
+            initRealWhatsApp("resume");
+          }
+        } catch (e) {}
+      }
+    }
+  }, 45000);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
