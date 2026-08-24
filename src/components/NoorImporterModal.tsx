@@ -340,11 +340,12 @@ export default function NoorImporterModal({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 font-bold text-xs text-emerald-950">
                     <Sparkles className="w-4 h-4 text-emerald-600" />
-                    <span>طريقة السحب الفوري (لا تحتاج تثبيت أي شيء إطلاقاً):</span>
+                    <span>طريقة السحب الفوري المباشر من تقارير نظام نور:</span>
                   </div>
                   <p className="text-[11px] text-emerald-800 leading-relaxed">
-                    1. في صفحة نظام نور: حدد جدول الغياب أو اضغط (<kbd className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">Ctrl + A</kbd> ثم <kbd className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">Ctrl + C</kbd>).<br />
-                    2. اضغط الزر الأخضر بالأسفل للصق التلقائي، وسيتولى المحرك الذكي استخراج الأسماء والفصول وحالات الغياب فوراً!
+                    1. في نظام نور: افتح <strong>التقارير</strong> ⬅️ <strong>تقارير الطلاب</strong> ⬅️ <strong>تقرير الغياب على مستوى الطالب</strong> (أو كشف تثبيت الغياب اليومي).<br />
+                    2. انسخ الصفحة (<kbd className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">Ctrl + A</kbd> ثم <kbd className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">Ctrl + C</kbd>) واضغط الزر الأخضر بالأسفل.<br />
+                    3. يتعرف النظام الذكي تلقائياً على اسم الطالب، الصف، الفصل، المسار، عدد أيام الغياب، وتواريخ الغياب ونسبة الغياب!
                   </p>
                 </div>
 
@@ -361,10 +362,10 @@ export default function NoorImporterModal({
                   <button
                     onClick={handleLoadSampleDay1}
                     className="px-3 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs shrink-0"
-                    title="تجربة كشف غياب اليوم الأول (5 طلاب) فوراً"
+                    title="تحميل نموذج من تقرير الغياب على مستوى الطالب"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
-                    <span>كشف تجريبي (يوم 1)</span>
+                    <span>نموذج تقرير نور 📑</span>
                   </button>
                 </div>
               </div>
@@ -373,7 +374,7 @@ export default function NoorImporterModal({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-slate-800">
-                    أو الصق النص المنسوخ من نظام نور هنا يدوياً (Ctrl + V):
+                    أو الصق النص المنسوخ من تقرير نظام نور هنا يدوياً (Ctrl + V):
                   </label>
                   {pasteContent && (
                     <button
@@ -395,7 +396,7 @@ export default function NoorImporterModal({
                     setPasteContent(e.target.value);
                     processRawText(e.target.value);
                   }}
-                  placeholder="الصق هنا النص أو الجدول المنسوخ من نظام نور (يتم التعرف تلقائياً على الأسماء، السجلات المدنية، الفصول، الغياب بعذر وبدون عذر والتواريخ)..."
+                  placeholder="الصق هنا نص تقرير الغياب على مستوى الطالب أو جدول تثبيت الغياب من نور (يتعرف تلقائياً على اسم الطالب، الصف، الفصل، عدد الغياب، تواريخ الغياب، ونسبة الغياب)..."
                   className="w-full border border-slate-300 rounded-2xl p-3.5 text-xs font-mono text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all leading-relaxed"
                 />
               </div>
@@ -414,7 +415,7 @@ export default function NoorImporterModal({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-emerald-950 font-bold text-xs">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>تم التعرف الذكي على ({parsedPreview.length}) طالب غائب</span>
+                      <span>تم التعرف الذكي على ({parsedPreview.length}) طالب من كشوفات وتقارير نور</span>
                     </div>
 
                     <div className="flex items-center gap-2 text-[11px] font-bold">
@@ -426,33 +427,31 @@ export default function NoorImporterModal({
                   </div>
 
                   {/* Preview Table */}
-                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white shadow-xs">
+                  <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl bg-white shadow-xs">
                     <table className="w-full text-right text-xs">
                       <thead className="bg-slate-100 font-bold text-slate-700 border-b border-slate-200 sticky top-0">
                         <tr>
                           <th className="p-2 w-8 text-center">م</th>
                           <th className="p-2">اسم الطالب</th>
-                          <th className="p-2">السجل المدني</th>
-                          <th className="p-2">الصف/الفصل</th>
-                          <th className="p-2 text-center">بعذر</th>
+                          <th className="p-2">الصف / الفصل</th>
                           <th className="p-2 text-center">بدون عذر</th>
+                          <th className="p-2 text-center">بعذر</th>
+                          <th className="p-2 text-center">نسبة الغياب</th>
+                          <th className="p-2">تواريخ الغياب</th>
                           <th className="p-2">الجوال</th>
-                          <th className="p-2">التاريخ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {parsedPreview.map((st, i) => (
                           <tr key={i} className="hover:bg-emerald-50/40">
                             <td className="p-2 text-center font-bold text-slate-400">{i + 1}</td>
-                            <td className="p-2 font-bold text-slate-900">{st.studentName}</td>
-                            <td className="p-2 font-mono text-slate-600">{st.nationalId || "-"}</td>
-                            <td className="p-2 text-slate-600">{st.grade} {st.className}</td>
-                            <td className="p-2 text-center font-bold text-blue-700">
-                              {st.excusedDaysCount > 0 ? (
-                                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-mono">
-                                  {st.excusedDaysCount}
-                                </span>
-                              ) : "-"}
+                            <td className="p-2">
+                              <span className="font-bold text-slate-900 block">{st.studentName}</span>
+                              {st.nationalId && <span className="text-[10px] text-slate-400 font-mono">سجل: {st.nationalId}</span>}
+                            </td>
+                            <td className="p-2 text-slate-600">
+                              <span className="font-semibold text-slate-800 block">{st.grade} {st.className ? `- ${st.className}` : ""}</span>
+                              {st.track && <span className="text-[10px] text-slate-500">{st.track}</span>}
                             </td>
                             <td className="p-2 text-center font-bold text-red-700">
                               {st.unexcusedDaysCount > 0 ? (
@@ -461,15 +460,27 @@ export default function NoorImporterModal({
                                 </span>
                               ) : "-"}
                             </td>
+                            <td className="p-2 text-center font-bold text-blue-700">
+                              {st.excusedDaysCount > 0 ? (
+                                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                                  {st.excusedDaysCount}
+                                </span>
+                              ) : "-"}
+                            </td>
+                            <td className="p-2 text-center font-mono font-bold text-slate-700">
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200">
+                                {st.absenceRate || (st.unexcusedDaysCount + st.excusedDaysCount) || 1}
+                              </span>
+                            </td>
+                            <td className="p-2 text-[11px] font-mono text-slate-600 max-w-[140px] truncate" title={(st.unexcusedDates.concat(st.excusedDates)).join(", ")}>
+                              {(st.unexcusedDates.concat(st.excusedDates)).join("، ") || "-"}
+                            </td>
                             <td className="p-2 font-mono text-[11px]">
                               {st.phone ? (
                                 <span className="text-emerald-700 font-bold">{st.phone}</span>
                               ) : (
                                 <span className="text-slate-400">-</span>
                               )}
-                            </td>
-                            <td className="p-2 text-[11px] font-mono text-slate-500">
-                              {(st.excusedDates.concat(st.unexcusedDates)).slice(0, 2).join(", ") || "-"}
                             </td>
                           </tr>
                         ))}

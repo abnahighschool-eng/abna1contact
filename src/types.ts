@@ -121,6 +121,7 @@ export interface NoorStudentAbsence {
   nationalId?: string;
   grade?: string;
   className?: string;
+  track?: string; // e.g. السنة المشتركة / مسارات
   phone?: string;
   // Excused absence count and specific dates from Noor
   excusedDaysCount: number;
@@ -128,6 +129,8 @@ export interface NoorStudentAbsence {
   // Unexcused absence count and specific dates from Noor
   unexcusedDaysCount: number;
   unexcusedDates: string[]; // e.g. ["1447/08/12", "1447/08/14", ...]
+  // Absence percentage or total rate from Noor report (نسبة غياب الطالب)
+  absenceRate?: string | number;
   // Tardiness count
   tardyCount?: number;
   lastUpdated?: string;

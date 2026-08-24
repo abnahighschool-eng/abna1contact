@@ -87,8 +87,192 @@ export function enrichWithExistingStudents(
 }
 
 /**
+ * Specialized parser for Noor's "تقرير الغياب على مستوى الطالب"
+ * (Reports -> Students Reports -> Student-Level Absence Report)
+ * Extracts: Student Name, Grade, Track, Class, Absence Dates, Excused/Unexcused count, and Absence Rate.
+ */
+export function parseStudentLevelAbsenceReport(text: string): {
+  matched: boolean;
+  absences: NoorStudentAbsence[];
+  message: string;
+} {
+  const isReportMatch = 
+    text.includes("تقرير الغياب على مستوى الطالب") ||
+    (text.includes("اسم الطالب") && (text.includes("نوع الغياب") || text.includes("نسبة غياب الطالب") || text.includes("غياب الطالب")));
+
+  if (!isReportMatch) {
+    return { matched: false, absences: [], message: "" };
+  }
+
+  // 1. Extract Global Page Metadata (الصف، القسم، الفصل، النظام الدراسي)
+  let globalGrade = "";
+  let globalClass = "";
+  let globalTrack = "";
+
+  const gradeMatch = text.match(/الصف\s*[:\t]\s*([^\n\r\t]+?)(?=\s*(القسم|الفصل|النظام|تقرير|اسم|$))/i);
+  if (gradeMatch) globalGrade = cleanText(gradeMatch[1]);
+
+  const classMatch = text.match(/الفصل\s*[:\t]\s*([^\n\r\t]+?)(?=\s*(القسم|الصف|النظام|تقرير|اسم|$))/i);
+  if (classMatch) globalClass = cleanText(classMatch[1]);
+
+  const trackMatch = text.match(/القسم\s*[:\t]\s*([^\n\r\t]+?)(?=\s*(الصف|الفصل|النظام|تقرير|اسم|$))/i);
+  if (trackMatch) globalTrack = cleanText(trackMatch[1]);
+
+  // 2. Split document into Student Sections (each starting with "اسم الطالب")
+  const studentSections = text.split(/(?=اسم الطالب)/g);
+  const absences: NoorStudentAbsence[] = [];
+  const seenNames = new Set<string>();
+
+  for (let sIdx = 0; sIdx < studentSections.length; sIdx++) {
+    const sec = studentSections[sIdx];
+    if (!sec.includes("اسم الطالب")) continue;
+
+    const lines = sec.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) continue;
+
+    let studentName = "";
+    let nationalId = "";
+    let localGrade = globalGrade;
+    let localClass = globalClass;
+    let localTrack = globalTrack;
+    let absenceRate = "";
+    const unexcusedDates: string[] = [];
+    const excusedDates: string[] = [];
+
+    // Find student name from the line containing "اسم الطالب" or following line
+    for (let l = 0; l < lines.length; l++) {
+      const line = lines[l];
+      if (line.includes("اسم الطالب")) {
+        // e.g. "اسم الطالب	حمد ابراهيم بن عوض البلوي" or "اسم الطالب: حمد ابراهيم"
+        const parts = line.split(/[\t:]/).map(p => cleanText(p)).filter(p => p.length > 0);
+        const nameCandidates = parts.filter(p => p !== "اسم الطالب" && !p.includes("من تاريخ") && p.length > 2);
+        if (nameCandidates.length > 0) {
+          studentName = nameCandidates[0];
+        } else if (l + 1 < lines.length) {
+          const nextLine = lines[l + 1];
+          if (!nextLine.includes("من تاريخ") && !nextLine.includes("غياب الطالب") && !nextLine.includes("الصف")) {
+            studentName = cleanText(nextLine);
+          }
+        }
+        break;
+      }
+    }
+
+    if (!studentName || studentName.length < 3 || studentName === "اسم الطالب") {
+      continue;
+    }
+
+    // Clean name of extra artifacts
+    studentName = studentName
+      .replace(/^[:\s\t-]+/, "")
+      .replace(/من تاريخ.*$/, "")
+      .trim();
+
+    if (seenNames.has(studentName)) continue;
+    seenNames.add(studentName);
+
+    // Scan all lines in this student section for absence rows and rates
+    for (let l = 0; l < lines.length; l++) {
+      const line = lines[l];
+
+      // Match Grade / Class / Track if overridden locally
+      if (!localGrade && line.includes("الصف")) {
+        const gm = line.match(/الصف\s*[:\t]\s*([^\n\r\t]+)/);
+        if (gm) localGrade = cleanText(gm[1]);
+      }
+      if (!localClass && line.includes("الفصل")) {
+        const cm = line.match(/الفصل\s*[:\t]\s*([^\n\r\t]+)/);
+        if (cm) localClass = cleanText(cm[1]);
+      }
+
+      // Check for Absence Rate: "نسبة غياب الطالب	1"
+      if (line.includes("نسبة غياب الطالب") || line.includes("نسبة الغياب")) {
+        const parts = line.split(/[\t: ]+/).map(p => cleanText(p)).filter(p => p.length > 0);
+        const rateCandidates = parts.filter(p => !p.includes("نسبة") && !p.includes("غياب") && !p.includes("الطالب"));
+        if (rateCandidates.length > 0) {
+          absenceRate = rateCandidates[0];
+        }
+      }
+
+      // Look for National ID (10 digits starting with 1 or 2)
+      if (!nationalId && /[12]\d{9}/.test(line)) {
+        const nidMatch = line.match(/[12]\d{9}/);
+        if (nidMatch) nationalId = nidMatch[0];
+      }
+
+      // Look for absence record lines with dates
+      const dates = extractDatesFromText(line);
+      if (dates.length > 0) {
+        // Exclude the interval period line ("من تاريخ 10/03/1448 الى تاريخ 10/03/1448")
+        if (line.includes("من تاريخ") && line.includes("الى تاريخ")) {
+          continue;
+        }
+
+        const date = dates[0];
+        if (line.includes("بعذر") || line.includes("عذر مقبول") || line.includes("مقبول")) {
+          if (!excusedDates.includes(date)) excusedDates.push(date);
+        } else if (
+          line.includes("بدون عذر") || 
+          line.includes("غير مبرر") || 
+          line.includes("غياب") || 
+          line.includes("الأحد") || 
+          line.includes("الإثنين") || 
+          line.includes("الثلاثاء") || 
+          line.includes("الأربعاء") || 
+          line.includes("الخميس")
+        ) {
+          if (!unexcusedDates.includes(date)) unexcusedDates.push(date);
+        }
+      }
+    }
+
+    const unexcusedCount = unexcusedDates.length;
+    const excusedCount = excusedDates.length;
+    const totalAbsent = unexcusedCount + excusedCount;
+
+    // Fallback if no dates were extracted but count was found
+    if (totalAbsent === 0 && absenceRate) {
+      const parsedNum = parseInt(absenceRate.replace(/[^0-9]/g, ""), 10);
+      if (!isNaN(parsedNum) && parsedNum > 0) {
+        const todayH = getCurrentHijriDate();
+        unexcusedDates.push(todayH);
+      }
+    }
+
+    absences.push({
+      id: nationalId || `noor_rep_${Date.now()}_${absences.length}`,
+      studentName,
+      nationalId,
+      grade: localGrade || "الأول الثانوي",
+      className: localClass || "",
+      track: localTrack || "",
+      phone: "",
+      excusedDaysCount: excusedDates.length,
+      excusedDates,
+      unexcusedDaysCount: unexcusedDates.length > 0 ? unexcusedDates.length : (excusedDates.length === 0 ? 1 : 0),
+      unexcusedDates: unexcusedDates.length > 0 ? unexcusedDates : (excusedDates.length === 0 ? [getCurrentHijriDate()] : []),
+      absenceRate: absenceRate || String(unexcusedDates.length + excusedDates.length || 1),
+      tardyCount: 0,
+      lastUpdated: new Date().toISOString(),
+      source: "noor_tool",
+    });
+  }
+
+  if (absences.length > 0) {
+    return {
+      matched: true,
+      absences,
+      message: `تم سحب بيانات (${absences.length}) طالب بدقة عالية من تقرير الغياب على مستوى الطالب بنظام نور!`,
+    };
+  }
+
+  return { matched: false, absences: [], message: "" };
+}
+
+/**
  * Intelligent Smart Parser for any text copied from Noor system
  * Handles:
+ * - Student-Level Absence Reports (تقرير الغياب على مستوى الطالب)
  * - JSON output from Browser Extension / Console Script
  * - Table copies (TSV from Chrome/Edge)
  * - Space-separated text dumps from Noor WebForms
@@ -101,7 +285,7 @@ export function parseNoorRawText(raw: string): {
 } {
   const text = (raw || "").trim();
   if (!text) {
-    return { success: false, absences: [], message: "النص المدخل فارغ. يرجى نسخ جدول الغياب من نظام نور ولصقه هنا." };
+    return { success: false, absences: [], message: "النص المدخل فارغ. يرجى نسخ تقرير أو جدول الغياب من نظام نور ولصقه هنا." };
   }
 
   const defaultDate = getCurrentHijriDate();
@@ -129,11 +313,13 @@ export function parseNoorRawText(raw: string): {
             nationalId: item.nationalId ? String(item.nationalId).trim() : "",
             grade: cleanText(item.grade) || "المرحلة الثانوية",
             className: cleanText(item.className) || "",
+            track: cleanText(item.track) || "",
             phone: item.phone ? String(item.phone).trim() : "",
             excusedDaysCount: excused,
             excusedDates: exDates,
             unexcusedDaysCount: unexcused > 0 ? unexcused : (excused === 0 ? 1 : 0),
             unexcusedDates: unDates.length > 0 ? unDates : (excused === 0 ? [defaultDate] : []),
+            absenceRate: item.absenceRate || String(excused + unexcused || 1),
             tardyCount: Number(item.tardyCount || 0),
             lastUpdated: new Date().toISOString(),
             source: "noor_tool",
@@ -149,6 +335,16 @@ export function parseNoorRawText(raw: string): {
     } catch (e) {
       // Continue to textual parser
     }
+  }
+
+  // Method 2: Check for Noor Student-Level Absence Report (تقرير الغياب على مستوى الطالب)
+  const reportResult = parseStudentLevelAbsenceReport(text);
+  if (reportResult.matched && reportResult.absences.length > 0) {
+    return {
+      success: true,
+      absences: reportResult.absences,
+      message: reportResult.message,
+    };
   }
 
   // Method 2: Intelligent Multi-line / Tabular Parser

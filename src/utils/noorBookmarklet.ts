@@ -17,6 +17,18 @@ export const NOOR_CONSOLE_CODE = `(function() {
       return matches ? matches.map(function(d) { return d.replace(/\\-/g, "/"); }) : [];
     }
 
+    function extractFieldValue(label, text) {
+      if (!text || text.indexOf(label) === -1) return "";
+      var idx = text.indexOf(label);
+      var sub = text.substring(idx + label.length);
+      sub = sub.replace(/^[\\s:\\t-]+/, "");
+      var endMatch = sub.match(/[\\n\\r\\t]|الصف|القسم|الفصل|النظام|تقرير|اسم/);
+      if (endMatch && endMatch.index !== undefined && endMatch.index > 0) {
+        sub = sub.substring(0, endMatch.index);
+      }
+      return clean(sub);
+    }
+
     // 1. Gather all document frames
     var allDocs = [document];
     var iframes = document.querySelectorAll("iframe, frame");
@@ -51,130 +63,250 @@ export const NOOR_CONSOLE_CODE = `(function() {
     var students = [];
     var seen = new Set();
 
-    // 3. Scan all tables in all frames
+    // 3. Specialized Scan: Noor "تقرير الغياب على مستوى الطالب"
     allDocs.forEach(function(doc) {
-      var tables = doc.querySelectorAll("table, div[role='grid'], .ui-datatable, .dxgvTable");
-      tables.forEach(function(tbl) {
-        var rows = Array.from(tbl.querySelectorAll("tr, div[role='row']"));
-        if (rows.length < 2) return;
+      var bodyText = doc.body ? clean(doc.body.innerText) : "";
+      var isStudentReport = bodyText.indexOf("تقرير الغياب على مستوى الطالب") > -1 || 
+        (bodyText.indexOf("اسم الطالب") > -1 && (bodyText.indexOf("نوع الغياب") > -1 || bodyText.indexOf("نسبة غياب الطالب") > -1 || bodyText.indexOf("غياب الطالب") > -1));
 
-        var headers = [];
-        var firstRow = rows[0];
-        Array.from(firstRow.querySelectorAll("th, td")).forEach(function(th) {
-          headers.push(clean(th.innerText));
-        });
+      if (!isStudentReport) return;
 
-        for (var r = 1; r < rows.length; r++) {
-          var row = rows[r];
-          var cells = Array.from(row.querySelectorAll("td, th, div[role='gridcell']"));
-          if (cells.length < 2) continue;
+      var globalGrade = extractFieldValue("الصف", bodyText);
+      var globalClass = extractFieldValue("الفصل", bodyText);
+      var globalTrack = extractFieldValue("القسم", bodyText);
 
-          var name = "";
-          var nationalId = "";
-          var grade = "";
-          var className = "";
-          var phone = "";
-          var excusedCount = 0;
-          var excusedDates = [];
-          var unexcusedCount = 0;
-          var unexcusedDates = [];
-          var isAbsent = false;
+      // Scan all cells or labels for "اسم الطالب"
+      var allCells = Array.from(doc.querySelectorAll("td, th, span, div, p"));
+      var nameLabels = allCells.filter(function(el) {
+        var t = clean(el.innerText);
+        return t === "اسم الطالب" || t === "اسم الطالب:" || (t.indexOf("اسم الطالب") === 0 && t.length < 50);
+      });
 
-          // Check Select inputs (Dropdowns)
-          row.querySelectorAll("select").forEach(function(sel) {
-            var text = sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? clean(sel.options[sel.selectedIndex].text) : "";
-            if (text.indexOf("بعذر") > -1 || text.indexOf("مقبول") > -1) {
-              excusedCount = 1; excusedDates.push(pageDate); isAbsent = true;
-            } else if (text.indexOf("بدون") > -1 || text.indexOf("غير مبرر") > -1 || text === "غائب" || text === "غياب") {
-              unexcusedCount = 1; unexcusedDates.push(pageDate); isAbsent = true;
-            }
-          });
+      nameLabels.forEach(function(labelEl) {
+        var stName = "";
+        var labelText = clean(labelEl.innerText);
 
-          // Check Checkboxes / Radios
-          row.querySelectorAll("input[type='radio']:checked, input[type='checkbox']:checked").forEach(function(chk) {
-            var lbl = clean((chk.closest("label") || chk.parentElement || {}).innerText);
-            if (lbl.indexOf("بعذر") > -1) {
-              excusedCount = 1; excusedDates.push(pageDate); isAbsent = true;
-            } else if (lbl.indexOf("بدون") > -1 || lbl.indexOf("غائب") > -1 || (chk.id && chk.id.toLowerCase().indexOf("absent") > -1)) {
-              unexcusedCount = 1; unexcusedDates.push(pageDate); isAbsent = true;
-            }
-          });
+        if (labelText.indexOf(":") > -1) {
+          var p = labelText.split(":");
+          if (p[1] && p[1].trim().length > 3) stName = clean(p[1]);
+        }
 
-          // Scan cell contents
-          cells.forEach(function(c, cIdx) {
-            var h = headers[cIdx] || "";
-            var val = clean(c.innerText);
+        if (!stName && labelEl.nextElementSibling) {
+          stName = clean(labelEl.nextElementSibling.innerText);
+        }
 
-            if (/[12]\\d{9}/.test(val) && !nationalId) {
-              var m = val.match(/[12]\\d{9}/);
-              if (m) nationalId = m[0];
-            }
-
-            if (/^(05\\d{8}|9665\\d{8})$/.test(val.replace(/\\s+/g, "")) && !phone) {
-              phone = val.replace(/\\s+/g, "");
-            }
-
-            if (!name && (h.indexOf("اسم") > -1 || h.indexOf("طالب") > -1)) {
-              if (val.split(" ").length >= 2 && !/\\d{5,}/.test(val)) name = val;
-            }
-
-            if (h.indexOf("صف") > -1 || h.indexOf("مرحلة") > -1) grade = val;
-            if (h.indexOf("فصل") > -1 || h.indexOf("شعبة") > -1) className = val;
-
-            if (h.indexOf("حالة") > -1 || h.indexOf("الغياب") > -1) {
-              if (val.indexOf("بعذر") > -1 || val.indexOf("مقبول") > -1) { excusedCount = Math.max(excusedCount, 1); isAbsent = true; }
-              else if (val.indexOf("بدون") > -1 || val.indexOf("غير مبرر") > -1 || val === "غائب" || val === "غياب") { unexcusedCount = Math.max(unexcusedCount, 1); isAbsent = true; }
-            }
-
-            if (h.indexOf("بعذر") > -1 && h.indexOf("بدون") === -1) {
-              var n = parseInt(val.replace(/[^0-9]/g, ""), 10);
-              if (!isNaN(n) && n > 0) { excusedCount = n; var d = extractDates(val); if (d.length) excusedDates = d; isAbsent = true; }
-            }
-
-            if (h.indexOf("بدون عذر") > -1 || h.indexOf("غير مبرر") > -1) {
-              var n2 = parseInt(val.replace(/[^0-9]/g, ""), 10);
-              if (!isNaN(n2) && n2 > 0) { unexcusedCount = n2; var d2 = extractDates(val); if (d2.length) unexcusedDates = d2; isAbsent = true; }
-            }
-          });
-
-          // Fallback name search
-          if (!name) {
-            cells.forEach(function(c) {
-              if (name) return;
-              var t = clean(c.innerText);
-              if (/^[\\u0621-\\u064A\\s]{6,60}$/.test(t) && t.split(" ").length >= 2 && t.indexOf("الصف") === -1 && t.indexOf("غائب") === -1 && t.indexOf("حاضر") === -1) {
-                name = t;
-              }
-            });
-          }
-
-          if (unexcusedCount > 0 && unexcusedDates.length === 0) unexcusedDates = [pageDate];
-          if (excusedCount > 0 && excusedDates.length === 0) excusedDates = [pageDate];
-
-          if (name && (isAbsent || excusedCount > 0 || unexcusedCount > 0)) {
-            var k = (nationalId || name).trim();
-            if (!seen.has(k)) {
-              seen.add(k);
-              students.push({
-                id: nationalId || ("noor_" + Math.random().toString(36).substr(2, 8)),
-                studentName: name,
-                nationalId: nationalId,
-                grade: grade || "المرحلة الثانوية",
-                className: className || "",
-                phone: phone || "",
-                excusedDaysCount: excusedCount,
-                excusedDates: excusedDates,
-                unexcusedDaysCount: unexcusedCount > 0 ? unexcusedCount : (excusedCount === 0 ? 1 : 0),
-                unexcusedDates: unexcusedDates.length > 0 ? unexcusedDates : (excusedCount === 0 ? [pageDate] : []),
-                totalAbsent: (excusedCount + unexcusedCount) || 1,
-                lastUpdated: new Date().toISOString(),
-                source: "noor_tool"
-              });
-            }
+        if (!stName && labelEl.parentElement) {
+          var rowCells = Array.from(labelEl.parentElement.querySelectorAll("td, th"));
+          var idx = rowCells.indexOf(labelEl);
+          if (idx > -1 && idx < rowCells.length - 1) {
+            stName = clean(rowCells[idx + 1].innerText);
           }
         }
+
+        if (!stName || stName.indexOf("اسم الطالب") > -1 || stName.length < 3) return;
+        stName = stName.replace(/^[:\\s\\t-]+/, "").replace(/من تاريخ.*$/, "").trim();
+
+        if (seen.has(stName)) return;
+        seen.add(stName);
+
+        // Find rows associated with this student
+        var allTrs = Array.from(doc.querySelectorAll("tr"));
+        var labelTr = labelEl.closest("tr");
+        var sIdx = labelTr ? allTrs.indexOf(labelTr) : 0;
+        var nextTr = null;
+        for (var n = sIdx + 1; n < allTrs.length; n++) {
+          if (allTrs[n].innerText.indexOf("اسم الطالب") > -1) {
+            nextTr = allTrs[n];
+            break;
+          }
+        }
+        var eIdx = nextTr ? allTrs.indexOf(nextTr) : allTrs.length;
+        var studentTrs = allTrs.slice(sIdx, eIdx);
+
+        var unexcusedDates = [];
+        var excusedDates = [];
+        var absenceRate = "";
+        var nationalId = "";
+
+        studentTrs.forEach(function(row) {
+          var rText = clean(row.innerText);
+          
+          if (/[12]\\d{9}/.test(rText) && !nationalId) {
+            var mN = rText.match(/[12]\\d{9}/);
+            if (mN) nationalId = mN[0];
+          }
+
+          if (rText.indexOf("نسبة غياب الطالب") > -1 || rText.indexOf("نسبة الغياب") > -1) {
+            var parts = rText.split(/[\\t: ]+/);
+            var rCandidates = parts.filter(function(x) { return x.indexOf("نسبة") === -1 && x.indexOf("غياب") === -1 && x.indexOf("الطالب") === -1 && clean(x).length > 0; });
+            if (rCandidates.length > 0) absenceRate = clean(rCandidates[0]);
+            return;
+          }
+
+          var rowDates = extractDates(rText);
+          if (rowDates.length > 0) {
+            if (rText.indexOf("من تاريخ") > -1 && rText.indexOf("الى تاريخ") > -1) return;
+            var d = rowDates[0];
+            if (rText.indexOf("بعذر") > -1 || rText.indexOf("عذر مقبول") > -1) {
+              if (excusedDates.indexOf(d) === -1) excusedDates.push(d);
+            } else if (rText.indexOf("بدون عذر") > -1 || rText.indexOf("غير مبرر") > -1 || rText.indexOf("غياب") > -1 || rText.indexOf("الأحد") > -1 || rText.indexOf("الإثنين") > -1 || rText.indexOf("الثلاثاء") > -1 || rText.indexOf("الأربعاء") > -1 || rText.indexOf("الخميس") > -1) {
+              if (unexcusedDates.indexOf(d) === -1) unexcusedDates.push(d);
+            }
+          }
+        });
+
+        var unCount = unexcusedDates.length;
+        var exCount = excusedDates.length;
+        var totalAbs = unCount + exCount;
+        if (!absenceRate) absenceRate = String(totalAbs || 1);
+
+        students.push({
+          id: nationalId || ("noor_rep_" + Math.random().toString(36).substr(2, 8)),
+          studentName: stName,
+          nationalId: nationalId,
+          grade: globalGrade || "الأول الثانوي",
+          className: globalClass || "",
+          track: globalTrack || "",
+          phone: "",
+          excusedDaysCount: exCount,
+          excusedDates: excusedDates,
+          unexcusedDaysCount: unCount > 0 ? unCount : (exCount === 0 ? 1 : 0),
+          unexcusedDates: unexcusedDates.length > 0 ? unexcusedDates : (exCount === 0 ? [pageDate] : []),
+          absenceRate: absenceRate,
+          totalAbsent: totalAbs || 1,
+          lastUpdated: new Date().toISOString(),
+          source: "noor_tool"
+        });
       });
     });
+
+    // 4. Standard Attendance Grid Scan (Fallback for Daily Attendance Sheet)
+    if (students.length === 0) {
+      allDocs.forEach(function(doc) {
+        var tables = doc.querySelectorAll("table, div[role='grid'], .ui-datatable, .dxgvTable");
+        tables.forEach(function(tbl) {
+          var rows = Array.from(tbl.querySelectorAll("tr, div[role='row']"));
+          if (rows.length < 2) return;
+
+          var headers = [];
+          var firstRow = rows[0];
+          Array.from(firstRow.querySelectorAll("th, td")).forEach(function(th) {
+            headers.push(clean(th.innerText));
+          });
+
+          for (var r = 1; r < rows.length; r++) {
+            var row = rows[r];
+            var cells = Array.from(row.querySelectorAll("td, th, div[role='gridcell']"));
+            if (cells.length < 2) continue;
+
+            var name = "";
+            var nationalId = "";
+            var grade = "";
+            var className = "";
+            var phone = "";
+            var excusedCount = 0;
+            var excusedDates = [];
+            var unexcusedCount = 0;
+            var unexcusedDates = [];
+            var isAbsent = false;
+
+            // Check Select inputs (Dropdowns)
+            row.querySelectorAll("select").forEach(function(sel) {
+              var text = sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? clean(sel.options[sel.selectedIndex].text) : "";
+              if (text.indexOf("بعذر") > -1 || text.indexOf("مقبول") > -1) {
+                excusedCount = 1; excusedDates.push(pageDate); isAbsent = true;
+              } else if (text.indexOf("بدون") > -1 || text.indexOf("غير مبرر") > -1 || text === "غائب" || text === "غياب") {
+                unexcusedCount = 1; unexcusedDates.push(pageDate); isAbsent = true;
+              }
+            });
+
+            // Check Checkboxes / Radios
+            row.querySelectorAll("input[type='radio']:checked, input[type='checkbox']:checked").forEach(function(chk) {
+              var lbl = clean((chk.closest("label") || chk.parentElement || {}).innerText);
+              if (lbl.indexOf("بعذر") > -1) {
+                excusedCount = 1; excusedDates.push(pageDate); isAbsent = true;
+              } else if (lbl.indexOf("بدون") > -1 || lbl.indexOf("غائب") > -1 || (chk.id && chk.id.toLowerCase().indexOf("absent") > -1)) {
+                unexcusedCount = 1; unexcusedDates.push(pageDate); isAbsent = true;
+              }
+            });
+
+            // Scan cell contents
+            cells.forEach(function(c, cIdx) {
+              var h = headers[cIdx] || "";
+              var val = clean(c.innerText);
+
+              if (/[12]\\d{9}/.test(val) && !nationalId) {
+                var m = val.match(/[12]\\d{9}/);
+                if (m) nationalId = m[0];
+              }
+
+              if (/^(05\\d{8}|9665\\d{8})$/.test(val.replace(/\\s+/g, "")) && !phone) {
+                phone = val.replace(/\\s+/g, "");
+              }
+
+              if (!name && (h.indexOf("اسم") > -1 || h.indexOf("طالب") > -1)) {
+                if (val.split(" ").length >= 2 && !/\\d{5,}/.test(val)) name = val;
+              }
+
+              if (h.indexOf("صف") > -1 || h.indexOf("مرحلة") > -1) grade = val;
+              if (h.indexOf("فصل") > -1 || h.indexOf("شعبة") > -1) className = val;
+
+              if (h.indexOf("حالة") > -1 || h.indexOf("الغياب") > -1) {
+                if (val.indexOf("بعذر") > -1 || val.indexOf("مقبول") > -1) { excusedCount = Math.max(excusedCount, 1); isAbsent = true; }
+                else if (val.indexOf("بدون") > -1 || val.indexOf("غير مبرر") > -1 || val === "غائب" || val === "غياب") { unexcusedCount = Math.max(unexcusedCount, 1); isAbsent = true; }
+              }
+
+              if (h.indexOf("بعذر") > -1 && h.indexOf("بدون") === -1) {
+                var n = parseInt(val.replace(/[^0-9]/g, ""), 10);
+                if (!isNaN(n) && n > 0) { excusedCount = n; var d = extractDates(val); if (d.length) excusedDates = d; isAbsent = true; }
+              }
+
+              if (h.indexOf("بدون عذر") > -1 || h.indexOf("غير مبرر") > -1) {
+                var n2 = parseInt(val.replace(/[^0-9]/g, ""), 10);
+                if (!isNaN(n2) && n2 > 0) { unexcusedCount = n2; var d2 = extractDates(val); if (d2.length) unexcusedDates = d2; isAbsent = true; }
+              }
+            });
+
+            // Fallback name search
+            if (!name) {
+              cells.forEach(function(c) {
+                if (name) return;
+                var t = clean(c.innerText);
+                if (/^[\\u0621-\\u064A\\s]{6,60}$/.test(t) && t.split(" ").length >= 2 && t.indexOf("الصف") === -1 && t.indexOf("غائب") === -1 && t.indexOf("حاضر") === -1) {
+                  name = t;
+                }
+              });
+            }
+
+            if (unexcusedCount > 0 && unexcusedDates.length === 0) unexcusedDates = [pageDate];
+            if (excusedCount > 0 && excusedDates.length === 0) excusedDates = [pageDate];
+
+            if (name && (isAbsent || excusedCount > 0 || unexcusedCount > 0)) {
+              var k = (nationalId || name).trim();
+              if (!seen.has(k)) {
+                seen.add(k);
+                students.push({
+                  id: nationalId || ("noor_" + Math.random().toString(36).substr(2, 8)),
+                  studentName: name,
+                  nationalId: nationalId,
+                  grade: grade || "المرحلة الثانوية",
+                  className: className || "",
+                  phone: phone || "",
+                  excusedDaysCount: excusedCount,
+                  excusedDates: excusedDates,
+                  unexcusedDaysCount: unexcusedCount > 0 ? unexcusedCount : (excusedCount === 0 ? 1 : 0),
+                  unexcusedDates: unexcusedDates.length > 0 ? unexcusedDates : (excusedCount === 0 ? [pageDate] : []),
+                  totalAbsent: (excusedCount + unexcusedCount) || 1,
+                  absenceRate: String((excusedCount + unexcusedCount) || 1),
+                  lastUpdated: new Date().toISOString(),
+                  source: "noor_tool"
+                });
+              }
+            }
+          }
+        });
+      });
+    }
 
     if (students.length === 0) {
       alert("⚠️ لم يتم العثور على طلاب مسجلين كغياب في هذه الصفحة.\\n\\nتأكد من فتح صفحة 'تثبيت الغياب اليومي' أو 'كشف الغياب' في نظام نور بعد تحديد الغائبين والضغط على بحث.");
