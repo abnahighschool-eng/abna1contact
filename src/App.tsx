@@ -33,17 +33,49 @@ import ReportsPrinter from "./components/ReportsPrinter";
 import Sidebar, { MainSectionType } from "./components/Sidebar";
 import HomeDashboard from "./components/HomeDashboard";
 import AttendanceSystem from "./components/AttendanceSystem";
-import { Student, WhatsAppConfig, SchoolSignatories } from "./types";
+import LoginScreen from "./components/LoginScreen";
+import UserManagement from "./components/UserManagement";
+import { Student, WhatsAppConfig, SchoolSignatories, AppUser } from "./types";
 import { 
   loadInitialAppData, 
   saveSchoolDataToCloud, 
-  saveStudentsDataToCloud 
+  saveStudentsDataToCloud,
+  saveUsersDataToCloud,
+  DEFAULT_ADMIN_USER
 } from "./firebaseService";
+import { LogOut } from "lucide-react";
 
 export default function App() {
   const [mainSection, setMainSection] = useState<MainSectionType>("messages");
   const [activeTab, setActiveTab] = useState<"connection" | "upload" | "send" | "individual" | "reports">("connection");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Authentication & Users State
+  const [users, setUsers] = useState<AppUser[]>(() => {
+    const savedUsers = localStorage.getItem("abna_system_users");
+    if (savedUsers) {
+      try {
+        const parsed = JSON.parse(savedUsers);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [DEFAULT_ADMIN_USER];
+  });
+
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
+    const saved = localStorage.getItem("abna_auth_current_user");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.id && parsed.status === "active") return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return null;
+  });
 
   const [config, setConfig] = useState<WhatsAppConfig>({
     mode: "simulated",
@@ -169,6 +201,10 @@ export default function App() {
         setTemplate(cloudData.savedTemplate);
         localStorage.setItem("whatsapp_student_template", cloudData.savedTemplate);
       }
+      if (Array.isArray(cloudData.users) && cloudData.users.length > 0) {
+        setUsers(cloudData.users);
+        localStorage.setItem("abna_system_users", JSON.stringify(cloudData.users));
+      }
 
       // 2. Fallback / Sync from local server state
       const res = await fetch("/api/app-state");
@@ -186,10 +222,67 @@ export default function App() {
           setTemplate(data.template);
           localStorage.setItem("whatsapp_student_template", data.template);
         }
+        if (Array.isArray(data.users) && data.users.length > 0 && (!cloudData.users || cloudData.users.length === 0)) {
+          setUsers(data.users);
+          localStorage.setItem("abna_system_users", JSON.stringify(data.users));
+        }
       }
     } catch (e) {
       console.error("Could not fetch remote app-state", e);
     }
+  };
+
+  const handleLoginSuccess = (user: AppUser) => {
+    // Update lastLogin
+    const updatedUsers = users.map((u) => (u.id === user.id ? { ...u, lastLogin: new Date().toISOString() } : u));
+    setUsers(updatedUsers);
+    localStorage.setItem("abna_system_users", JSON.stringify(updatedUsers));
+    saveUsersDataToCloud(updatedUsers).catch(console.error);
+
+    const activeLoggedInUser = { ...user, lastLogin: new Date().toISOString() };
+    setCurrentUser(activeLoggedInUser);
+    localStorage.setItem("abna_auth_current_user", JSON.stringify(activeLoggedInUser));
+    
+    // Redirect to default home or admin section depending on user
+    if (activeLoggedInUser.role === "admin") {
+      setMainSection("messages");
+    } else {
+      setMainSection("messages");
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem("abna_auth_current_user");
+    setMainSection("messages");
+  };
+
+  const handleSaveUsers = (updatedUsers: AppUser[]) => {
+    setUsers(updatedUsers);
+    localStorage.setItem("abna_system_users", JSON.stringify(updatedUsers));
+
+    // If current logged-in user was updated, update currentUser state
+    if (currentUser) {
+      const refreshedCurrent = updatedUsers.find((u) => u.id === currentUser.id);
+      if (refreshedCurrent) {
+        if (refreshedCurrent.status === "blocked") {
+          handleLogout();
+          return;
+        }
+        setCurrentUser(refreshedCurrent);
+        localStorage.setItem("abna_auth_current_user", JSON.stringify(refreshedCurrent));
+      }
+    }
+
+    // Save to Cloud Firestore
+    saveUsersDataToCloud(updatedUsers).catch(console.error);
+
+    // Save to Server
+    fetch("/api/app-state/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ users: updatedUsers }),
+    }).catch(console.error);
   };
 
   useEffect(() => {
@@ -249,6 +342,17 @@ export default function App() {
 
   const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;
 
+  // 1. Full Authentication Guard: Show login screen if not authenticated or blocked
+  if (!currentUser || currentUser.status === "blocked") {
+    return (
+      <LoginScreen
+        users={users}
+        signatories={signatories}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50/70 text-slate-800 flex flex-col font-sans" dir="rtl" id="app-root">
       
@@ -281,9 +385,28 @@ export default function App() {
             </div>
           </div>
 
-          {/* Core Applet Status Indicators & Signatories Toggle */}
+          {/* Core Applet Status Indicators & Signatories Toggle & Top Logout */}
           <div className="flex flex-wrap items-center gap-2 text-xs" id="header-status-indicators">
             
+            {/* Logged in User Profile Info Chip */}
+            <div className="flex items-center gap-2 px-3 py-1 bg-slate-100/90 rounded-full border border-slate-200/80 text-xs" id="header-user-badge">
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                currentUser.role === "admin" ? "bg-blue-600 text-white" : "bg-slate-700 text-white"
+              }`}>
+                {currentUser.name.charAt(0) || "U"}
+              </div>
+              <span className="font-bold text-slate-800 max-w-32 sm:max-w-40 truncate">
+                {currentUser.name}
+              </span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                currentUser.role === "admin"
+                  ? "bg-blue-50 text-blue-800 border border-blue-200"
+                  : "bg-slate-200 text-slate-700"
+              }`}>
+                {currentUser.role === "admin" ? "مدير نظام" : "مستخدم"}
+              </span>
+            </div>
+
             {/* School & Signatories Configuration Trigger */}
             <button
               onClick={() => setShowSignatoriesConfig(prev => !prev)}
@@ -328,6 +451,17 @@ export default function App() {
                 {students.length > 0 ? `${students.length} طالب جاهز` : "لا توجد قوائم"}
               </span>
             </div>
+
+            {/* Top Logout Button for all users including Admin */}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 font-bold transition-all text-xs cursor-pointer shadow-xs active:scale-95 ml-1"
+              title="تسجيل الخروج من الحساب"
+              id="btn-top-logout"
+            >
+              <LogOut className="w-3.5 h-3.5 rotate-180 text-rose-600" />
+              <span>خروج</span>
+            </button>
 
           </div>
 
@@ -472,6 +606,7 @@ export default function App() {
           onSelectSection={(sec) => setMainSection(sec)}
           studentsCount={students.length}
           isWhatsAppConnected={isWhatsAppConnected}
+          currentUser={currentUser}
           schoolName={signatories.schoolName}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
@@ -622,6 +757,17 @@ export default function App() {
                 setMainSection("messages");
                 if (tab) setActiveTab(tab);
               }}
+            />
+          )}
+
+          {/* 4. Main Section: Admin & User Management */}
+          {mainSection === "admin" && currentUser.role === "admin" && (
+            <UserManagement
+              users={users}
+              currentUser={currentUser}
+              signatories={signatories}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onSaveUsers={handleSaveUsers}
             />
           )}
 

@@ -7,16 +7,20 @@ import {
   ChevronRight,
   School,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
+  Users
 } from "lucide-react";
+import { AppUser } from "../types";
 
-export type MainSectionType = "home" | "messages" | "attendance";
+export type MainSectionType = "home" | "messages" | "attendance" | "admin";
 
 interface SidebarProps {
   currentSection: MainSectionType;
   onSelectSection: (section: MainSectionType) => void;
   studentsCount: number;
   isWhatsAppConnected: boolean;
+  currentUser?: AppUser | null;
   schoolName?: string;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -27,6 +31,7 @@ export default function Sidebar({
   onSelectSection,
   studentsCount,
   isWhatsAppConnected,
+  currentUser,
   schoolName = "ثانوية الأبناء الأولى",
   isCollapsed: externalIsCollapsed,
   onToggleCollapse: externalOnToggleCollapse,
@@ -67,6 +72,18 @@ export default function Sidebar({
       badgeColor: "bg-blue-50 text-blue-700 border border-blue-200",
     },
   ];
+
+  // If the user has admin role, add the "إدارة" section
+  if (currentUser?.role === "admin") {
+    menuItems.push({
+      id: "admin" as MainSectionType,
+      label: "إدارة",
+      icon: ShieldCheck,
+      description: "إدارة المستخدمين والصلاحيات",
+      badge: "المشرف",
+      badgeColor: "bg-purple-50 text-purple-700 border border-purple-200",
+    });
+  }
 
   return (
     <aside

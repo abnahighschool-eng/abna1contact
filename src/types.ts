@@ -162,3 +162,23 @@ export interface GuidanceCommitteeMember {
   name: string;
 }
 
+// User Authentication & Management Types
+export interface AppUser {
+  id: string;
+  name: string; // اسم الشخص / المعلم / الموظف
+  username: string; // اسم المستخدم
+  password: string; // كلمة المرور
+  role: "admin" | "user"; // مدير نظام أو مستخدم
+  phone?: string; // رقم الجوال لإرسال بيانات الدخول
+  status: "active" | "blocked"; // مفعل أو محظور
+  createdAt: string;
+  lastLogin?: string;
+  notes?: string;
+}
+
+export interface AuthSession {
+  user: AppUser;
+  token?: string;
+  loginAt: string;
+}
+

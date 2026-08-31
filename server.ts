@@ -308,6 +308,7 @@ const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_store.json");
 const APP_SETTINGS_FILE = path.join(process.cwd(), "app_settings.json");
 const STUDENTS_FILE = path.join(process.cwd(), "students_store.json");
 const TEMPLATE_FILE = path.join(process.cwd(), "template_store.json");
+const USERS_FILE = path.join(process.cwd(), "users_store.json");
 
 // Default initial school settings
 let appSettings = {
@@ -326,6 +327,29 @@ let appSettings = {
 
 let activeStudentsList: any[] = [];
 let activeTemplate: string = "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة";
+let systemUsersList: any[] = [
+  {
+    id: "admin_root_1",
+    name: "مدير النظام العام",
+    username: "admin",
+    password: "123456",
+    role: "admin",
+    status: "active",
+    phone: "",
+    createdAt: new Date().toISOString(),
+    notes: "حساب الإدارة الأساسي الافتراضي للنظام",
+  }
+];
+
+if (fs.existsSync(USERS_FILE)) {
+  try {
+    const raw = fs.readFileSync(USERS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) systemUsersList = parsed;
+  } catch (e) {
+    console.error("Error reading users_store.json", e);
+  }
+}
 
 // Load persisted state safely on startup
 if (fs.existsSync(APP_SETTINGS_FILE)) {
@@ -426,6 +450,15 @@ function saveTemplate() {
   }
 }
 
+function saveUsersList() {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(systemUsersList, null, 2), "utf-8");
+    syncServerStateToFirestore({ systemUsersList }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving users_store.json", e);
+  }
+}
+
 // Default initial config load
 const CONFIG_FILE = path.join(process.cwd(), "whatsapp_config.json");
 if (fs.existsSync(CONFIG_FILE)) {
@@ -452,6 +485,7 @@ app.get("/api/app-state", (req, res) => {
     settings: appSettings,
     students: activeStudentsList,
     template: activeTemplate,
+    users: systemUsersList,
     totalCampaigns: Object.keys(campaigns).length,
     totalIndividualLogs: individualLogs.length,
   });
@@ -480,6 +514,19 @@ app.post("/api/app-state/template", (req, res) => {
     saveTemplate();
   }
   res.json({ success: true, template: activeTemplate });
+});
+
+app.get("/api/app-state/users", (req, res) => {
+  res.json({ users: systemUsersList });
+});
+
+app.post("/api/app-state/users", (req, res) => {
+  const { users } = req.body || {};
+  if (Array.isArray(users)) {
+    systemUsersList = users;
+    saveUsersList();
+  }
+  res.json({ success: true, count: systemUsersList.length });
 });
 
 // Cache & Temporary Files Cleanup Endpoint
@@ -813,8 +860,9 @@ app.post("/api/whatsapp/campaign/create", (req, res) => {
     };
     saveCampaigns();
 
-    // Start processing in background loop (simulated or real/cloud api)
-    processCampaign(campaignId, Number(delayMs) || 3000);
+    // Start processing in background loop with 15-second anti-ban delay as default
+    const safeDelayMs = Math.max(15000, Number(delayMs) || 15000);
+    processCampaign(campaignId, safeDelayMs);
 
     return res.json({ campaignId, message: "تم بدء الحملة بنجاح", total: campaignLogs.length });
   } catch (err: any) {
@@ -873,9 +921,10 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
 
     log.status = "sending";
     
-    // Dynamic Human Jitter: slight natural variance (+/- 500ms)
-    const jitter = Math.floor(Math.random() * 1000) - 500;
-    const actualDelay = Math.max(1000, Number(baseDelayMs || 3000) + jitter);
+    // Anti-Ban Protection: Safe 15-second base interval with dynamic human jitter (+/- 2500ms)
+    const effectiveBaseDelay = Math.max(15000, Number(baseDelayMs || 15000));
+    const jitter = Math.floor(Math.random() * 5000) - 2500; // variance between -2.5s and +2.5s
+    const actualDelay = Math.max(12000, effectiveBaseDelay + jitter);
 
     if (i > 0) {
       await new Promise(resolve => setTimeout(resolve, actualDelay));

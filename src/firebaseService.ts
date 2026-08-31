@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
-import { Student, SchoolSignatories, ReportItem } from "./types";
+import { Student, SchoolSignatories, ReportItem, AppUser } from "./types";
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
@@ -11,13 +11,27 @@ const SCHOOL_DOC_ID = "school_settings";
 const STUDENTS_DOC_ID = "students_data";
 const REPORTS_DOC_ID = "reports_archive";
 const ATTENDANCE_DOC_ID = "attendance_records";
+const USERS_DOC_ID = "users_accounts";
 const APP_STATE_COLLECTION = "abna_system_data";
+
+export const DEFAULT_ADMIN_USER: AppUser = {
+  id: "admin_root_1",
+  name: "مدير النظام العام",
+  username: "admin",
+  password: "123456",
+  role: "admin",
+  status: "active",
+  phone: "",
+  createdAt: new Date().toISOString(),
+  notes: "حساب الإدارة الأساسي الافتراضي للنظام",
+};
 
 export interface StoredAppState {
   schoolSignatories?: SchoolSignatories;
   students?: Student[];
   studentReports?: ReportItem[];
   attendanceRecords?: Record<string, Record<string, any>>;
+  users?: AppUser[];
   savedTemplate?: string;
   savedVariables?: string[];
   lastUpdated?: string;
@@ -49,15 +63,16 @@ export function sanitizeForFirestore<T>(data: T): T {
 }
 
 /**
- * Load all persistent app data in parallel (Only 4 reads max on initial app start!)
+ * Load all persistent app data in parallel (Lightweight aggregated reads on initial app start)
  */
 export async function loadInitialAppData(): Promise<StoredAppState> {
   try {
-    const [schoolSnap, studentsSnap, reportsSnap, attendanceSnap] = await Promise.all([
+    const [schoolSnap, studentsSnap, reportsSnap, attendanceSnap, usersSnap] = await Promise.all([
       getDoc(doc(db, APP_STATE_COLLECTION, SCHOOL_DOC_ID)),
       getDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID)),
       getDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID)),
       getDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID)),
+      getDoc(doc(db, APP_STATE_COLLECTION, USERS_DOC_ID)),
     ]);
 
     const result: StoredAppState = {};
@@ -96,10 +111,23 @@ export async function loadInitialAppData(): Promise<StoredAppState> {
       }
     }
 
+    if (usersSnap.exists()) {
+      const data = usersSnap.data();
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        result.users = data.users;
+      } else {
+        result.users = [DEFAULT_ADMIN_USER];
+      }
+    } else {
+      result.users = [DEFAULT_ADMIN_USER];
+    }
+
     return result;
   } catch (error) {
     console.error("Error loading app data from Firebase Firestore:", error);
-    return {};
+    return {
+      users: [DEFAULT_ADMIN_USER],
+    };
   }
 }
 
@@ -195,6 +223,29 @@ export async function saveAttendanceDataToCloud(attendanceRecords: Record<string
     return true;
   } catch (error) {
     console.error("Error saving attendance records to Firestore:", error);
+    return false;
+  }
+}
+
+/**
+ * Save application users and credentials list (1 Single Write for all accounts)
+ */
+export async function saveUsersDataToCloud(users: AppUser[]): Promise<boolean> {
+  try {
+    const payload = sanitizeForFirestore({
+      users,
+      totalUsers: users.length,
+      lastUpdated: new Date().toISOString(),
+    });
+
+    await setDoc(
+      doc(db, APP_STATE_COLLECTION, USERS_DOC_ID),
+      payload,
+      { merge: true }
+    );
+    return true;
+  } catch (error) {
+    console.error("Error saving users accounts to Firestore:", error);
     return false;
   }
 }

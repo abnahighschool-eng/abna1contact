@@ -151,6 +151,7 @@ export async function syncServerStateToFirestore(state: {
   appSettings?: any;
   activeStudentsList?: any[];
   activeTemplate?: string;
+  systemUsersList?: any[];
   campaigns?: any;
   individualLogs?: any[];
   whatsappConfig?: any;

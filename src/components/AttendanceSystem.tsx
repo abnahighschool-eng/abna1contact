@@ -21,11 +21,15 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   Bookmark,
-  FileText
+  FileText,
+  RotateCcw,
+  ShieldAlert,
+  History
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../types";
 import { saveAttendanceDataToCloud } from "../firebaseService";
 import GuidanceAbsenceWorkflow from "./GuidanceAbsenceWorkflow";
+import DisciplineReportsPrinter from "./DisciplineReportsPrinter";
 
 interface AttendanceSystemProps {
   students: Student[];
@@ -117,6 +121,8 @@ interface BatchSendProgress {
   sentCount: number;
   failedCount: number;
   currentStudentName: string;
+  countdownSeconds?: number;
+  isCompleted?: boolean;
   logs: Array<{
     id: string;
     studentName: string;
@@ -503,7 +509,26 @@ export default function AttendanceSystem({
     }
   };
 
-  // Launch Batch WhatsApp sending with interactive live modal
+  // Manual reset & clear attendance records for the selected date
+  const handleResetCurrentDayAttendance = () => {
+    if (recordedStudents.length === 0) {
+      alert("لا يوجد أي طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لتصفيرهم.");
+      return;
+    }
+
+    if (window.confirm(`هل أنت متأكد من تصفير وإعادة تعيين رصد الغياب والتأخر لتاريخ (${selectedDate})؟\nسيتم إلغاء تحديد كافة الطلاب وإفراغ قائمة إشعارات أولياء الأمور لتكون جاهزة لرصد جديد.`)) {
+      setAttendanceRecords((prev) => {
+        const next = { ...prev };
+        delete next[selectedDate];
+        return next;
+      });
+      setToastMessage("✓ تمت إعادة تصفير خانات رصد الغياب والتأخر وإفراغ قائمة الإشعارات بنجاح");
+      setSaveSuccessToast(true);
+      setTimeout(() => setSaveSuccessToast(false), 2500);
+    }
+  };
+
+  // Launch Batch WhatsApp sending with interactive live modal and 15-second anti-ban interval
   const handleStartBatchNotifications = async () => {
     if (recordedStudents.length === 0) {
       alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإرسال الإشعارات لهم.");
@@ -519,6 +544,8 @@ export default function AttendanceSystem({
       sentCount: 0,
       failedCount: 0,
       currentStudentName: "",
+      countdownSeconds: 0,
+      isCompleted: false,
       logs: [],
     });
 
@@ -542,6 +569,7 @@ export default function AttendanceSystem({
         ...prev,
         currentIndex: i + 1,
         currentStudentName: studentName,
+        countdownSeconds: 0,
       }));
 
       if (!studentPhone) {
@@ -585,20 +613,6 @@ export default function AttendanceSystem({
           sent++;
           setNotificationStatus((prev) => ({ ...prev, [student.id]: "sent" }));
           
-          // Mark in records
-          const nowTime = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
-          setAttendanceRecords((prev) => {
-            const day = prev[selectedDate] ? { ...prev[selectedDate] } : {};
-            if (day[student.id]) {
-              day[student.id] = {
-                ...day[student.id],
-                notified: true,
-                notifiedAt: nowTime,
-              };
-            }
-            return { ...prev, [selectedDate]: day };
-          });
-
           setBatchProgress((prev) => ({
             ...prev,
             sentCount: sent,
@@ -608,7 +622,7 @@ export default function AttendanceSystem({
                 studentName,
                 phone: studentPhone,
                 status: "success",
-                message: "تم الإرسال بنجاح",
+                message: "تم الإرسال بنجاح عبر الواتساب",
               },
               ...prev.logs,
             ],
@@ -643,24 +657,58 @@ export default function AttendanceSystem({
               studentName,
               phone: studentPhone,
               status: "failed",
-              error: err.message || "خطأ في الشبكة",
+              error: err.message || "خطأ في الاتصال بالشبكة",
             },
             ...prev.logs,
           ],
         }));
       }
 
-      // Small natural delay between messages to prevent spam blocking
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      // Safe 15-second Anti-Ban Delay with human-like jitter variation between messages (except for the last message)
+      if (i < recordedStudents.length - 1 && !abortBatchRef.current) {
+        // Safe 15-second interval + random jitter (between 14s and 18s)
+        const jitterSecs = Math.floor(Math.random() * 4) - 1; // -1 to +2
+        const totalDelaySecs = Math.max(14, 15 + jitterSecs);
+
+        for (let countdown = totalDelaySecs; countdown > 0; countdown--) {
+          if (abortBatchRef.current) break;
+          setBatchProgress((prev) => ({
+            ...prev,
+            countdownSeconds: countdown,
+          }));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      }
     }
 
-    setBatchProgress((prev) => ({
-      ...prev,
-      isRunning: false,
-    }));
+    // AUTOMATIC RESET: Reset daily absence, tardiness, and empty parent notifications after batch completes
+    if (!abortBatchRef.current) {
+      setAttendanceRecords((prev) => {
+        const next = { ...prev };
+        delete next[selectedDate];
+        return next;
+      });
+
+      setBatchProgress((prev) => ({
+        ...prev,
+        isRunning: false,
+        isCompleted: true,
+        countdownSeconds: 0,
+      }));
+
+      setToastMessage("✓ اكتمل إرسال الإشعارات بأمان، وتمت إعادة تصفير خانات رصد الغياب والتأخر وتفريغ قائمة الإشعارات بنجاح");
+      setSaveSuccessToast(true);
+      setTimeout(() => setSaveSuccessToast(false), 4000);
+    } else {
+      setBatchProgress((prev) => ({
+        ...prev,
+        isRunning: false,
+        countdownSeconds: 0,
+      }));
+    }
   };
 
-  // Launch as an Official Campaign in the Campaign Monitor
+  // Launch as an Official Campaign in the Campaign Monitor with 15-second anti-ban interval
   const handleLaunchAsOfficialCampaign = async () => {
     if (recordedStudents.length === 0) {
       alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإطلاق الحملة لهم.");
@@ -692,7 +740,7 @@ export default function AttendanceSystem({
     });
 
     try {
-      const campaignName = `حملة إشعارات غياب وتأخر - ${formattedDayName} (${selectedDate})`;
+      const campaignName = `حملة إشعارات غياب وتأخر (فاصل 15 ثانية آمن) - ${formattedDayName} (${selectedDate})`;
       const response = await fetch("/api/whatsapp/campaign/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -700,7 +748,7 @@ export default function AttendanceSystem({
           name: campaignName,
           students: campaignStudents,
           template: "{customMessage}",
-          delayMs: 3000,
+          delayMs: 15000, // 15-second anti-ban delay
         }),
       });
 
@@ -708,19 +756,14 @@ export default function AttendanceSystem({
       if (response.ok && data.campaignId) {
         localStorage.setItem("active_campaign_id", data.campaignId);
         
-        // Mark all recorded students as notified in local state
-        const nowTime = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+        // Reset current day attendance records and notification queue
         setAttendanceRecords((prev) => {
-          const day = prev[selectedDate] ? { ...prev[selectedDate] } : {};
-          recordedStudents.forEach((st) => {
-            if (day[st.id]) {
-              day[st.id] = { ...day[st.id], notified: true, notifiedAt: nowTime };
-            }
-          });
-          return { ...prev, [selectedDate]: day };
+          const next = { ...prev };
+          delete next[selectedDate];
+          return next;
         });
 
-        alert(`🚀 تم إطلاق (${campaignName}) بنجاح لعدد (${recordedStudents.length}) طالب.\nسيتم نقلك الآن لـ «حملة الإرسال الجماعي» لمتابعة الإرسال المباشر!`);
+        alert(`🚀 تم إطلاق (${campaignName}) بنجاح لعدد (${recordedStudents.length}) طالب بفاصل أمان (15 ثانية).\nتمت إعادة تصفير خانة رصد الغياب والتأخر وقائمة الإشعارات!\nسيتم نقلك الآن لـ «حملة الإرسال الجماعي» لمتابعة الإرسال المباشر.`);
         onNavigateToMessages("send");
       } else {
         alert(`❌ تعذر إطلاق الحملة: ${data.error || "خطأ غير معروف"}`);
@@ -980,10 +1023,23 @@ export default function AttendanceSystem({
                 </div>
               </div>
 
-              {/* Roster origin badge */}
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>الأسماء منعكسة تلقائياً من كشف الطلاب المعتمد</span>
+              {/* Actions & Roster origin badge */}
+              <div className="flex items-center gap-2">
+                {recordedStudents.length > 0 && (
+                  <button
+                    onClick={handleResetCurrentDayAttendance}
+                    className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center gap-1.5 transition-all border border-red-200 cursor-pointer shadow-2xs"
+                    title="تصفير علامات الغياب والتأخر وإفراغ قائمة الإشعارات"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>تصفير رصد اليوم ({recordedStudents.length})</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>الأسماء منعكسة تلقائياً من كشف الطلاب المعتمد</span>
+                </div>
               </div>
 
             </div>
@@ -1664,186 +1720,47 @@ export default function AttendanceSystem({
           {/* 4. Subtab: Official Printable Discipline & Attendance Report */}
           {activeSubTab === "reports" && (
             <div className="space-y-6">
-              
-              {/* Actions Bar (No Print) */}
-              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 flex items-center justify-between gap-4 no-print shadow-xs">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-800">معاينة وطباعة كشف الانضباط اليومي</h4>
-                  <p className="text-[11px] text-slate-500">جاهز للطباعة بحجم A4 مع الترويسة والتواقيع الرسمية للإدارة.</p>
-                </div>
-
-                <button
-                  onClick={handlePrintReport}
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-all"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>طباعة الكشف الرسمي الآن</span>
-                </button>
-              </div>
-
-              {/* Printable Document Paper */}
-              <div className="bg-white border border-slate-300 rounded-3xl p-8 sm:p-10 shadow-sm text-right print:border-none print:shadow-none print:p-0" id="official-attendance-sheet">
-                
-                {/* Official School Header */}
-                <div className="border-b-2 border-slate-900 pb-5 mb-6 flex items-center justify-between text-slate-900">
-                  <div className="text-right space-y-1">
-                    <p className="text-xs font-extrabold">{signatories.countryName || "المملكة العربية السعودية"}</p>
-                    <p className="text-xs font-bold">{signatories.ministryName || "وزارة التعليم"}</p>
-                    <p className="text-xs font-bold">{signatories.administrationName || "الإدارة العامة للتعليم"}</p>
-                    <p className="text-sm font-extrabold text-emerald-800">{signatories.schoolName || "ثانوية الأبناء الأولى"}</p>
-                  </div>
-
-                  {/* Center Title */}
-                  <div className="text-center space-y-1">
-                    <h2 className="text-base sm:text-lg font-black tracking-wide">
-                      كشف الغياب والتأخر اليومي للطلاب
-                    </h2>
-                    <p className="text-xs font-bold text-slate-600">
-                      اليوم: {formattedDayName} | التاريخ: {selectedDate}
-                    </p>
-                  </div>
-
-                  {/* Left Metadata / Logo */}
-                  <div className="text-left space-y-1">
-                    {signatories.logoUrl ? (
-                      <img 
-                        src={signatories.logoUrl} 
-                        alt="Logo" 
-                        className="h-14 w-auto object-contain ml-auto"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-xs ml-auto">
-                        <School className="w-6 h-6 text-emerald-400" />
-                      </div>
-                    )}
-                    <span className="text-[10px] text-slate-500 font-mono block">نظام الانضباط المدرسي</span>
-                  </div>
-                </div>
-
-                {/* Summary Box */}
-                <div className="grid grid-cols-4 gap-2 mb-6 text-center text-xs font-bold">
-                  <div className="p-2.5 bg-slate-100 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 text-[10px] block">إجمالي الطلاب</span>
-                    <span className="text-sm text-slate-900">{attendanceStats.total}</span>
-                  </div>
-                  <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-200">
-                    <span className="text-emerald-700 text-[10px] block">الحاضرون</span>
-                    <span className="text-sm text-emerald-900">{attendanceStats.present} ({attendanceStats.attendancePercentage}%)</span>
-                  </div>
-                  <div className="p-2.5 bg-red-50 rounded-lg border border-red-200">
-                    <span className="text-red-700 text-[10px] block">إجمالي الغياب</span>
-                    <span className="text-sm text-red-900">{attendanceStats.totalAbsent}</span>
-                  </div>
-                  <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200">
-                    <span className="text-amber-700 text-[10px] block">المتأخرون</span>
-                    <span className="text-sm text-amber-900">{attendanceStats.tardy}</span>
-                  </div>
-                </div>
-
-                {/* Table of Absent & Tardy Students */}
-                <div className="mb-8">
-                  <h4 className="text-xs font-extrabold text-slate-900 mb-2">
-                    قائمة الطلاب المسجلين في كشف الغياب والتأخر:
-                  </h4>
-
-                  <table className="w-full border-collapse border border-slate-300 text-xs text-right">
-                    <thead>
-                      <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                        <th className="border border-slate-300 p-2 w-10 text-center">م</th>
-                        <th className="border border-slate-300 p-2">اسم الطالب</th>
-                        <th className="border border-slate-300 p-2 w-24">الصف</th>
-                        <th className="border border-slate-300 p-2 w-20">الفصل</th>
-                        <th className="border border-slate-300 p-2 w-32">نوع الحالة</th>
-                        <th className="border border-slate-300 p-2">ملاحظات / السبب</th>
-                        <th className="border border-slate-300 p-2 w-24 text-center">إشعار ولي الأمر</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recordedStudents.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="border border-slate-300 p-6 text-center text-slate-400 font-bold">
-                            لا يوجد أي حالات غياب أو تأخر مسجلة لهذا اليوم.
-                          </td>
-                        </tr>
-                      ) : (
-                        recordedStudents.map((student, index) => {
-                          const studentName = extractStudentName(student, index + 1);
-                          const studentGrade = extractStudentGrade(student) || "-";
-                          const studentClass = extractStudentClass(student) || "-";
-                          const rec = currentDayData[student.id];
-                          const status = rec?.status;
-                          const isTardy = status === "tardy";
-                          const isExcused = status === "absent_excused";
-
-                          return (
-                            <tr key={student.id} className="border-b border-slate-200">
-                              <td className="border border-slate-300 p-2 text-center font-bold">{index + 1}</td>
-                              <td className="border border-slate-300 p-2 font-bold text-slate-900">{studentName}</td>
-                              <td className="border border-slate-300 p-2">{studentGrade}</td>
-                              <td className="border border-slate-300 p-2">{studentClass}</td>
-                              <td className="border border-slate-300 p-2 font-bold">
-                                {isTardy 
-                                  ? `تأخر (${rec?.tardyMinutes || 15} دقيقة)` 
-                                  : isExcused 
-                                  ? "غياب بعذر مقبول" 
-                                  : "غياب بدون عذر"}
-                              </td>
-                              <td className="border border-slate-300 p-2 text-slate-600">{rec?.notes || "-"}</td>
-                              <td className="border border-slate-300 p-2 text-center font-bold">
-                                {rec?.notified ? "تم الإشعار ✓" : "لم يتم"}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Official Signatures Footer */}
-                <div className="grid grid-cols-3 gap-4 pt-6 border-t-2 border-slate-300 text-center text-xs font-bold text-slate-800">
-                  <div className="space-y-8">
-                    <span>الموجه الطلابي</span>
-                    <p className="text-slate-900 font-extrabold">{signatories.counselorName || "............................"}</p>
-                  </div>
-
-                  <div className="space-y-8">
-                    <span>وكيل شؤون الطلاب</span>
-                    <p className="text-slate-900 font-extrabold">{signatories.vicePrincipalName || "............................"}</p>
-                  </div>
-
-                  <div className="space-y-8">
-                    <span>مدير المدرسة</span>
-                    <p className="text-slate-900 font-extrabold">{signatories.principalName || "............................"}</p>
-                  </div>
-                </div>
-
-              </div>
-
+              <DisciplineReportsPrinter 
+                students={students} 
+                signatories={signatories} 
+                isWhatsAppConnected={isWhatsAppConnected} 
+              />
             </div>
           )}
 
         </div>
 
-      {/* Live Interactive Batch Sender Modal */}
+      {/* Live Interactive Batch Sender Modal with Anti-Ban Protection Display */}
       {batchProgress.isOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 text-right space-y-5 animate-scaleUp">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                  {batchProgress.isRunning ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold ${
+                  batchProgress.isCompleted
+                    ? "bg-emerald-100 text-emerald-700"
+                    : batchProgress.isRunning
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}>
+                  {batchProgress.isRunning ? <Loader2 className="w-5 h-5 animate-spin text-amber-700" /> : <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">
-                    {batchProgress.isRunning ? "جارِ إرسال إشعارات أولياء الأمور..." : "اكتمل إرسال الإشعارات"}
+                    {batchProgress.isCompleted 
+                      ? "اكتمل إرسال الإشعارات وتصفير الرصد بنجاح ✓"
+                      : batchProgress.isRunning 
+                      ? "جارِ إرسال إشعارات أولياء الأمور بأمان..." 
+                      : "تم إيقاف عملية الإرسال"}
                   </h3>
                   <p className="text-xs text-slate-500">
                     {batchProgress.isRunning 
                       ? `جاري معالجة الطالب (${batchProgress.currentStudentName})...` 
-                      : `تمت معالجة كافة الطلاب المستهدفين (${batchProgress.total}) طالب.`}
+                      : batchProgress.isCompleted
+                      ? `تم إرسال الإشعارات لجميع الطلاب وإعادة تعيين خانات الرصد وتفريغ قائمة الإشعارات.`
+                      : `تمت معالجة (${batchProgress.currentIndex}) من أصل (${batchProgress.total}) طالب.`}
                   </p>
                 </div>
               </div>
@@ -1855,6 +1772,26 @@ export default function AttendanceSystem({
                 >
                   <X className="w-4 h-4" />
                 </button>
+              )}
+            </div>
+
+            {/* Anti-Ban Safety Protection Status Banner */}
+            <div className="bg-emerald-950 text-white rounded-2xl p-3 flex items-center justify-between gap-3 shadow-inner">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-800/80 text-emerald-300 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-black text-emerald-300 block">درع الحماية الذكي من حظر الواتساب نشط</span>
+                  <span className="text-[10px] text-emerald-100/80">فاصل أمان (15 ثانية) مع تفاوت زمني بشري عشوائي لمنع كشف الرسائل المتتابعة.</span>
+                </div>
+              </div>
+
+              {batchProgress.isRunning && (batchProgress.countdownSeconds ?? 0) > 0 && (
+                <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center gap-1.5 font-mono text-xs font-black shrink-0 animate-pulse">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>انتظار: {batchProgress.countdownSeconds}ث</span>
+                </div>
               )}
             </div>
 
@@ -1891,9 +1828,9 @@ export default function AttendanceSystem({
             {/* Live Logs Feed */}
             <div className="space-y-2">
               <span className="text-[11px] font-bold text-slate-600 block">سجل الإرسال المباشر:</span>
-              <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+              <div className="max-h-44 overflow-y-auto space-y-1.5 p-2 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
                 {batchProgress.logs.length === 0 ? (
-                  <p className="text-center text-slate-400 py-4 font-medium">جاري بدء العملية...</p>
+                  <p className="text-center text-slate-400 py-4 font-medium">جاري بدء عملية الإرسال الآمنة...</p>
                 ) : (
                   batchProgress.logs.map((lg) => (
                     <div 
@@ -1939,7 +1876,7 @@ export default function AttendanceSystem({
                   className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
                 >
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>إغلاق والعودة للنظام</span>
+                  <span>إغلاق والعودة لرصد جديد (جاهز)</span>
                 </button>
               )}
             </div>
