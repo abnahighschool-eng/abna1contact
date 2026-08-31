@@ -33,9 +33,9 @@ process.on("unhandledRejection", (reason) => {
   console.warn("Recovered from unhandledRejection:", reason);
 });
 
-// Initialize Express app with dynamic PORT for Render / Cloud platforms
+// Initialize Express app
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -87,14 +87,12 @@ let connectedPhoneNumber: string = "";
 let connectionTimeoutTimer: NodeJS.Timeout | null = null;
 let firestoreSessionBackupTimer: NodeJS.Timeout | null = null;
 
-function scheduleFirestoreSessionBackup() {
+function scheduleFirestoreSessionBackup(force = false) {
   if (firestoreSessionBackupTimer) clearTimeout(firestoreSessionBackupTimer);
   firestoreSessionBackupTimer = setTimeout(() => {
     const authFolder = path.join(process.cwd(), "auth_info_baileys");
-    backupBaileysSessionToFirestore(authFolder).catch((err) => {
-      console.warn("[Firebase] WhatsApp session auto-backup error:", err);
-    });
-  }, 2000);
+    backupBaileysSessionToFirestore(authFolder, force).catch(() => {});
+  }, 15000); // 15 seconds debounce
 }
 
 async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr", targetPhone?: string) {
@@ -1324,35 +1322,7 @@ app.post("/api/guidance/actions", (req, res) => {
 // Setup Vite Dev Server / Serve static assets in production
 
 async function startServer() {
-  // 1. Restore server state from Firestore if available (useful on fresh cloud container boots)
-  try {
-    const cloudState = await loadServerStateFromFirestore();
-    if (cloudState) {
-      if (cloudState.appSettings && Object.keys(cloudState.appSettings).length > 0) {
-        appSettings = { ...appSettings, ...cloudState.appSettings };
-      }
-      if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
-        if (activeStudentsList.length === 0) activeStudentsList = cloudState.activeStudentsList;
-      }
-      if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
-        activeTemplate = cloudState.activeTemplate;
-      }
-      if (cloudState.whatsappConfig) {
-        whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
-      }
-      if (cloudState.campaigns && Object.keys(campaigns).length === 0) {
-        Object.assign(campaigns, cloudState.campaigns);
-      }
-      if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
-        individualLogs.push(...cloudState.individualLogs);
-      }
-      console.log("[Firebase] System state successfully synchronized from Firestore.");
-    }
-  } catch (e) {
-    console.warn("[Firebase] Could not restore initial server state:", e);
-  }
-
-  // 2. Setup Vite Dev Server or Serve static assets
+  // 1. Setup Vite Dev Server or Serve static assets
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1367,31 +1337,69 @@ async function startServer() {
     });
   }
 
-  // 3. Restore existing registered WhatsApp sessions from disk or Firestore on reboot/redeploy
-  const authFolder = path.join(process.cwd(), "auth_info_baileys");
-  const credsFile = path.join(authFolder, "creds.json");
-  
-  try {
-    if (!fs.existsSync(credsFile)) {
-      await restoreBaileysSessionFromFirestore(authFolder);
-    }
-  } catch (e) {
-    console.warn("[Firebase] Could not restore WhatsApp session from Firestore:", e);
-  }
+  // 2. Start HTTP listener
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 
-  if (fs.existsSync(credsFile)) {
+  // 3. Restore server state from Firestore in background
+  (async () => {
     try {
-      const credsData = JSON.parse(fs.readFileSync(credsFile, "utf-8"));
-      if (credsData && credsData.registered) {
-        console.log("Found existing registered WhatsApp Web session. Restoring connection...");
-        initRealWhatsApp("resume");
+      const cloudState = await loadServerStateFromFirestore();
+      if (cloudState) {
+        if (cloudState.appSettings && Object.keys(cloudState.appSettings).length > 0) {
+          appSettings = { ...appSettings, ...cloudState.appSettings };
+        }
+        if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
+          if (activeStudentsList.length === 0) activeStudentsList = cloudState.activeStudentsList;
+        }
+        if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
+          activeTemplate = cloudState.activeTemplate;
+        }
+        if (cloudState.whatsappConfig) {
+          whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
+        }
+        if (cloudState.campaigns && Object.keys(campaigns).length === 0) {
+          Object.assign(campaigns, cloudState.campaigns);
+        }
+        if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
+          individualLogs.push(...cloudState.individualLogs);
+        }
+        console.log("[Firebase] System state successfully synchronized from Firestore.");
       }
     } catch (e) {
-      console.warn("Could not inspect creds.json", e);
+      console.warn("[Firebase] Could not restore initial server state:", e);
     }
-  }
 
-  // 4. Background Reconnection Watchdog for Render sleep/wake cycles & network drops
+    // 4. Restore existing registered WhatsApp sessions from disk or Firestore
+    const authFolder = path.join(process.cwd(), "auth_info_baileys");
+    const credsFile = path.join(authFolder, "creds.json");
+    
+    try {
+      if (!fs.existsSync(credsFile)) {
+        await restoreBaileysSessionFromFirestore(authFolder);
+      }
+    } catch (e) {
+      console.warn("[Firebase] Could not restore WhatsApp session from Firestore:", e);
+    }
+
+    if (fs.existsSync(credsFile)) {
+      try {
+        const credsData = JSON.parse(fs.readFileSync(credsFile, "utf-8"));
+        if (credsData && credsData.registered) {
+          console.log("Found existing registered WhatsApp Web session. Restoring connection...");
+          initRealWhatsApp("resume");
+        }
+      } catch (e) {
+        console.warn("Could not inspect creds.json", e);
+      }
+    }
+  })().catch(err => {
+    console.warn("Error during background state restoration:", err);
+  });
+
+  // 5. Background Reconnection Watchdog for Render sleep/wake cycles & network drops
+  const authFolder = path.join(process.cwd(), "auth_info_baileys");
   setInterval(() => {
     if (whatsappConfig.mode === "real" && (realConnectionStatus === "disconnected" || realConnectionStatus === "error")) {
       const localCreds = path.join(authFolder, "creds.json");
@@ -1406,10 +1414,6 @@ async function startServer() {
       }
     }
   }, 45000);
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
 }
 
 startServer();

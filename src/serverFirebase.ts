@@ -14,7 +14,11 @@ const SERVER_DATA_DOC = "server_system_state";
 
 let isServerQuotaExceeded = false;
 let serverQuotaExceededTimestamp = 0;
-const SERVER_QUOTA_COOLDOWN_MS = 30 * 60 * 1000;
+const SERVER_QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour cooldown
+
+let lastSessionBackupHash = "";
+let lastSessionBackupTime = 0;
+const MIN_SESSION_BACKUP_INTERVAL_MS = 5 * 60 * 1000; // At most once every 5 minutes
 
 function isServerQuotaLimited(): boolean {
   if (!isServerQuotaExceeded) return false;
@@ -31,12 +35,14 @@ function handleServerQuotaError(err: any, opName: string) {
     errMsg.includes("resource-exhausted") ||
     errMsg.includes("Quota limit exceeded") ||
     errMsg.includes("Quota exceeded") ||
+    errMsg.includes("Free daily write units") ||
     errMsg.includes("429")
   ) {
     isServerQuotaExceeded = true;
     serverQuotaExceededTimestamp = Date.now();
+    console.info(`[Server Notice] Firestore cloud sync paused due to daily free quota limits. Server is operating with local disk storage.`);
   } else {
-    console.warn(`[Firebase] ${opName} error:`, errMsg);
+    console.warn(`[Firebase Notice] ${opName}:`, errMsg);
   }
 }
 
@@ -59,10 +65,15 @@ function sanitizePayload(obj: any): any {
 }
 
 /**
- * Backs up all files in auth_info_baileys to Firestore
+ * Backs up all files in auth_info_baileys to Firestore (Throttled & deduplicated)
  */
-export async function backupBaileysSessionToFirestore(authFolder: string): Promise<boolean> {
+export async function backupBaileysSessionToFirestore(authFolder: string, force = false): Promise<boolean> {
   if (isServerQuotaLimited()) return false;
+
+  const now = Date.now();
+  if (!force && now - lastSessionBackupTime < MIN_SESSION_BACKUP_INTERVAL_MS) {
+    return false; // Skip redundant rapid backups
+  }
 
   try {
     if (!fs.existsSync(authFolder)) return false;
@@ -70,20 +81,24 @@ export async function backupBaileysSessionToFirestore(authFolder: string): Promi
     const fileNames = fs.readdirSync(authFolder);
     if (fileNames.length === 0) return false;
 
+    const credsFile = path.join(authFolder, "creds.json");
+    const credsExist = fs.existsSync(credsFile);
+    if (!credsExist) return false;
+
+    const credsContent = fs.readFileSync(credsFile, "utf-8");
+    if (credsContent === lastSessionBackupHash && !force) {
+      return true; // No change in credentials
+    }
+
     const filesMap: Record<string, string> = {};
     for (const fileName of fileNames) {
       const filePath = path.join(authFolder, fileName);
       if (fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath, "utf-8");
-        // Firestore keys cannot contain slashes or dots in direct field paths,
-        // so encode the filename as base64 or safe key
         const safeKey = Buffer.from(fileName).toString("base64url");
         filesMap[safeKey] = content;
       }
     }
-
-    const credsExist = fs.existsSync(path.join(authFolder, "creds.json"));
-    if (!credsExist) return false;
 
     await setDoc(
       doc(firestoreDb, APP_STATE_COLLECTION, WHATSAPP_SESSION_DOC),
@@ -96,6 +111,8 @@ export async function backupBaileysSessionToFirestore(authFolder: string): Promi
       { merge: true }
     );
 
+    lastSessionBackupHash = credsContent;
+    lastSessionBackupTime = now;
     console.log(`[Firebase] WhatsApp session backed up to Firestore (${Object.keys(filesMap).length} files)`);
     return true;
   } catch (err: any) {
@@ -178,8 +195,12 @@ export async function deleteBaileysSessionInFirestore(): Promise<void> {
   }
 }
 
+let pendingServerState: Record<string, any> = {};
+let serverSyncTimeout: NodeJS.Timeout | null = null;
+let lastSyncedServerHash = "";
+
 /**
- * Sync server state (settings, students, templates, campaigns, logs, config) to Firestore
+ * Sync server state (settings, students, templates, campaigns, logs, config) to Firestore (Debounced & throttled)
  */
 export async function syncServerStateToFirestore(state: {
   appSettings?: any;
@@ -193,16 +214,30 @@ export async function syncServerStateToFirestore(state: {
 }): Promise<void> {
   if (isServerQuotaLimited()) return;
 
-  try {
-    const payload = sanitizePayload({
-      ...state,
-      lastUpdated: new Date().toISOString(),
-    });
+  // Merge state into pending payload
+  Object.assign(pendingServerState, state);
 
-    await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
-  } catch (err: any) {
-    handleServerQuotaError(err, "syncServerStateToFirestore");
-  }
+  if (serverSyncTimeout) clearTimeout(serverSyncTimeout);
+
+  serverSyncTimeout = setTimeout(async () => {
+    if (isServerQuotaLimited()) return;
+
+    try {
+      const payload = sanitizePayload({
+        ...pendingServerState,
+        lastUpdated: new Date().toISOString(),
+      });
+
+      const hash = JSON.stringify(payload);
+      if (hash === lastSyncedServerHash) return;
+
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
+      lastSyncedServerHash = hash;
+      pendingServerState = {};
+    } catch (err: any) {
+      handleServerQuotaError(err, "syncServerStateToFirestore");
+    }
+  }, 10000); // 10 seconds debounce to bundle updates into 1 write
 }
 
 /**

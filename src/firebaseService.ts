@@ -16,7 +16,7 @@ const APP_STATE_COLLECTION = "abna_system_data";
 
 // In-memory & persisted cache quota backoff management
 const QUOTA_STORAGE_KEY = "firestore_quota_exceeded_timestamp";
-const QUOTA_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes cooldown before retry
+const QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour cooldown before attempting cloud sync retry
 
 let isFirestoreQuotaExceeded = false;
 let quotaExceededTimestamp = 0;
@@ -96,6 +96,7 @@ function handleQuotaError(err: any, operationName: string) {
     errMsg.includes("resource-exhausted") || 
     errMsg.includes("Quota limit exceeded") || 
     errMsg.includes("Quota exceeded") ||
+    errMsg.includes("Free daily write units") ||
     errMsg.includes("429");
   
   if (isQuota) {
@@ -106,8 +107,10 @@ function handleQuotaError(err: any, operationName: string) {
         localStorage.setItem(QUOTA_STORAGE_KEY, String(quotaExceededTimestamp));
       }
     } catch {}
+    // Non-intrusive warning once
+    console.info(`[Storage Notice] Cloud sync paused due to daily free quota limits. App is operating normally with local disk storage.`);
   } else {
-    console.warn(`[Cloud Sync Warning] ${operationName} error:`, errMsg);
+    console.warn(`[Cloud Sync Notice] ${operationName}:`, errMsg);
   }
 }
 
@@ -164,13 +167,34 @@ export function sanitizeForFirestore<T>(data: T): T {
  * Load all persistent app data in parallel (Lightweight aggregated reads on initial app start)
  */
 export async function loadInitialAppData(): Promise<StoredAppState> {
+  if (isQuotaLimited()) {
+    return {
+      users: [DEFAULT_ADMIN_USER],
+    };
+  }
+
   try {
     const [schoolSnap, studentsSnap, reportsSnap, attendanceSnap, usersSnap] = await Promise.all([
-      getDoc(doc(db, APP_STATE_COLLECTION, SCHOOL_DOC_ID)).catch(() => null),
-      getDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID)).catch(() => null),
-      getDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID)).catch(() => null),
-      getDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID)).catch(() => null),
-      getDoc(doc(db, APP_STATE_COLLECTION, USERS_DOC_ID)).catch(() => null),
+      getDoc(doc(db, APP_STATE_COLLECTION, SCHOOL_DOC_ID)).catch((e) => {
+        handleQuotaError(e, "schoolSnap");
+        return null;
+      }),
+      getDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID)).catch((e) => {
+        handleQuotaError(e, "studentsSnap");
+        return null;
+      }),
+      getDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID)).catch((e) => {
+        handleQuotaError(e, "reportsSnap");
+        return null;
+      }),
+      getDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID)).catch((e) => {
+        handleQuotaError(e, "attendanceSnap");
+        return null;
+      }),
+      getDoc(doc(db, APP_STATE_COLLECTION, USERS_DOC_ID)).catch((e) => {
+        handleQuotaError(e, "usersSnap");
+        return null;
+      }),
     ]);
 
     const result: StoredAppState = {};
