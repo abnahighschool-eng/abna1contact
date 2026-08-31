@@ -174,6 +174,7 @@ export interface AppUser {
   createdAt: string;
   lastLogin?: string;
   notes?: string;
+  masterPin?: string; // رمز أمان الطوارئ السري لاستعادة الحساب
 }
 
 export interface AuthSession {

@@ -22,6 +22,7 @@ export const DEFAULT_ADMIN_USER: AppUser = {
   role: "admin",
   status: "active",
   phone: "",
+  masterPin: "998877",
   createdAt: new Date().toISOString(),
   notes: "حساب الإدارة الأساسي الافتراضي للنظام",
 };

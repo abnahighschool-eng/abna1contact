@@ -349,6 +349,7 @@ export default function App() {
         users={users}
         signatories={signatories}
         onLoginSuccess={handleLoginSuccess}
+        onUpdateUsers={handleSaveUsers}
       />
     );
   }

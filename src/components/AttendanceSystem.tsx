@@ -613,6 +613,27 @@ export default function AttendanceSystem({
           sent++;
           setNotificationStatus((prev) => ({ ...prev, [student.id]: "sent" }));
           
+          // Mark in attendance records and persist
+          const nowTime = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+          setAttendanceRecords((prev) => {
+            const day = prev[selectedDate] ? { ...prev[selectedDate] } : {};
+            if (day[student.id]) {
+              day[student.id] = {
+                ...day[student.id],
+                notified: true,
+                notifiedAt: nowTime,
+              };
+            }
+            const next = { ...prev, [selectedDate]: day };
+            try {
+              localStorage.setItem("attendance_records", JSON.stringify(next));
+              saveAttendanceDataToCloud(next).catch(console.error);
+            } catch (e) {
+              console.error(e);
+            }
+            return next;
+          });
+
           setBatchProgress((prev) => ({
             ...prev,
             sentCount: sent,
@@ -681,14 +702,8 @@ export default function AttendanceSystem({
       }
     }
 
-    // AUTOMATIC RESET: Reset daily absence, tardiness, and empty parent notifications after batch completes
+    // Batch sending completion
     if (!abortBatchRef.current) {
-      setAttendanceRecords((prev) => {
-        const next = { ...prev };
-        delete next[selectedDate];
-        return next;
-      });
-
       setBatchProgress((prev) => ({
         ...prev,
         isRunning: false,
@@ -696,7 +711,7 @@ export default function AttendanceSystem({
         countdownSeconds: 0,
       }));
 
-      setToastMessage("✓ اكتمل إرسال الإشعارات بأمان، وتمت إعادة تصفير خانات رصد الغياب والتأخر وتفريغ قائمة الإشعارات بنجاح");
+      setToastMessage("✓ اكتمل إرسال الإشعارات بنجاح وتم توثيق كافة حالات الغياب والتأخر في كشف الانضباط والطباعة");
       setSaveSuccessToast(true);
       setTimeout(() => setSaveSuccessToast(false), 4000);
     } else {
@@ -756,14 +771,26 @@ export default function AttendanceSystem({
       if (response.ok && data.campaignId) {
         localStorage.setItem("active_campaign_id", data.campaignId);
         
-        // Reset current day attendance records and notification queue
+        // Mark all recorded students as notified in local state & cloud
+        const nowTime = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
         setAttendanceRecords((prev) => {
-          const next = { ...prev };
-          delete next[selectedDate];
+          const day = prev[selectedDate] ? { ...prev[selectedDate] } : {};
+          recordedStudents.forEach((st) => {
+            if (day[st.id]) {
+              day[st.id] = { ...day[st.id], notified: true, notifiedAt: nowTime };
+            }
+          });
+          const next = { ...prev, [selectedDate]: day };
+          try {
+            localStorage.setItem("attendance_records", JSON.stringify(next));
+            saveAttendanceDataToCloud(next).catch(console.error);
+          } catch (e) {
+            console.error(e);
+          }
           return next;
         });
 
-        alert(`🚀 تم إطلاق (${campaignName}) بنجاح لعدد (${recordedStudents.length}) طالب بفاصل أمان (15 ثانية).\nتمت إعادة تصفير خانة رصد الغياب والتأخر وقائمة الإشعارات!\nسيتم نقلك الآن لـ «حملة الإرسال الجماعي» لمتابعة الإرسال المباشر.`);
+        alert(`🚀 تم إطلاق (${campaignName}) بنجاح لعدد (${recordedStudents.length}) طالب بفاصل أمان (15 ثانية).\nتم حفظ وتوثيق بيانات الانضباط بنجاح!\nسيتم نقلك الآن لـ «حملة الإرسال الجماعي» لمتابعة الإرسال المباشر.`);
         onNavigateToMessages("send");
       } else {
         alert(`❌ تعذر إطلاق الحملة: ${data.error || "خطأ غير معروف"}`);
@@ -1722,8 +1749,24 @@ export default function AttendanceSystem({
             <div className="space-y-6">
               <DisciplineReportsPrinter 
                 students={students} 
+                attendanceRecords={attendanceRecords}
                 signatories={signatories} 
+                initialDate={selectedDate}
                 isWhatsAppConnected={isWhatsAppConnected} 
+                onUpdateSignatory={(updated) => {
+                  try {
+                    const existing = signatories || {};
+                    const merged = { ...existing, ...updated };
+                    localStorage.setItem("school_signatories", JSON.stringify(merged));
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+                onNavigateToTab={(tab) => {
+                  if (tab === "daily_absence" || tab === "daily_tardiness" || tab === "notifications" || tab === "reports") {
+                    setActiveSubTab(tab);
+                  }
+                }}
               />
             </div>
           )}

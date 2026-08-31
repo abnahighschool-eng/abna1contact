@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Users, 
   UserPlus, 
@@ -22,7 +22,11 @@ import {
   Clock, 
   RefreshCw,
   Share2,
-  X
+  X,
+  Fingerprint,
+  KeyRound,
+  Save,
+  ShieldAlert
 } from "lucide-react";
 import { AppUser, SchoolSignatories } from "../types";
 
@@ -45,6 +49,56 @@ export default function UserManagement({
   const [filterRole, setFilterRole] = useState<"all" | "admin" | "user">("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "blocked">("all");
 
+  // Master Admin direct settings state
+  const mainAdminUser = users.find((u) => u.role === "admin") || users[0];
+  const [adminUsername, setAdminUsername] = useState(mainAdminUser?.username || "admin");
+  const [adminPassword, setAdminPassword] = useState(mainAdminUser?.password || "123456");
+  const [adminMasterPin, setAdminMasterPin] = useState(mainAdminUser?.masterPin || "998877");
+  const [adminPhone, setAdminPhone] = useState(mainAdminUser?.phone || "");
+  const [showAdminPass, setShowAdminPass] = useState(false);
+  const [showAdminPin, setShowAdminPin] = useState(false);
+  const [adminSavedToast, setAdminSavedToast] = useState(false);
+
+  useEffect(() => {
+    if (mainAdminUser) {
+      setAdminUsername(mainAdminUser.username);
+      setAdminPassword(mainAdminUser.password);
+      setAdminMasterPin(mainAdminUser.masterPin || "998877");
+      setAdminPhone(mainAdminUser.phone || "");
+    }
+  }, [mainAdminUser?.id, mainAdminUser?.username, mainAdminUser?.password, mainAdminUser?.masterPin, mainAdminUser?.phone]);
+
+  const handleSaveAdminCredentials = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!adminUsername.trim() || !adminPassword.trim()) {
+      alert("يرجى إدخال اسم المستخدم وكلمة المرور للمدير");
+      return;
+    }
+
+    const cleanUsername = adminUsername.trim().toLowerCase();
+    const cleanPassword = adminPassword.trim();
+    const cleanPin = adminMasterPin.trim() || "998877";
+
+    // Update the admin user
+    const updatedUsers = users.map((u) => {
+      if (u.id === mainAdminUser?.id || (u.role === "admin" && !mainAdminUser)) {
+        return {
+          ...u,
+          username: cleanUsername,
+          password: cleanPassword,
+          masterPin: cleanPin,
+          phone: adminPhone.trim(),
+          notes: (u.notes ? u.notes.split(" | ")[0] : "حساب الإدارة الأساسي") + ` | تم التحديث: ${new Date().toLocaleDateString("ar-SA")}`,
+        };
+      }
+      return u;
+    });
+
+    onSaveUsers(updatedUsers);
+    setAdminSavedToast(true);
+    setTimeout(() => setAdminSavedToast(false), 4000);
+  };
+
   // Add / Edit Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -56,6 +110,7 @@ export default function UserManagement({
     phone: string;
     status: "active" | "blocked";
     notes: string;
+    masterPin?: string;
   }>({
     name: "",
     username: "",
@@ -64,6 +119,7 @@ export default function UserManagement({
     phone: "",
     status: "active",
     notes: "",
+    masterPin: "998877",
   });
 
   const [showModalPassword, setShowModalPassword] = useState(false);
@@ -113,6 +169,7 @@ export default function UserManagement({
       phone: "",
       status: "active",
       notes: "",
+      masterPin: "998877",
     });
     setShowModalPassword(true);
     setIsModalOpen(true);
@@ -128,6 +185,7 @@ export default function UserManagement({
       phone: user.phone || "",
       status: user.status,
       notes: user.notes || "",
+      masterPin: user.masterPin || "998877",
     });
     setShowModalPassword(false);
     setIsModalOpen(true);
@@ -165,6 +223,7 @@ export default function UserManagement({
             phone: formData.phone.trim(),
             status: formData.status,
             notes: formData.notes.trim(),
+            masterPin: formData.role === "admin" ? (formData.masterPin?.trim() || "998877") : u.masterPin,
           };
         }
         return u;
@@ -180,6 +239,7 @@ export default function UserManagement({
         phone: formData.phone.trim(),
         status: formData.status,
         notes: formData.notes.trim(),
+        masterPin: formData.role === "admin" ? (formData.masterPin?.trim() || "998877") : undefined,
         createdAt: new Date().toISOString(),
       };
       updatedUsers = [newUser, ...users];
@@ -394,6 +454,148 @@ export default function UserManagement({
           </div>
         </div>
 
+      </div>
+
+      {/* MASTER ADMIN CREDENTIALS & EMERGENCY PIN MANAGEMENT CARD */}
+      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-700/80 relative overflow-hidden" id="admin-security-settings-card">
+        
+        {/* Glow accent */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col gap-4">
+          
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-inner">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  <span>تخصيص بيانات دخول مدير النظام ورمز أمان الطوارئ</span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono px-2 py-0.5 rounded-full border border-emerald-500/30">
+                    MASTER ADMIN
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-300">
+                  تعديل اسم المستخدم وكلمة المرور للمدير (يلغي البيانات الافتراضية admin / 123456 فوراً) + تعيين رمز أمان الطوارئ السري لاستعادة الحساب
+                </p>
+              </div>
+            </div>
+
+            {adminSavedToast && (
+              <div className="flex items-center gap-1.5 bg-emerald-500 text-slate-950 text-xs font-extrabold px-3 py-1.5 rounded-xl shadow-lg animate-fadeIn shrink-0">
+                <Check className="w-4 h-4 stroke-[3]" />
+                <span>تم حفظ وتحديث بيانات المدير ورمز الأمان سحابياً!</span>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSaveAdminCredentials} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 text-xs">
+            
+            {/* Admin Username Field */}
+            <div>
+              <label className="block text-slate-300 font-bold mb-1.5">
+                اسم المستخدم للمدير
+              </label>
+              <div className="relative flex items-center">
+                <span className="absolute right-3 text-slate-400 pointer-events-none">@</span>
+                <input
+                  type="text"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  placeholder="اسم المستخدم للمدير"
+                  required
+                  dir="ltr"
+                  className="w-full text-left font-mono font-bold pr-8 pl-3 py-2.5 bg-white/10 border border-white/20 rounded-xl focus:bg-white focus:text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all text-white placeholder:text-slate-400"
+                />
+              </div>
+            </div>
+
+            {/* Admin Password Field */}
+            <div>
+              <label className="block text-slate-300 font-bold mb-1.5">
+                كلمة المرور للمدير
+              </label>
+              <div className="relative flex items-center">
+                <Lock className="w-3.5 h-3.5 absolute right-3 text-slate-400 pointer-events-none" />
+                <input
+                  type={showAdminPass ? "text" : "password"}
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  dir="ltr"
+                  className="w-full text-left font-mono font-bold pr-8 pl-9 py-2.5 bg-white/10 border border-white/20 rounded-xl focus:bg-white focus:text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all text-white placeholder:text-slate-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPass(!showAdminPass)}
+                  className="absolute left-2.5 text-slate-400 hover:text-white p-1 cursor-pointer"
+                  title={showAdminPass ? "إخفاء" : "إظهار"}
+                >
+                  {showAdminPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Emergency Master PIN Field */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-amber-300 font-bold flex items-center gap-1">
+                  <KeyRound className="w-3 h-3" />
+                  <span>رمز أمان الطوارئ (Master PIN)</span>
+                </label>
+              </div>
+              <div className="relative flex items-center">
+                <Fingerprint className="w-3.5 h-3.5 absolute right-3 text-amber-400 pointer-events-none" />
+                <input
+                  type={showAdminPin ? "text" : "password"}
+                  value={adminMasterPin}
+                  onChange={(e) => setAdminMasterPin(e.target.value)}
+                  placeholder="مثال: 998877"
+                  required
+                  dir="ltr"
+                  className="w-full text-left font-mono font-bold pr-8 pl-9 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl focus:bg-white focus:text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400 transition-all text-amber-200 placeholder:text-slate-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPin(!showAdminPin)}
+                  className="absolute left-2.5 text-amber-300 hover:text-white p-1 cursor-pointer"
+                  title={showAdminPin ? "إخفاء" : "إظهار"}
+                >
+                  {showAdminPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit & Save Button */}
+            <div className="flex flex-col justify-end">
+              <button
+                type="submit"
+                className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 text-xs"
+                id="btn-save-admin-credentials"
+              >
+                <Save className="w-4 h-4" />
+                <span>حفظ بيانات المدير والأمان</span>
+              </button>
+            </div>
+
+          </form>
+
+          {/* Helper Security Hint */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-2.5 text-[11px] text-slate-300 flex items-center justify-between gap-2 flex-wrap">
+            <span className="flex items-center gap-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>
+                في حال نسيان اسم المستخدم أو كلمة المرور للمدير، اضغط على <strong>"نسيت بيانات الدخول؟"</strong> في شاشة الدخول واستخدم رمز أمان الطوارئ لاستعادة الحساب فوراً.
+              </span>
+            </span>
+            <span className="font-mono text-emerald-300 text-[10px] bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+              حسابك الحالي: {adminUsername}
+            </span>
+          </div>
+
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -824,6 +1026,29 @@ export default function UserManagement({
                   </button>
                 </div>
               </div>
+
+              {/* Master PIN if Admin */}
+              {formData.role === "admin" && (
+                <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl">
+                  <label className="block text-xs font-bold text-amber-900 mb-1">
+                    رمز أمان الطوارئ السري (Master Recovery PIN)
+                  </label>
+                  <div className="relative flex items-center">
+                    <Fingerprint className="w-4 h-4 text-amber-500 absolute right-3 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={formData.masterPin || "998877"}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, masterPin: e.target.value }))}
+                      placeholder="رمز الطوارئ (مثال: 998877)"
+                      dir="ltr"
+                      className="w-full text-left font-mono font-bold text-xs pr-9 pl-3.5 py-2.5 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 text-slate-900"
+                    />
+                  </div>
+                  <span className="text-[10px] text-amber-700 mt-1 block">
+                    يستخدم هذا الرمز السري لاستعادة الحساب في حال نسيان اسم المستخدم أو كلمة المرور.
+                  </span>
+                </div>
+              )}
 
               {/* Phone / WhatsApp */}
               <div>

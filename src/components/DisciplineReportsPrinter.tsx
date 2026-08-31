@@ -193,6 +193,16 @@ export default function DisciplineReportsPrinter({
     };
   });
 
+  // Keep specific date in sync with initialDate prop changes
+  useEffect(() => {
+    if (initialDate) {
+      setFilter((prev) => ({
+        ...prev,
+        specificDate: initialDate,
+      }));
+    }
+  }, [initialDate]);
+
   // Unique Grades and Classes
   const uniqueGrades = useMemo(() => {
     const grades = new Set<string>();
@@ -235,13 +245,19 @@ export default function DisciplineReportsPrinter({
     }
   };
 
-  // Build full flattened discipline records list based on dates in state
+  // Build full flattened discipline records list based on dates in state and query
   const allDisciplineItems = useMemo<DisciplineReportItem[]>(() => {
     const items: DisciplineReportItem[] = [];
-    const dates = Object.keys(attendanceRecords);
+    const targetDatesSet = new Set<string>(Object.keys(attendanceRecords));
+    
+    // Ensure queried date, today, and yesterday are always represented
+    if (filter.specificDate) targetDatesSet.add(filter.specificDate);
+    const todayStr = new Date().toISOString().split("T")[0];
+    targetDatesSet.add(todayStr);
+    const yesterdayStr = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    targetDatesSet.add(yesterdayStr);
 
-    // If no dates recorded at all, build default today view with students
-    const targetDates = dates.length > 0 ? dates : [filter.specificDate];
+    const targetDates = Array.from(targetDatesSet);
 
     targetDates.forEach((dStr) => {
       const dayData = attendanceRecords[dStr] || {};
@@ -503,6 +519,62 @@ export default function DisciplineReportsPrinter({
   return (
     <div className="space-y-6" id="discipline-reports-printer-root">
       
+      {/* Strict A4 Print CSS Styles (Exact 1.5cm margins on all 4 sides) */}
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 1.5cm !important;
+        }
+        @media print {
+          html, body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          #discipline-reports-printer-root {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          #official-discipline-printable-sheet {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            min-height: auto !important;
+          }
+          .print-avoid-break {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+          }
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+          tfoot {
+            display: table-footer-group !important;
+          }
+          th, td {
+            border: 1px solid #cbd5e1 !important;
+          }
+        }
+      `}</style>
+
       {/* Toast Notification */}
       {savedToast && (
         <div className="fixed bottom-6 left-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl border border-slate-700 flex items-center gap-2 text-xs font-bold animate-bounce no-print">
@@ -834,10 +906,10 @@ export default function DisciplineReportsPrinter({
 
       </div>
 
-      {/* 3. A4 PRINTABLE DOCUMENT CONTAINER (Strict standard A4 matching ReportsPrinter) */}
+      {/* 3. A4 PRINTABLE DOCUMENT CONTAINER (Strict standard A4 matching ReportsPrinter with 1.5cm margins) */}
       <div 
         id="official-discipline-printable-sheet"
-        className="w-full max-w-[210mm] mx-auto bg-white border border-slate-300 shadow-xl rounded-2xl print:rounded-none print:shadow-none print:border-none p-8 print:p-0 flex flex-col gap-5 text-slate-900 transition-all text-right"
+        className="w-full max-w-[210mm] mx-auto bg-white border border-slate-300 shadow-xl rounded-2xl print:rounded-none print:shadow-none print:border-none p-[1.5cm] print:p-0 flex flex-col gap-4 text-slate-900 transition-all text-right"
         style={{ minHeight: "297mm" }}
       >
         
