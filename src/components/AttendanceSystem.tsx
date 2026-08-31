@@ -211,6 +211,93 @@ export default function AttendanceSystem({
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("تم حفظ وتحديث رصد الحضور بنجاح");
 
+  // Anti-Duplicate Protection States for Attendance & Tardiness
+  const [excludeAlreadySentToday, setExcludeAlreadySentToday] = useState(true);
+  const [todaySentMap, setTodaySentMap] = useState<Record<string, { time: string; phone: string; campaignName: string; status: string }>>({});
+  const [notificationFilterTab, setNotificationFilterTab] = useState<"unsent_today" | "all" | "sent_today">("unsent_today");
+
+  // Helper to normalize phone
+  const normalizePhone = (phoneStr?: string) => {
+    if (!phoneStr) return "";
+    return String(phoneStr).replace(/[^\d]/g, "");
+  };
+
+  // Helper to check if student was already sent a message today (across campaigns or individual attendance)
+  const getStudentSentTodayInfo = (student: Student) => {
+    if (!student) return null;
+    const name = extractStudentName(student).trim();
+    const phone = extractStudentPhone(student).trim();
+    const cleanPhone = normalizePhone(phone);
+
+    // Also check attendance record notified today for the selected date
+    const currentRec = currentDayData[student.id];
+    if (selectedDate === getTodayISO() && currentRec?.notified) {
+      return {
+        time: currentRec.notifiedAt || "اليوم",
+        phone: phone,
+        campaignName: "إشعار غياب/تأخر",
+        status: "success",
+      };
+    }
+
+    if (student.id && todaySentMap[`id_${student.id}`]) {
+      return todaySentMap[`id_${student.id}`];
+    }
+    if (cleanPhone && cleanPhone.length >= 8 && todaySentMap[`phone_${cleanPhone}`]) {
+      return todaySentMap[`phone_${cleanPhone}`];
+    }
+    if (name && todaySentMap[`name_${name}`]) {
+      return todaySentMap[`name_${name}`];
+    }
+    return null;
+  };
+
+  // Fetch today's sent reports from server
+  const loadTodaySentHistory = async () => {
+    try {
+      const res = await fetch("/api/whatsapp/reports");
+      if (!res.ok) return;
+      const data = await res.json();
+      const logs = data.logs || [];
+      const todayISO = getTodayISO();
+
+      const map: Record<string, { time: string; phone: string; campaignName: string; status: string }> = {};
+
+      logs.forEach((lg: any) => {
+        if (lg.status === "success" && lg.timestamp) {
+          const logDateISO = new Date(lg.timestamp).toISOString().split("T")[0];
+          if (logDateISO === todayISO) {
+            const timeFormatted = new Date(lg.timestamp).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+            const info = {
+              time: timeFormatted,
+              phone: lg.phone,
+              campaignName: lg.campaignName || "إرسال اليوم",
+              status: "success",
+            };
+            if (lg.studentName && lg.studentName !== "إرسال فردي مباشر") {
+              map[`name_${lg.studentName.trim()}`] = info;
+            }
+            const cleanP = normalizePhone(lg.phone);
+            if (cleanP && cleanP.length >= 8) {
+              map[`phone_${cleanP}`] = info;
+            }
+            if (lg.id) {
+              map[`id_${lg.id}`] = info;
+            }
+          }
+        }
+      });
+
+      setTodaySentMap(map);
+    } catch (err) {
+      console.error("Error loading today's sent reports in AttendanceSystem:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadTodaySentHistory();
+  }, [selectedDate]);
+
   // Live Batch Sending Modal State
   const [batchProgress, setBatchProgress] = useState<BatchSendProgress>({
     isOpen: false,
@@ -224,12 +311,55 @@ export default function AttendanceSystem({
   });
 
   const abortBatchRef = useRef<boolean>(false);
+  const attendanceCloudSyncTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // Save to localStorage & Cloud whenever records change
+  // Save to localStorage, server store & Cloud whenever records change (debounced for efficiency)
   useEffect(() => {
     localStorage.setItem("school_attendance_records", JSON.stringify(attendanceRecords));
-    saveAttendanceDataToCloud(attendanceRecords).catch(() => {});
+    
+    if (attendanceCloudSyncTimeout.current) {
+      clearTimeout(attendanceCloudSyncTimeout.current);
+    }
+    attendanceCloudSyncTimeout.current = setTimeout(() => {
+      // 1. Sync to server persistent disk store
+      fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendanceRecords })
+      }).catch(e => console.error("Error saving attendance to server:", e));
+
+      // 2. Sync to cloud
+      saveAttendanceDataToCloud(attendanceRecords).catch(() => {});
+    }, 1500);
+
+    return () => {
+      if (attendanceCloudSyncTimeout.current) {
+        clearTimeout(attendanceCloudSyncTimeout.current);
+      }
+    };
   }, [attendanceRecords]);
+
+  // Initial load from server to ensure full cumulative year records are preserved
+  useEffect(() => {
+    const fetchServerAttendance = async () => {
+      try {
+        const res = await fetch("/api/attendance");
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data === "object" && Object.keys(data).length > 0) {
+            setAttendanceRecords((prev) => {
+              const merged = { ...data, ...prev };
+              localStorage.setItem("school_attendance_records", JSON.stringify(merged));
+              return merged;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching initial attendance from server:", err);
+      }
+    };
+    fetchServerAttendance();
+  }, []);
 
   // Current day's records
   const currentDayData = useMemo(() => {
@@ -429,8 +559,31 @@ export default function AttendanceSystem({
     });
   }, [students, currentDayData]);
 
+  // Target students to notify according to anti-duplicate exclusion setting
+  const targetStudentsToNotify = useMemo(() => {
+    return recordedStudents.filter((st) => {
+      const sentInfo = getStudentSentTodayInfo(st);
+      const isSentToday = !!sentInfo;
+
+      if (notificationFilterTab === "unsent_today") {
+        return !isSentToday;
+      }
+      if (notificationFilterTab === "sent_today") {
+        return isSentToday;
+      }
+      return true;
+    });
+  }, [recordedStudents, notificationFilterTab, todaySentMap, currentDayData, selectedDate]);
+
+  // Count of recorded students already sent today
+  const sentTodayCount = useMemo(() => {
+    return recordedStudents.filter((st) => !!getStudentSentTodayInfo(st)).length;
+  }, [recordedStudents, todaySentMap, currentDayData, selectedDate]);
+
+  const unsentTodayCount = recordedStudents.length - sentTodayCount;
+
   // Send single WhatsApp notification
-  const handleSendSingleNotification = async (student: Student, type: "absence" | "tardiness") => {
+  const handleSendSingleNotification = async (student: Student, type: "absence" | "tardiness", forceSend = false) => {
     const studentPhone = extractStudentPhone(student);
     const studentName = extractStudentName(student);
     const studentGrade = extractStudentGrade(student);
@@ -439,6 +592,17 @@ export default function AttendanceSystem({
     if (!studentPhone) {
       alert(`⚠️ لا يوجد رقم جوال مسجل للطالب (${studentName}) في الكشف المعتمد.`);
       return;
+    }
+
+    // Check duplicate protection for single send
+    const sentTodayInfo = getStudentSentTodayInfo(student);
+    if (sentTodayInfo && !forceSend) {
+      const confirmSend = window.confirm(
+        `🛡️ تنبيه الحماية من تكرار الرسائل:\n\nتم إرسال رسالة اليوم بالفعل للطالب (${studentName}) في تمام الساعة (${sentTodayInfo.time}).\n\nهل ترغب في تجاوز درع الحماية وإعادة إرسال إشعار الغياب/التأخر له مجدداً؟`
+      );
+      if (!confirmSend) {
+        return;
+      }
     }
 
     const message = constructNotificationMessage(student, type);
@@ -474,6 +638,22 @@ export default function AttendanceSystem({
             };
           }
           return { ...prev, [selectedDate]: day };
+        });
+
+        // Update todaySentMap immediately
+        const cleanP = normalizePhone(studentPhone);
+        setTodaySentMap((prev) => {
+          const updated = { ...prev };
+          const info = {
+            time: nowTime,
+            phone: studentPhone,
+            campaignName: "إشعار غياب/تأخر",
+            status: "success",
+          };
+          if (student.id) updated[`id_${student.id}`] = info;
+          if (studentName) updated[`name_${studentName.trim()}`] = info;
+          if (cleanP) updated[`phone_${cleanP}`] = info;
+          return updated;
         });
 
         // Add to local history for reports
@@ -530,8 +710,17 @@ export default function AttendanceSystem({
 
   // Launch Batch WhatsApp sending with interactive live modal and 15-second anti-ban interval
   const handleStartBatchNotifications = async () => {
-    if (recordedStudents.length === 0) {
-      alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإرسال الإشعارات لهم.");
+    // Determine target batch candidates according to anti-duplicate exclusion
+    const batchCandidates = excludeAlreadySentToday 
+      ? recordedStudents.filter((st) => !getStudentSentTodayInfo(st))
+      : recordedStudents;
+
+    if (batchCandidates.length === 0) {
+      if (recordedStudents.length > 0 && excludeAlreadySentToday) {
+        alert("🛡️ درع الحماية نشط:\nتم إرسال إشعارات الغياب/التأخر لجميع هؤلاء الطلاب اليوم بالفعل ولا يوجد طلاب متبقين للإرسال.\nإذا كنت ترغب في إعادة الإرسال لهم، يرجى تعطيل خيار «استثناء المرسل لهم اليوم» من شريط الحماية بالأعلى.");
+      } else {
+        alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإرسال الإشعارات لهم.");
+      }
       return;
     }
 
@@ -540,7 +729,7 @@ export default function AttendanceSystem({
       isOpen: true,
       isRunning: true,
       currentIndex: 0,
-      total: recordedStudents.length,
+      total: batchCandidates.length,
       sentCount: 0,
       failedCount: 0,
       currentStudentName: "",
@@ -552,12 +741,12 @@ export default function AttendanceSystem({
     let sent = 0;
     let failed = 0;
 
-    for (let i = 0; i < recordedStudents.length; i++) {
+    for (let i = 0; i < batchCandidates.length; i++) {
       if (abortBatchRef.current) {
         break;
       }
 
-      const student = recordedStudents[i];
+      const student = batchCandidates[i];
       const studentName = extractStudentName(student);
       const studentPhone = extractStudentPhone(student);
       const studentGrade = extractStudentGrade(student);
@@ -627,11 +816,26 @@ export default function AttendanceSystem({
             const next = { ...prev, [selectedDate]: day };
             try {
               localStorage.setItem("attendance_records", JSON.stringify(next));
-              saveAttendanceDataToCloud(next).catch(console.error);
             } catch (e) {
               console.error(e);
             }
             return next;
+          });
+
+          // Update today sent map
+          const cleanP = normalizePhone(studentPhone);
+          setTodaySentMap((prev) => {
+            const updated = { ...prev };
+            const info = {
+              time: nowTime,
+              phone: studentPhone,
+              campaignName: "إشعار غياب/تأخر",
+              status: "success",
+            };
+            if (student.id) updated[`id_${student.id}`] = info;
+            if (studentName) updated[`name_${studentName.trim()}`] = info;
+            if (cleanP) updated[`phone_${cleanP}`] = info;
+            return updated;
           });
 
           setBatchProgress((prev) => ({
@@ -686,7 +890,7 @@ export default function AttendanceSystem({
       }
 
       // Safe 15-second Anti-Ban Delay with human-like jitter variation between messages (except for the last message)
-      if (i < recordedStudents.length - 1 && !abortBatchRef.current) {
+      if (i < batchCandidates.length - 1 && !abortBatchRef.current) {
         // Safe 15-second interval + random jitter (between 14s and 18s)
         const jitterSecs = Math.floor(Math.random() * 4) - 1; // -1 to +2
         const totalDelaySecs = Math.max(14, 15 + jitterSecs);
@@ -725,12 +929,20 @@ export default function AttendanceSystem({
 
   // Launch as an Official Campaign in the Campaign Monitor with 15-second anti-ban interval
   const handleLaunchAsOfficialCampaign = async () => {
-    if (recordedStudents.length === 0) {
-      alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإطلاق الحملة لهم.");
+    const campaignCandidates = excludeAlreadySentToday
+      ? recordedStudents.filter((st) => !getStudentSentTodayInfo(st))
+      : recordedStudents;
+
+    if (campaignCandidates.length === 0) {
+      if (recordedStudents.length > 0 && excludeAlreadySentToday) {
+        alert("🛡️ درع الحماية نشط:\nتم إرسال رسائل لجميع هؤلاء الطلاب اليوم بالفعل ولا يوجد طلاب متبقين لإطلاق الحملة لهم.\nإذا كنت ترغب في إعادة إطلاق الحملة لهم، يرجى تعطيل خيار «استثناء المرسل لهم اليوم» من شريط الحماية بالأعلى.");
+      } else {
+        alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإطلاق الحملة لهم.");
+      }
       return;
     }
 
-    const campaignStudents = recordedStudents.map((student, idx) => {
+    const campaignStudents = campaignCandidates.map((student, idx) => {
       const studentName = extractStudentName(student, idx + 1);
       const studentPhone = extractStudentPhone(student);
       const studentGrade = extractStudentGrade(student);
@@ -771,11 +983,11 @@ export default function AttendanceSystem({
       if (response.ok && data.campaignId) {
         localStorage.setItem("active_campaign_id", data.campaignId);
         
-        // Mark all recorded students as notified in local state & cloud
+        // Mark all campaign candidates as notified in local state & cloud
         const nowTime = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
         setAttendanceRecords((prev) => {
           const day = prev[selectedDate] ? { ...prev[selectedDate] } : {};
-          recordedStudents.forEach((st) => {
+          campaignCandidates.forEach((st) => {
             if (day[st.id]) {
               day[st.id] = { ...day[st.id], notified: true, notifiedAt: nowTime };
             }
@@ -783,14 +995,13 @@ export default function AttendanceSystem({
           const next = { ...prev, [selectedDate]: day };
           try {
             localStorage.setItem("attendance_records", JSON.stringify(next));
-            saveAttendanceDataToCloud(next).catch(console.error);
           } catch (e) {
             console.error(e);
           }
           return next;
         });
 
-        alert(`🚀 تم إطلاق (${campaignName}) بنجاح لعدد (${recordedStudents.length}) طالب بفاصل أمان (15 ثانية).\nتم حفظ وتوثيق بيانات الانضباط بنجاح!\nسيتم نقلك الآن لـ «حملة الإرسال الجماعي» لمتابعة الإرسال المباشر.`);
+        alert(`🚀 تم إطلاق (${campaignName}) بنجاح لعدد (${campaignCandidates.length}) طالب بفاصل أمان (15 ثانية).\nتم حفظ وتوثيق بيانات الانضباط بنجاح!\nسيتم نقلك الآن لـ «حملة الإرسال الجماعي» لمتابعة الإرسال المباشر.`);
         onNavigateToMessages("send");
       } else {
         alert(`❌ تعذر إطلاق الحملة: ${data.error || "خطأ غير معروف"}`);
@@ -1337,23 +1548,34 @@ export default function AttendanceSystem({
                               {/* Instant Send Action */}
                               <td className="p-2.5 text-center">
                                 {(isAbsent || isTardy) ? (
-                                  <button
-                                    onClick={() => handleSendSingleNotification(student, isTardy ? "tardiness" : "absence")}
-                                    disabled={notifState === "sending"}
-                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
-                                      record?.notified
-                                        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
-                                        : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
-                                    }`}
-                                    title="إرسال إشعار فوري لولي الأمر عبر واتساب"
-                                  >
-                                    {notifState === "sending" ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Send className="w-3 h-3 rotate-180 text-emerald-400" />
-                                    )}
-                                    <span>{notifState === "sending" ? "جارِ الإرسال..." : record?.notified ? "إعادة الإرسال" : "إشعار واتساب"}</span>
-                                  </button>
+                                  (() => {
+                                    const sentTodayInfo = getStudentSentTodayInfo(student);
+                                    return (
+                                      <button
+                                        onClick={() => handleSendSingleNotification(student, isTardy ? "tardiness" : "absence")}
+                                        disabled={notifState === "sending"}
+                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
+                                          notifState === "sending"
+                                            ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                                            : sentTodayInfo
+                                            ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
+                                            : record?.notified
+                                            ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
+                                            : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
+                                        }`}
+                                        title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار فوري لولي الأمر عبر واتساب"}
+                                      >
+                                        {notifState === "sending" ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : sentTodayInfo ? (
+                                          <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                                        ) : (
+                                          <Send className="w-3 h-3 rotate-180 text-emerald-400" />
+                                        )}
+                                        <span>{notifState === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "إعادة الإرسال" : "إشعار واتساب"}</span>
+                                      </button>
+                                    );
+                                  })()
                                 ) : (
                                   <span className="text-slate-400 text-[10px]">-</span>
                                 )}
@@ -1516,22 +1738,34 @@ export default function AttendanceSystem({
                             {/* Single Send WhatsApp Button */}
                             <td className="p-3 text-center">
                               {isTardy && (
-                                <button
-                                  onClick={() => handleSendSingleNotification(student, "tardiness")}
-                                  disabled={notifStatus === "sending"}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
-                                    record?.notified
-                                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                                      : "bg-slate-900 hover:bg-slate-800 text-white"
-                                  }`}
-                                >
-                                  {notifStatus === "sending" ? (
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <Smartphone className="w-3 h-3 text-emerald-400" />
-                                  )}
-                                  <span>{notifStatus === "sending" ? "جارِ الإرسال..." : record?.notified ? "تم الإشعار ✓" : "إشعار واتساب"}</span>
-                                </button>
+                                (() => {
+                                  const sentTodayInfo = getStudentSentTodayInfo(student);
+                                  return (
+                                    <button
+                                      onClick={() => handleSendSingleNotification(student, "tardiness")}
+                                      disabled={notifStatus === "sending"}
+                                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
+                                        notifStatus === "sending"
+                                          ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                                          : sentTodayInfo
+                                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
+                                          : record?.notified
+                                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
+                                          : "bg-slate-900 hover:bg-slate-800 text-white"
+                                      }`}
+                                      title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار تأخر فوري لولي الأمر عبر واتساب"}
+                                    >
+                                      {notifStatus === "sending" ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : sentTodayInfo ? (
+                                        <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                                      ) : (
+                                        <Smartphone className="w-3 h-3 text-emerald-400" />
+                                      )}
+                                      <span>{notifStatus === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "تم الإشعار ✓" : "إشعار واتساب"}</span>
+                                    </button>
+                                  );
+                                })()
                               )}
                             </td>
 
@@ -1567,25 +1801,68 @@ export default function AttendanceSystem({
                   {/* Direct Batch Sending */}
                   <button
                     onClick={handleStartBatchNotifications}
-                    disabled={recordedStudents.length === 0}
+                    disabled={(excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length) === 0}
                     className="flex-1 lg:flex-none px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                     id="btn-batch-send-notifications"
+                    title={excludeAlreadySentToday ? `إرسال الإشعارات للمتبقين فقط (${unsentTodayCount} طالب)` : `إرسال الإشعارات للجميع (${recordedStudents.length} طالب)`}
                   >
                     <Zap className="w-4 h-4 text-emerald-200" />
-                    <span>إرسال الإشعارات للجميع فوريًا ({recordedStudents.length})</span>
+                    <span>
+                      إرسال الإشعارات فوريًا ({excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length})
+                    </span>
                   </button>
 
                   {/* Launch as Official Campaign in Campaign Monitor */}
                   <button
                     onClick={handleLaunchAsOfficialCampaign}
-                    disabled={recordedStudents.length === 0}
+                    disabled={(excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length) === 0}
                     className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                     title="إطلاق كحملة إرسال في نظام الرسائل مع شريط تقدم مباشر"
                   >
                     <Send className="w-4 h-4 rotate-180 text-emerald-400" />
-                    <span>إطلاق كحملة إرسال جماعي</span>
+                    <span>إطلاق كحملة إرسال جماعي ({excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length})</span>
                   </button>
 
+                </div>
+              </div>
+
+              {/* Anti-Duplicate Protection Bar */}
+              <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-extrabold text-slate-900">درع الحماية الذكي من تكرار رسائل الغياب والتأخر</h4>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                        مفعل تلقائياً
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      يمنع النظام تكرار إرسال إشعارات الغياب والتأخر لنفس الطالب أو رقم الجوال خلال اليوم ويستثنيهم من الدفعات الجديدة.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-2 md:pt-0 border-emerald-200/60">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800 select-none">
+                    <input
+                      type="checkbox"
+                      checked={excludeAlreadySentToday}
+                      onChange={(e) => setExcludeAlreadySentToday(e.target.checked)}
+                      className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                    />
+                    <span>استثناء من تم الإرسال لهم اليوم ({sentTodayCount})</span>
+                  </label>
+                  <button
+                    onClick={loadTodaySentHistory}
+                    className="text-[10px] text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-200 px-2 py-1 rounded-lg font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                    title="تحديث سجل المرسل لهم اليوم"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>تحديث السجل</span>
+                  </button>
                 </div>
               </div>
 
@@ -1648,21 +1925,73 @@ export default function AttendanceSystem({
 
               </div>
 
-              {/* Target Students List */}
+              {/* Target Students List with Filter Tabs */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-800">
-                    الطلاب المطلوب إشعار أولياء أمورهم لتاريخ {selectedDate} ({recordedStudents.length}):
-                  </h4>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">
+                      الطلاب المطلوب إشعار أولياء أمورهم لتاريخ {selectedDate} ({recordedStudents.length}):
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      المتبقي للإرسال: <span className="font-bold text-emerald-700">{unsentTodayCount} طالب</span> | تم الإرسال لهم اليوم: <span className="font-bold text-slate-700">{sentTodayCount} طالب</span>
+                    </p>
+                  </div>
+
+                  {/* Filter Sub-Tabs */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-bold">
+                    <button
+                      onClick={() => setNotificationFilterTab("unsent_today")}
+                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        notificationFilterTab === "unsent_today"
+                          ? "bg-white text-slate-900 shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <Bell className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>غير المرسل لهم اليوم ({unsentTodayCount})</span>
+                    </button>
+
+                    <button
+                      onClick={() => setNotificationFilterTab("sent_today")}
+                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        notificationFilterTab === "sent_today"
+                          ? "bg-white text-slate-900 shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>تم الإرسال لهم اليوم ({sentTodayCount})</span>
+                    </button>
+
+                    <button
+                      onClick={() => setNotificationFilterTab("all")}
+                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        notificationFilterTab === "all"
+                          ? "bg-white text-slate-900 shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <span>عرض الكل ({recordedStudents.length})</span>
+                    </button>
+                  </div>
                 </div>
 
-                {recordedStudents.length === 0 ? (
+                {targetStudentsToNotify.length === 0 ? (
                   <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-8 text-center text-slate-500 text-xs">
-                    لا يوجد أي طالب مسجل كغائب أو متأخر لتاريخ {selectedDate}.
+                    {recordedStudents.length === 0 ? (
+                      `لا يوجد أي طالب مسجل كغائب أو متأخر لتاريخ ${selectedDate}.`
+                    ) : notificationFilterTab === "unsent_today" ? (
+                      <div className="space-y-1.5">
+                        <p className="font-bold text-emerald-700 text-sm">🎉 رائع! تم إرسال كافة إشعارات الغياب والتأخر لجميع طلاب اليوم بنجاح.</p>
+                        <p className="text-slate-500 text-xs">لا يوجد طلاب متبقين في قائمة الانتظار. تم حمايتهم من تكرار الرسائل.</p>
+                      </div>
+                    ) : (
+                      "لا توجد نتائج مطابقة للتصفية المختارة."
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                    {recordedStudents.map((student, idx) => {
+                    {targetStudentsToNotify.map((student, idx) => {
                       const studentName = extractStudentName(student, idx + 1);
                       const studentPhone = extractStudentPhone(student) || "-";
                       const studentGrade = extractStudentGrade(student) || "-";
@@ -1672,11 +2001,16 @@ export default function AttendanceSystem({
                       const isTardy = status === "tardy";
                       const isExcused = status === "absent_excused";
                       const notifStatus = notificationStatus[student.id];
+                      const sentTodayInfo = getStudentSentTodayInfo(student);
 
                       return (
                         <div
                           key={student.id}
-                          className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col justify-between gap-3 text-right hover:border-slate-300 transition-all shadow-2xs"
+                          className={`border rounded-2xl p-4 flex flex-col justify-between gap-3 text-right transition-all shadow-2xs ${
+                            sentTodayInfo 
+                              ? "bg-emerald-50/40 border-emerald-200/80 hover:border-emerald-300"
+                              : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                          }`}
                         >
                           <div>
                             <div className="flex items-center justify-between mb-2">
@@ -1695,16 +2029,31 @@ export default function AttendanceSystem({
                               </span>
                             </div>
 
-                            <h5 className="text-sm font-bold text-slate-900">{studentName}</h5>
-                            <span className="text-[11px] text-slate-500 font-semibold">{studentGrade} - فصل ({studentClass})</span>
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <h5 className="text-sm font-bold text-slate-900">{studentName}</h5>
+                                <span className="text-[11px] text-slate-500 font-semibold">{studentGrade} - فصل ({studentClass})</span>
+                              </div>
+                              {sentTodayInfo && (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 shrink-0" title="تم الإرسال اليوم">
+                                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                                  <span>مرسل اليوم</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between gap-2">
                             <span className="text-[10px] text-slate-500 font-medium">
-                              {rec?.notified ? (
+                              {sentTodayInfo ? (
+                                <span className="text-emerald-700 font-bold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>تم الإرسال اليوم ({sentTodayInfo.time})</span>
+                                </span>
+                              ) : rec?.notified ? (
                                 <span className="text-emerald-700 font-bold">تم الإشعار ✓ ({rec.notifiedAt || ""})</span>
                               ) : (
-                                "بانتظار الإرسال"
+                                <span className="text-amber-700 font-semibold">بانتظار الإرسال</span>
                               )}
                             </span>
 
@@ -1714,6 +2063,8 @@ export default function AttendanceSystem({
                               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
                                 notifStatus === "sending"
                                   ? "bg-slate-300 text-slate-600"
+                                  : sentTodayInfo
+                                  ? "bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs"
                                   : rec?.notified
                                   ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                                   : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
@@ -1727,7 +2078,7 @@ export default function AttendanceSystem({
                               <span>
                                 {notifStatus === "sending" 
                                   ? "جارِ الإرسال..." 
-                                  : rec?.notified 
+                                  : sentTodayInfo 
                                   ? "إعادة الإرسال" 
                                   : "إرسال واتساب"}
                               </span>

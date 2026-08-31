@@ -309,6 +309,7 @@ const APP_SETTINGS_FILE = path.join(process.cwd(), "app_settings.json");
 const STUDENTS_FILE = path.join(process.cwd(), "students_store.json");
 const TEMPLATE_FILE = path.join(process.cwd(), "template_store.json");
 const USERS_FILE = path.join(process.cwd(), "users_store.json");
+const ATTENDANCE_FILE = path.join(process.cwd(), "attendance_store.json");
 
 // Default initial school settings
 let appSettings = {
@@ -327,6 +328,7 @@ let appSettings = {
 
 let activeStudentsList: any[] = [];
 let activeTemplate: string = "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة";
+let attendanceRecordsStore: Record<string, Record<string, any>> = {};
 let systemUsersList: any[] = [
   {
     id: "admin_root_1",
@@ -348,6 +350,18 @@ if (fs.existsSync(USERS_FILE)) {
     if (Array.isArray(parsed) && parsed.length > 0) systemUsersList = parsed;
   } catch (e) {
     console.error("Error reading users_store.json", e);
+  }
+}
+
+if (fs.existsSync(ATTENDANCE_FILE)) {
+  try {
+    const raw = fs.readFileSync(ATTENDANCE_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      attendanceRecordsStore = parsed;
+    }
+  } catch (e) {
+    console.error("Error reading attendance_store.json", e);
   }
 }
 
@@ -459,6 +473,15 @@ function saveUsersList() {
   }
 }
 
+function saveAttendanceRecords() {
+  try {
+    fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify(attendanceRecordsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ attendanceRecords: attendanceRecordsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving attendance_store.json", e);
+  }
+}
+
 // Default initial config load
 const CONFIG_FILE = path.join(process.cwd(), "whatsapp_config.json");
 if (fs.existsSync(CONFIG_FILE)) {
@@ -486,8 +509,29 @@ app.get("/api/app-state", (req, res) => {
     students: activeStudentsList,
     template: activeTemplate,
     users: systemUsersList,
+    attendanceRecords: attendanceRecordsStore,
     totalCampaigns: Object.keys(campaigns).length,
     totalIndividualLogs: individualLogs.length,
+  });
+});
+
+// Dedicated Year-Long Academic Attendance Storage Endpoints
+app.get("/api/attendance", (req, res) => {
+  res.json({
+    records: attendanceRecordsStore,
+    totalDays: Object.keys(attendanceRecordsStore).length,
+  });
+});
+
+app.post("/api/attendance", (req, res) => {
+  const { records } = req.body || {};
+  if (records && typeof records === "object") {
+    attendanceRecordsStore = { ...attendanceRecordsStore, ...records };
+    saveAttendanceRecords();
+  }
+  res.json({
+    success: true,
+    totalDays: Object.keys(attendanceRecordsStore).length,
   });
 });
 

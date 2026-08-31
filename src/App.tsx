@@ -41,7 +41,8 @@ import {
   saveSchoolDataToCloud, 
   saveStudentsDataToCloud,
   saveUsersDataToCloud,
-  DEFAULT_ADMIN_USER
+  DEFAULT_ADMIN_USER,
+  getCloudStorageStatus
 } from "./firebaseService";
 import { LogOut } from "lucide-react";
 

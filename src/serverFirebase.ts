@@ -12,6 +12,34 @@ const APP_STATE_COLLECTION = "abna_system_data";
 const WHATSAPP_SESSION_DOC = "whatsapp_baileys_session";
 const SERVER_DATA_DOC = "server_system_state";
 
+let isServerQuotaExceeded = false;
+let serverQuotaExceededTimestamp = 0;
+const SERVER_QUOTA_COOLDOWN_MS = 30 * 60 * 1000;
+
+function isServerQuotaLimited(): boolean {
+  if (!isServerQuotaExceeded) return false;
+  if (Date.now() - serverQuotaExceededTimestamp > SERVER_QUOTA_COOLDOWN_MS) {
+    isServerQuotaExceeded = false;
+    return false;
+  }
+  return true;
+}
+
+function handleServerQuotaError(err: any, opName: string) {
+  const errMsg = err?.message || String(err);
+  if (
+    errMsg.includes("resource-exhausted") ||
+    errMsg.includes("Quota limit exceeded") ||
+    errMsg.includes("Quota exceeded") ||
+    errMsg.includes("429")
+  ) {
+    isServerQuotaExceeded = true;
+    serverQuotaExceededTimestamp = Date.now();
+  } else {
+    console.warn(`[Firebase] ${opName} error:`, errMsg);
+  }
+}
+
 /**
  * Recursively removes undefined fields so Firestore doesn't throw errors
  */
@@ -34,6 +62,8 @@ function sanitizePayload(obj: any): any {
  * Backs up all files in auth_info_baileys to Firestore
  */
 export async function backupBaileysSessionToFirestore(authFolder: string): Promise<boolean> {
+  if (isServerQuotaLimited()) return false;
+
   try {
     if (!fs.existsSync(authFolder)) return false;
 
@@ -69,7 +99,7 @@ export async function backupBaileysSessionToFirestore(authFolder: string): Promi
     console.log(`[Firebase] WhatsApp session backed up to Firestore (${Object.keys(filesMap).length} files)`);
     return true;
   } catch (err: any) {
-    console.warn("[Firebase] Failed to backup WhatsApp session to Firestore:", err?.message || err);
+    handleServerQuotaError(err, "backupBaileysSessionToFirestore");
     return false;
   }
 }
@@ -78,6 +108,8 @@ export async function backupBaileysSessionToFirestore(authFolder: string): Promi
  * Restores all files in auth_info_baileys from Firestore if local folder is empty/missing
  */
 export async function restoreBaileysSessionFromFirestore(authFolder: string): Promise<boolean> {
+  if (isServerQuotaLimited()) return false;
+
   try {
     const credsFile = path.join(authFolder, "creds.json");
     // If local creds already exist and are valid, we don't need to overwrite unless empty
@@ -127,7 +159,7 @@ export async function restoreBaileysSessionFromFirestore(authFolder: string): Pr
     console.log(`[Firebase] Restored ${restoredCount} WhatsApp session files from Firestore to ${authFolder}`);
     return restoredCount > 0 && fs.existsSync(credsFile);
   } catch (err: any) {
-    console.warn("[Firebase] Failed to restore WhatsApp session from Firestore:", err?.message || err);
+    handleServerQuotaError(err, "restoreBaileysSessionFromFirestore");
     return false;
   }
 }
@@ -136,11 +168,13 @@ export async function restoreBaileysSessionFromFirestore(authFolder: string): Pr
  * Clears WhatsApp session from Firestore
  */
 export async function deleteBaileysSessionInFirestore(): Promise<void> {
+  if (isServerQuotaLimited()) return;
+
   try {
     await deleteDoc(doc(firestoreDb, APP_STATE_COLLECTION, WHATSAPP_SESSION_DOC));
     console.log("[Firebase] Deleted WhatsApp session from Firestore.");
   } catch (err: any) {
-    console.warn("[Firebase] Failed to delete WhatsApp session from Firestore:", err?.message || err);
+    handleServerQuotaError(err, "deleteBaileysSessionInFirestore");
   }
 }
 
@@ -155,7 +189,10 @@ export async function syncServerStateToFirestore(state: {
   campaigns?: any;
   individualLogs?: any[];
   whatsappConfig?: any;
+  attendanceRecords?: any;
 }): Promise<void> {
+  if (isServerQuotaLimited()) return;
+
   try {
     const payload = sanitizePayload({
       ...state,
@@ -164,7 +201,7 @@ export async function syncServerStateToFirestore(state: {
 
     await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
   } catch (err: any) {
-    console.warn("[Firebase] Error syncing server state to Firestore:", err?.message || err);
+    handleServerQuotaError(err, "syncServerStateToFirestore");
   }
 }
 
@@ -172,13 +209,15 @@ export async function syncServerStateToFirestore(state: {
  * Load server state from Firestore on initial startup
  */
 export async function loadServerStateFromFirestore(): Promise<any> {
+  if (isServerQuotaLimited()) return null;
+
   try {
     const snap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC));
     if (snap.exists()) {
       return snap.data();
     }
   } catch (err: any) {
-    console.warn("[Firebase] Error loading server state from Firestore:", err?.message || err);
+    handleServerQuotaError(err, "loadServerStateFromFirestore");
   }
   return null;
 }

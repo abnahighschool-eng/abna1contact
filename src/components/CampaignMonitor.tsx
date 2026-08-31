@@ -25,7 +25,80 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
   const [gradeFilter, setGradeFilter] = useState("all");
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [studentSearchQuery, setStudentSearchQuery] = useState("");
-  const [viewSelectionFilter, setViewSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
+  const [viewSelectionFilter, setViewSelectionFilter] = useState<"unsent_today" | "all" | "sent_today" | "selected" | "unselected">("unsent_today");
+  const [excludeAlreadySentToday, setExcludeAlreadySentToday] = useState(true);
+  const [todaySentMap, setTodaySentMap] = useState<Record<string, { time: string; phone: string; campaignName: string; status: string }>>({});
+
+  // Normalize phone number helper
+  const normalizePhone = (phoneStr?: string) => {
+    if (!phoneStr) return "";
+    return String(phoneStr).replace(/[^\d]/g, "");
+  };
+
+  // Helper to check if student was sent a successful message today
+  const getStudentSentTodayInfo = (student: Student) => {
+    if (!student) return null;
+    const name = (student.name || student["اسم الطالب"] || student["الاسم"] || student["الاسم الكامل"] || "").trim();
+    const phone = (student.phone || student["رقم الجوال"] || student["الجوال"] || "").trim();
+    const cleanPhone = normalizePhone(phone);
+
+    if (student.id && todaySentMap[`id_${student.id}`]) {
+      return todaySentMap[`id_${student.id}`];
+    }
+    if (cleanPhone && cleanPhone.length >= 8 && todaySentMap[`phone_${cleanPhone}`]) {
+      return todaySentMap[`phone_${cleanPhone}`];
+    }
+    if (name && todaySentMap[`name_${name}`]) {
+      return todaySentMap[`name_${name}`];
+    }
+    return null;
+  };
+
+  // Fetch today's sent logs on mount and periodically
+  const loadTodaySentHistory = async () => {
+    try {
+      const res = await fetch("/api/whatsapp/reports");
+      if (!res.ok) return;
+      const data = await res.json();
+      const logs = data.logs || [];
+      const todayISO = new Date().toISOString().split("T")[0];
+
+      const map: Record<string, { time: string; phone: string; campaignName: string; status: string }> = {};
+
+      logs.forEach((lg: any) => {
+        if (lg.status === "success" && lg.timestamp) {
+          const logDateISO = new Date(lg.timestamp).toISOString().split("T")[0];
+          if (logDateISO === todayISO) {
+            const timeFormatted = new Date(lg.timestamp).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+            const info = {
+              time: timeFormatted,
+              phone: lg.phone,
+              campaignName: lg.campaignName || "إرسال اليوم",
+              status: "success",
+            };
+            if (lg.studentName && lg.studentName !== "إرسال فردي مباشر") {
+              map[`name_${lg.studentName.trim()}`] = info;
+            }
+            const cleanP = normalizePhone(lg.phone);
+            if (cleanP && cleanP.length >= 8) {
+              map[`phone_${cleanP}`] = info;
+            }
+            if (lg.id) {
+              map[`id_${lg.id}`] = info;
+            }
+          }
+        }
+      });
+
+      setTodaySentMap(map);
+    } catch (err) {
+      console.error("Error loading today's sent reports:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadTodaySentHistory();
+  }, []);
 
   // Template Preview states
   const [previewStudentIdx, setPreviewStudentIdx] = useState(0);
@@ -90,13 +163,16 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     return gradeToClassesMap[gradeFilter] || [];
   }, [gradeFilter, gradeToClassesMap]);
 
-  // Synchronize selection on initial load of students
+  // Synchronize selection on initial load of students (auto excluding already-sent today)
   useEffect(() => {
     if (students && students.length > 0) {
-      setSelectedStudentIds(students.map(s => s.id));
+      const targetIds = students
+        .filter(s => !excludeAlreadySentToday || !getStudentSentTodayInfo(s))
+        .map(s => s.id);
+      setSelectedStudentIds(targetIds);
       setSelectedClasses(gradeToClassesMap.all || []);
     }
-  }, [students]);
+  }, [students, todaySentMap]);
 
   // Handle Grade Change: "كل الصفوف" vs Specific Grade
   const handleGradeChange = (newGrade: string) => {
@@ -104,18 +180,23 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     setPreviewStudentIdx(0);
 
     if (newGrade === "all") {
-      // Default: Check all classes, select all students
       const allClassList = gradeToClassesMap.all || [];
       setSelectedClasses(allClassList);
-      setSelectedStudentIds(students.map(s => s.id));
+      const targetIds = students
+        .filter(s => !excludeAlreadySentToday || !getStudentSentTodayInfo(s))
+        .map(s => s.id);
+      setSelectedStudentIds(targetIds);
     } else {
-      // Default: Only check classes and students belonging to this specific grade!
-      // "عند اختيار صف محدد لا يتم وضع صح على بقية الصفوف لاني لن اقوم بالارسال اليها"
       const gradeClasses = gradeToClassesMap[newGrade] || [];
       setSelectedClasses(gradeClasses);
       
       const gradeStudentIds = students
-        .filter(s => (s.grade || s["الصف"] || s["المستوى"] || "").trim() === newGrade)
+        .filter(s => {
+          const matchesGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim() === newGrade;
+          if (!matchesGrade) return false;
+          if (excludeAlreadySentToday && getStudentSentTodayInfo(s)) return false;
+          return true;
+        })
         .map(s => s.id);
       setSelectedStudentIds(gradeStudentIds);
     }
@@ -137,14 +218,17 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
       const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
       return matchesGrade && studentClass === cls;
     });
-    const affectedIds = affectedStudents.map(s => s.id);
+
+    const eligibleAffectedStudents = affectedStudents.filter(s => !excludeAlreadySentToday || !getStudentSentTodayInfo(s));
+    const eligibleIds = eligibleAffectedStudents.map(s => s.id);
 
     if (isCurrentlySelected) {
-      // Remove these students from active send list
-      setSelectedStudentIds(prev => prev.filter(id => !affectedIds.includes(id)));
+      // Remove all affected students
+      const allAffectedIds = affectedStudents.map(s => s.id);
+      setSelectedStudentIds(prev => prev.filter(id => !allAffectedIds.includes(id)));
     } else {
-      // Add these students back into active send list
-      setSelectedStudentIds(prev => Array.from(new Set([...prev, ...affectedIds])));
+      // Add eligible students back into active send list
+      setSelectedStudentIds(prev => Array.from(new Set([...prev, ...eligibleIds])));
     }
   };
 
@@ -153,7 +237,10 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     setSelectedClasses(availableClassesForCurrentGrade);
     const targetStudents = students.filter(s => {
       const studentGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
-      return gradeFilter === "all" || studentGrade === gradeFilter;
+      const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
+      if (!matchesGrade) return false;
+      if (excludeAlreadySentToday && getStudentSentTodayInfo(s)) return false;
+      return true;
     });
     const targetIds = targetStudents.map(s => s.id);
     setSelectedStudentIds(prev => Array.from(new Set([...prev, ...targetIds])));
@@ -170,6 +257,31 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     setSelectedStudentIds(prev => prev.filter(id => !targetIds.includes(id)));
   };
 
+  // Toggle exclusion of already sent today
+  const handleToggleExcludeSentToday = (enabled: boolean) => {
+    setExcludeAlreadySentToday(enabled);
+    if (enabled) {
+      // Remove any student sent today from active selection
+      setSelectedStudentIds(prev => prev.filter(id => {
+        const student = students.find(s => s.id === id);
+        return student ? !getStudentSentTodayInfo(student) : true;
+      }));
+    }
+  };
+
+  // Count how many students in whole roster or current grade received messages today
+  const totalSentTodayCount = useMemo(() => {
+    return students.filter(s => !!getStudentSentTodayInfo(s)).length;
+  }, [students, todaySentMap]);
+
+  const currentGradeSentTodayCount = useMemo(() => {
+    return students.filter(s => {
+      const sGrade = (s.grade || s["الصف"] || s["المستوى"] || "").trim();
+      const matchesGrade = gradeFilter === "all" || sGrade === gradeFilter;
+      return matchesGrade && !!getStudentSentTodayInfo(s);
+    }).length;
+  }, [students, gradeFilter, todaySentMap]);
+
   // Filtered list based on Search Query, Grade, and Selection view tabs
   const filteredStudents = students.filter(student => {
     const studentGrade = (student.grade || student["الصف"] || student["المستوى"] || "").trim();
@@ -178,6 +290,8 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     const studentPhone = (student.phone || student["رقم الجوال"] || student["الجوال"] || "").trim();
     
     const isSelected = selectedStudentIds.includes(student.id);
+    const sentTodayInfo = getStudentSentTodayInfo(student);
+    const isSentToday = !!sentTodayInfo;
 
     // If search query is entered, search across entire roster or current filter
     const q = studentSearchQuery.trim().toLowerCase();
@@ -190,6 +304,8 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
       
       if (!matchesSearch) return false;
 
+      if (viewSelectionFilter === "unsent_today") return !isSentToday;
+      if (viewSelectionFilter === "sent_today") return isSentToday;
       if (viewSelectionFilter === "selected") return isSelected;
       if (viewSelectionFilter === "unselected") return !isSelected;
       return true;
@@ -199,6 +315,8 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
     const matchesGrade = gradeFilter === "all" || studentGrade === gradeFilter;
     if (!matchesGrade) return false;
 
+    if (viewSelectionFilter === "unsent_today") return !isSentToday;
+    if (viewSelectionFilter === "sent_today") return isSentToday;
     if (viewSelectionFilter === "selected") return isSelected;
     if (viewSelectionFilter === "unselected") return !isSelected;
     
@@ -815,6 +933,53 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 )}
               </div>
 
+              {/* Smart Anti-Duplicate Alert Banner */}
+              {totalSentTodayCount > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-3 flex items-start gap-2.5 text-xs text-emerald-900 shadow-xs">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <span className="font-extrabold text-emerald-800">
+                        درع منع تكرار الرسائل الذكي نشط ✓
+                      </span>
+                      <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                        {totalSentTodayCount} طالب استلموا رسائل اليوم
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 leading-relaxed">
+                      النظام يستثني تلقائياً الطلاب الذين تم إرسال رسائل لهم اليوم ووصلتهم بنجاح لمنع الإزعاج والتكرار على أولياء الأمور عند إرسال دفعات أخرى لنفس الصف أو لصفوف مختلفة.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Exclusion Mode Toggle Switch */}
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${excludeAlreadySentToday ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <label htmlFor="toggle-exclude-sent" className="text-xs font-black text-slate-800 cursor-pointer block">
+                      استثناء من تم الإرسال لهم اليوم تلقائياً
+                    </label>
+                    <span className="text-[10px] text-slate-500 block">
+                      {excludeAlreadySentToday ? "مفعل (يخفي أو يستثني المستلمين اليوم من التحديد)" : "معطل (يسمح بإعادة الإرسال للجميع)"}
+                    </span>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    id="toggle-exclude-sent"
+                    checked={excludeAlreadySentToday}
+                    onChange={(e) => handleToggleExcludeSentToday(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+
               {/* Student Quick Search with Multi-Selection Preservation */}
               <div className="flex flex-col gap-1">
                 <div className="relative">
@@ -823,7 +988,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                     type="text"
                     value={studentSearchQuery}
                     onChange={(e) => setStudentSearchQuery(e.target.value)}
-                    placeholder="ابحث باسم الطالب لإضافته أو استبعاده من الإرسال..."
+                    placeholder="ابحث باسم الطالب أو رقم الجوال لإضافته أو استبعاده..."
                     className="w-full border border-slate-200 bg-white rounded-xl pr-8 pl-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                     id="input-student-search"
                   />
@@ -838,28 +1003,42 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                 </div>
               </div>
 
-              {/* View Selection Tabs (All / Checked / Unchecked) */}
-              <div className="flex items-center bg-slate-200/60 p-1 rounded-xl gap-1 text-[11px] font-bold">
+              {/* View Selection Tabs (Unsent Today / Sent Today / Checked / Unchecked / All) */}
+              <div className="flex items-center bg-slate-200/60 p-1 rounded-xl gap-1 text-[10px] font-bold overflow-x-auto">
                 <button
                   type="button"
-                  onClick={() => setViewSelectionFilter("all")}
-                  className={`flex-1 py-1 rounded-lg transition-all text-center ${viewSelectionFilter === "all" ? "bg-white text-slate-800 shadow-xs" : "text-slate-600 hover:text-slate-800"}`}
+                  onClick={() => setViewSelectionFilter("unsent_today")}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all text-center whitespace-nowrap shrink-0 ${viewSelectionFilter === "unsent_today" ? "bg-emerald-700 text-white shadow-xs" : "text-emerald-800 hover:bg-white/50"}`}
                 >
-                  الكل ({students.length})
+                  المتبقون للإرسال ({students.length - totalSentTodayCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewSelectionFilter("sent_today")}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all text-center whitespace-nowrap shrink-0 ${viewSelectionFilter === "sent_today" ? "bg-teal-700 text-white shadow-xs" : "text-teal-800 hover:bg-white/50"}`}
+                >
+                  ✓ تم الإرسال اليوم ({totalSentTodayCount})
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewSelectionFilter("selected")}
-                  className={`flex-1 py-1 rounded-lg transition-all text-center ${viewSelectionFilter === "selected" ? "bg-emerald-600 text-white shadow-xs" : "text-emerald-700 hover:text-emerald-800"}`}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all text-center whitespace-nowrap shrink-0 ${viewSelectionFilter === "selected" ? "bg-emerald-600 text-white shadow-xs" : "text-emerald-700 hover:bg-white/50"}`}
                 >
-                  ✓ محدد للإرسال ({targetedCount})
+                  محدد ({targetedCount})
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewSelectionFilter("unselected")}
-                  className={`flex-1 py-1 rounded-lg transition-all text-center ${viewSelectionFilter === "unselected" ? "bg-rose-600 text-white shadow-xs" : "text-slate-500 hover:text-rose-700"}`}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all text-center whitespace-nowrap shrink-0 ${viewSelectionFilter === "unselected" ? "bg-rose-600 text-white shadow-xs" : "text-slate-500 hover:bg-white/50"}`}
                 >
                   ✕ مستبعد ({excludedCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewSelectionFilter("all")}
+                  className={`px-2 py-1.5 rounded-lg transition-all text-center whitespace-nowrap shrink-0 ${viewSelectionFilter === "all" ? "bg-white text-slate-800 shadow-xs" : "text-slate-600 hover:bg-white/50"}`}
+                >
+                  الكل ({students.length})
                 </button>
               </div>
 
@@ -871,7 +1050,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                   className="flex-1 text-center py-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all border border-emerald-200 cursor-pointer flex items-center justify-center gap-1"
                 >
                   <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  تحديد الكل المعروض
+                  تحديد المعروض
                 </button>
                 <button
                   type="button"
@@ -879,7 +1058,7 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                   className="flex-1 text-center py-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all border border-slate-200 cursor-pointer flex items-center justify-center gap-1"
                 >
                   <UserX className="w-3.5 h-3.5 text-slate-500" />
-                  إلغاء تحديد المعروض
+                  إلغاء المعروض
                 </button>
                 <button
                   type="button"
@@ -888,6 +1067,14 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                   title="عكس التحديد الحالي"
                 >
                   عكس
+                </button>
+                <button
+                  type="button"
+                  onClick={loadTodaySentHistory}
+                  className="text-center px-2.5 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all border border-slate-200 cursor-pointer flex items-center gap-1"
+                  title="تحديث سجل إرسال اليوم"
+                >
+                  <RefreshCw className="w-3 h-3 text-slate-500" />
                 </button>
               </div>
 
@@ -911,14 +1098,16 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                         </div>
                       </th>
                       <th className="px-2 py-2">اسم الطالب وبياناته</th>
-                      <th className="px-2 py-2 text-center w-24">حالة الإرسال</th>
+                      <th className="px-2 py-2 text-center w-28">حالة اليوم والارسال</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-600 font-medium">
                     {filteredStudents.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-3 py-8 text-center text-slate-400">
-                          لا يوجد طلاب يطابقون معايير البحث والتصفية المحددة.
+                          {viewSelectionFilter === "unsent_today" && totalSentTodayCount > 0 
+                            ? "✓ تم إرسال الرسائل لجميع الطلاب المسجلين اليوم بنجاح!" 
+                            : "لا يوجد طلاب يطابقون معايير البحث والتصفية المحددة."}
                         </td>
                       </tr>
                     ) : (
@@ -928,12 +1117,19 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                         const sPhone = student.phone || student["رقم الجوال"] || student["الجوال"] || "";
                         const sGrade = student.grade || student["الصف"] || "";
                         const sClass = student.className || student["الفصل"] || "";
+                        const sentTodayInfo = getStudentSentTodayInfo(student);
 
                         return (
                           <tr
                             key={student.id}
                             onClick={() => toggleStudentSelection(student.id)}
-                            className={`hover:bg-slate-50 transition-colors cursor-pointer ${isSelected ? 'bg-emerald-50/30' : 'opacity-60 bg-slate-50/40'}`}
+                            className={`hover:bg-slate-50 transition-colors cursor-pointer ${
+                              sentTodayInfo 
+                                ? 'bg-teal-50/40 opacity-80' 
+                                : isSelected 
+                                ? 'bg-emerald-50/30' 
+                                : 'opacity-60 bg-slate-50/40'
+                            }`}
                           >
                             <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                               <input
@@ -944,7 +1140,15 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                               />
                             </td>
                             <td className="px-2 py-2">
-                              <div className="font-bold text-slate-800 text-xs">{sName}</div>
+                              <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                <span>{sName}</span>
+                                {sentTodayInfo && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-teal-100 text-teal-800 px-1.5 py-0.2 rounded-full border border-teal-200">
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-teal-600" />
+                                    أُرسل {sentTodayInfo.time}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
                                 {sPhone && <span className="font-mono text-slate-600">{sPhone}</span>}
                                 {(sGrade || sClass) && (
@@ -958,6 +1162,10 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
                               {isSelected ? (
                                 <span className="inline-flex items-center gap-1 bg-emerald-100/90 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px] border border-emerald-200">
                                   ✓ مشمول
+                                </span>
+                              ) : sentTodayInfo ? (
+                                <span className="inline-flex items-center gap-1 bg-teal-50 text-teal-700 font-bold px-2 py-0.5 rounded-full text-[10px] border border-teal-200">
+                                  ✓ تم اليوم
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 font-semibold px-2 py-0.5 rounded-full text-[10px] border border-slate-200">

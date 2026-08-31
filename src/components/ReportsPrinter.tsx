@@ -198,11 +198,6 @@ export default function ReportsPrinter({
 
         setLogs(serverLogs);
         setLastRefreshed(new Date().toLocaleTimeString("ar-SA"));
-        
-        // Persist reports to Cloud if new logs are received
-        if (serverLogs.length > 0) {
-          saveReportsDataToCloud(serverLogs).catch(console.error);
-        }
       }
     } catch (err) {
       console.warn("Report logs fetch notice (relying on local state):", err);
