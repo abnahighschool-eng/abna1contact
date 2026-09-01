@@ -1,7 +1,12 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, disableNetwork, enableNetwork } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, disableNetwork, enableNetwork, setLogLevel } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 import { Student, SchoolSignatories, ReportItem, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
+
+// Silence internal Firestore SDK quota backoff / error noise in the console
+try {
+  setLogLevel("silent");
+} catch {}
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
@@ -15,6 +20,7 @@ if (typeof window !== "undefined") {
       reason.includes("RESOURCE_EXHAUSTED") ||
       reason.includes("Quota limit exceeded") ||
       reason.includes("Free daily write units") ||
+      reason.includes("maximum backoff delay") ||
       reason.includes("Code: 8")
     ) {
       event.preventDefault(); // Prevent bubbling up to the error banner

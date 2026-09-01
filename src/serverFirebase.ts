@@ -1,8 +1,13 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, disableNetwork, enableNetwork } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, disableNetwork, enableNetwork, setLogLevel } from "firebase/firestore";
 import fs from "fs";
 import path from "path";
 import firebaseConfig from "../firebase-applet-config.json";
+
+// Silence internal Firestore SDK quota backoff / error noise in the console
+try {
+  setLogLevel("silent");
+} catch {}
 
 // Initialize Firebase App
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);

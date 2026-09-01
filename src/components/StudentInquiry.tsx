@@ -113,6 +113,7 @@ export default function StudentInquiry({
   // --- 2. INQUIRIES LOG STATE ---
   const [logSearchTerm, setLogSearchTerm] = useState("");
   const [logStatusFilter, setLogStatusFilter] = useState<string>("all");
+  const [inquiryDateFilter, setInquiryDateFilter] = useState<string>("");
   const [viewingInquiryModal, setViewingInquiryModal] = useState<TeacherInquiryRequest | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [isRefreshingInquiries, setIsRefreshingInquiries] = useState(false);
@@ -121,6 +122,7 @@ export default function StudentInquiry({
   // --- 3. CONSOLIDATED STUDENT REPORTS STATE ---
   const [consolidatedSearchTerm, setConsolidatedSearchTerm] = useState("");
   const [consolidatedStatusFilter, setConsolidatedStatusFilter] = useState<"all" | "completed" | "partial" | "pending">("all");
+  const [consolidatedDateFilter, setConsolidatedDateFilter] = useState<string>("");
   const [viewingConsolidatedModal, setViewingConsolidatedModal] = useState<AggregatedStudentEvaluation | null>(null);
 
   // --- 4. TEACHERS & SCHEDULE STATE ---
@@ -633,9 +635,15 @@ export default function StudentInquiry({
 
       const matchesStatus = logStatusFilter === "all" || inq.status === logStatusFilter;
 
-      return matchesSearch && matchesStatus;
+      let matchesDate = true;
+      if (inquiryDateFilter) {
+        const inqDate = inq.sentAt ? inq.sentAt.split("T")[0] : (inq.createdAt ? inq.createdAt.split("T")[0] : "");
+        matchesDate = inqDate === inquiryDateFilter;
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [inquiryRequests, logSearchTerm, logStatusFilter]);
+  }, [inquiryRequests, logSearchTerm, logStatusFilter, inquiryDateFilter]);
 
   // Aggregate inquiries and evaluations per student across all inquiries
   const aggregatedStudentsList: AggregatedStudentEvaluation[] = useMemo(() => {
@@ -705,9 +713,18 @@ export default function StudentInquiry({
         matchesStatus = item.completedEvaluationsCount === 0;
       }
 
-      return matchesSearch && matchesStatus;
+      let matchesDate = true;
+      if (consolidatedDateFilter) {
+        matchesDate = item.teachersEvaluations.some((t) => {
+          const sentD = t.sentAt ? t.sentAt.split("T")[0] : "";
+          const compD = t.completedAt ? t.completedAt.split("T")[0] : "";
+          return sentD === consolidatedDateFilter || compD === consolidatedDateFilter;
+        });
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [aggregatedStudentsList, consolidatedSearchTerm, consolidatedStatusFilter]);
+  }, [aggregatedStudentsList, consolidatedSearchTerm, consolidatedStatusFilter, consolidatedDateFilter]);
 
   // Manual refresh inquiries from server
   const handleManualRefreshInquiries = async () => {
@@ -1251,6 +1268,28 @@ export default function StudentInquiry({
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                {/* Date Filter */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-2xl px-2.5 py-1.5 text-xs">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <input
+                    type="date"
+                    value={inquiryDateFilter}
+                    onChange={(e) => setInquiryDateFilter(e.target.value)}
+                    className="bg-transparent text-xs text-slate-800 font-bold focus:outline-none cursor-pointer"
+                    title="تصفية حسب تاريخ الإرسال"
+                  />
+                  {inquiryDateFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setInquiryDateFilter("")}
+                      className="text-slate-400 hover:text-red-600 p-0.5"
+                      title="إلغاء تصفية التاريخ"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={logStatusFilter}
                   onChange={(e) => setLogStatusFilter(e.target.value)}
@@ -1546,6 +1585,28 @@ export default function StudentInquiry({
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                {/* Date Filter */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-2xl px-2.5 py-1.5 text-xs">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <input
+                    type="date"
+                    value={consolidatedDateFilter}
+                    onChange={(e) => setConsolidatedDateFilter(e.target.value)}
+                    className="bg-transparent text-xs text-slate-800 font-bold focus:outline-none cursor-pointer"
+                    title="تصفية تقارير الطلاب حسب التاريخ"
+                  />
+                  {consolidatedDateFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setConsolidatedDateFilter("")}
+                      className="text-slate-400 hover:text-red-600 p-0.5"
+                      title="إلغاء تصفية التاريخ"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={consolidatedStatusFilter}
                   onChange={(e) => setConsolidatedStatusFilter(e.target.value as any)}

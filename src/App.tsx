@@ -199,14 +199,14 @@ export default function App() {
     setTimeout(() => setSignatoriesSavedToast(false), 2000);
 
     // Save to Cloud Firestore (Single lightweight write)
-    saveSchoolDataToCloud(updated, template).catch(console.error);
+    saveSchoolDataToCloud(updated, template).catch(() => {});
 
     // Save to local server
     fetch("/api/app-state/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const handleBulkUpdateSignatories = (updatedFields: Partial<SchoolSignatories>) => {
@@ -217,14 +217,14 @@ export default function App() {
     setTimeout(() => setSignatoriesSavedToast(false), 2000);
 
     // Save to Cloud Firestore (Single lightweight write)
-    saveSchoolDataToCloud(updated, template).catch(console.error);
+    saveSchoolDataToCloud(updated, template).catch(() => {});
 
     // Save to local server
     fetch("/api/app-state/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const fetchConfig = async () => {
@@ -341,7 +341,7 @@ export default function App() {
     const updatedUsers = users.map((u) => (u.id === user.id ? { ...u, lastLogin: new Date().toISOString() } : u));
     setUsers(updatedUsers);
     localStorage.setItem("abna_system_users", JSON.stringify(updatedUsers));
-    saveUsersDataToCloud(updatedUsers).catch(console.error);
+    saveUsersDataToCloud(updatedUsers).catch(() => {});
 
     const activeLoggedInUser = { ...user, lastLogin: new Date().toISOString() };
     setCurrentUser(activeLoggedInUser);
@@ -379,14 +379,14 @@ export default function App() {
     }
 
     // Save to Cloud Firestore
-    saveUsersDataToCloud(updatedUsers).catch(console.error);
+    saveUsersDataToCloud(updatedUsers).catch(() => {});
 
     // Save to Server
     fetch("/api/app-state/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ users: updatedUsers }),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -419,14 +419,14 @@ export default function App() {
     localStorage.setItem("whatsapp_student_list", JSON.stringify(newStudents));
     
     // Save to Cloud Firestore (1 Single Write for all students list)
-    saveStudentsDataToCloud(newStudents).catch(console.error);
+    saveStudentsDataToCloud(newStudents).catch(() => {});
 
     // Save to server for cross-device/browser sync
     fetch("/api/app-state/students", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ students: newStudents }),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const handleTemplateChange = (newTmpl: string) => {
@@ -436,7 +436,7 @@ export default function App() {
     // Debounced Cloud Save to avoid high write counts while typing (1 write after done typing)
     if (templateSyncTimeout.current) clearTimeout(templateSyncTimeout.current);
     templateSyncTimeout.current = setTimeout(() => {
-      saveSchoolDataToCloud(signatories, newTmpl).catch(console.error);
+      saveSchoolDataToCloud(signatories, newTmpl).catch(() => {});
     }, 1500);
 
     // Save to server for cross-device/browser sync
@@ -444,35 +444,35 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ template: newTmpl }),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const handleUpdateTeachers = (newTeachers: Teacher[]) => {
     setTeachers(newTeachers);
     localStorage.setItem("abna_teachers_roster", JSON.stringify(newTeachers));
-    saveTeachersDataToCloud(newTeachers).catch(console.error);
+    saveTeachersDataToCloud(newTeachers).catch(() => {});
     fetch("/api/teachers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ teachers: newTeachers }),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const handleUpdateSchedule = (newSchedule: ScheduleAssignment[]) => {
     setScheduleAssignments(newSchedule);
     localStorage.setItem("abna_school_schedule", JSON.stringify(newSchedule));
-    saveScheduleDataToCloud(newSchedule).catch(console.error);
+    saveScheduleDataToCloud(newSchedule).catch(() => {});
     fetch("/api/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ assignments: newSchedule }),
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const handleUpdateInquiries = (newInquiries: TeacherInquiryRequest[]) => {
     setInquiryRequests(newInquiries);
     localStorage.setItem("abna_inquiry_requests", JSON.stringify(newInquiries));
-    saveInquiriesDataToCloud(newInquiries).catch(console.error);
+    saveInquiriesDataToCloud(newInquiries).catch(() => {});
   };
 
   const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;

@@ -478,9 +478,9 @@ ${counselorNotes ? `*مرئيات وتوصيات التوجيه الطلابي:*
                                 </td>
 
                                 <td className="p-3 text-center whitespace-nowrap">
-                                  <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-[10px] inline-flex items-center gap-1">
-                                    <Check className="w-3 h-3 text-emerald-600" />
-                                    <span>معتمد</span>
+                                  <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-1 rounded-md border border-emerald-300 text-[11px] inline-flex items-center gap-1.5 shadow-xs">
+                                    <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-black">✓</span>
+                                    <span>موثق</span>
                                   </span>
                                 </td>
                               </>
@@ -681,6 +681,7 @@ ${counselorNotes ? `*مرئيات وتوصيات التوجيه الطلابي:*
                           <th className="p-2 text-center">السلوك</th>
                           <th className="p-2 text-center">المشاركة</th>
                           <th className="p-2">الملاحظات</th>
+                          <th className="p-2 text-center">التوثيق</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -693,6 +694,15 @@ ${counselorNotes ? `*مرئيات وتوصيات التوجيه الطلابي:*
                             <td className="p-2 text-center">{t.evaluation?.behaviorLevel || t.evaluation?.behaviorAndEthics || "—"}</td>
                             <td className="p-2 text-center">{t.evaluation?.participationLevel || t.evaluation?.participationAndInteraction || "—"}</td>
                             <td className="p-2 text-[11px]">{t.evaluation?.teacherNotes || "—"}</td>
+                            <td className="p-2 text-center">
+                              {t.status === "completed" && t.evaluation ? (
+                                <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px] border border-emerald-300">
+                                  موثق ✓
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[10px]">بانتظار الإفادة</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

@@ -426,7 +426,7 @@ export default function DisciplineReportsPrinter({
       counselorName: localSignatories.counselorName,
       systemManagerName: localSignatories.systemManagerName,
       logoUrl: localSignatories.logoUrl,
-    }).catch(console.error);
+    }).catch(() => {});
 
     setShowConfigModal(false);
     setSavedToast(true);

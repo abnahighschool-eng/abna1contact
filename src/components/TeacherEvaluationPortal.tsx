@@ -286,6 +286,38 @@ export default function TeacherEvaluationPortal({ inquiryId, onClose }: TeacherE
     );
   }
 
+  if (inquiry.isExpired && inquiry.status !== "completed") {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" dir="rtl">
+        <div className="bg-white p-8 rounded-3xl border border-amber-200 shadow-sm max-w-md w-full text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
+            <Clock className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-black text-slate-900">انتهت صلاحية رابط التقييم</h2>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            تنتهي صلاحية روابط استعلامات المعلمين تلقائياً بعد مرور <strong>3 أيام</strong> من تاريخ إرسالها حفاظاً على أمان السجلات وموارد النظام.
+          </p>
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-500 text-right space-y-1">
+            <p>• <strong>المعلم:</strong> {inquiry.teacherName}</p>
+            <p>• <strong>المادة:</strong> {inquiry.subject}</p>
+            <p>• <strong>المدرسة:</strong> {inquiry.schoolName || "ثانوية الأبناء الأولى"}</p>
+          </div>
+          <p className="text-xs text-emerald-700 font-medium">
+            في حال الرغبة بإعادة التقييم، نرجو التواصل مع إدارة المدرسة أو التوجيه الطلابي لتجديد الرابط.
+          </p>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              العودة للرئيسية
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 py-8 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
       <div className="max-w-4xl mx-auto space-y-6">

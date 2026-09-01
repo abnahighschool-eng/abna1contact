@@ -274,6 +274,7 @@ export interface TeacherInquiryRequest {
   whatsappStatus?: "pending" | "success" | "failed";
   whatsappError?: string;
   sentAt: string;
+  createdAt?: string;
   openedAt?: string;
   completedAt?: string;
 
