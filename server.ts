@@ -12,6 +12,7 @@ import {
   syncServerStateToFirestore,
   loadServerStateFromFirestore,
 } from "./src/serverFirebase";
+import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -308,6 +309,9 @@ const STUDENTS_FILE = path.join(process.cwd(), "students_store.json");
 const TEMPLATE_FILE = path.join(process.cwd(), "template_store.json");
 const USERS_FILE = path.join(process.cwd(), "users_store.json");
 const ATTENDANCE_FILE = path.join(process.cwd(), "attendance_store.json");
+const TEACHERS_FILE = path.join(process.cwd(), "teachers_store.json");
+const SCHEDULE_FILE = path.join(process.cwd(), "schedule_store.json");
+const INQUIRIES_FILE = path.join(process.cwd(), "inquiries_store.json");
 
 // Default initial school settings
 let appSettings = {
@@ -327,6 +331,10 @@ let appSettings = {
 let activeStudentsList: any[] = [];
 let activeTemplate: string = "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة";
 let attendanceRecordsStore: Record<string, Record<string, any>> = {};
+let teachersList: any[] = [...DEFAULT_SAMPLE_TEACHERS];
+let scheduleAssignments: any[] = [...DEFAULT_SAMPLE_SCHEDULE];
+let inquiryRequestsStore: any[] = [];
+
 let systemUsersList: any[] = [
   {
     id: "admin_root_1",
@@ -360,6 +368,36 @@ if (fs.existsSync(ATTENDANCE_FILE)) {
     }
   } catch (e) {
     console.error("Error reading attendance_store.json", e);
+  }
+}
+
+if (fs.existsSync(TEACHERS_FILE)) {
+  try {
+    const raw = fs.readFileSync(TEACHERS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) teachersList = parsed;
+  } catch (e) {
+    console.error("Error reading teachers_store.json", e);
+  }
+}
+
+if (fs.existsSync(SCHEDULE_FILE)) {
+  try {
+    const raw = fs.readFileSync(SCHEDULE_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) scheduleAssignments = parsed;
+  } catch (e) {
+    console.error("Error reading schedule_store.json", e);
+  }
+}
+
+if (fs.existsSync(INQUIRIES_FILE)) {
+  try {
+    const raw = fs.readFileSync(INQUIRIES_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) inquiryRequestsStore = parsed;
+  } catch (e) {
+    console.error("Error reading inquiries_store.json", e);
   }
 }
 
@@ -480,6 +518,87 @@ function saveAttendanceRecords() {
   }
 }
 
+function saveTeachersList() {
+  try {
+    fs.writeFileSync(TEACHERS_FILE, JSON.stringify(teachersList, null, 2), "utf-8");
+    syncServerStateToFirestore({ teachersList }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving teachers_store.json", e);
+  }
+}
+
+function saveScheduleAssignments() {
+  try {
+    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(scheduleAssignments, null, 2), "utf-8");
+    syncServerStateToFirestore({ scheduleAssignments }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving schedule_store.json", e);
+  }
+}
+
+function saveInquiryRequests() {
+  try {
+    fs.writeFileSync(INQUIRIES_FILE, JSON.stringify(inquiryRequestsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving inquiries_store.json", e);
+  }
+}
+
+async function sendDirectWhatsAppMessage(phone: string, message: string): Promise<{ success: boolean; error?: string }> {
+  if (!phone || !message) return { success: false, error: "Missing phone or message" };
+  const isCloudAPI = whatsappConfig.mode === "cloud_api" && whatsappConfig.cloudApiKey && whatsappConfig.cloudPhoneId;
+  const isRealMode = whatsappConfig.mode === "real" || (sock && sock.user);
+
+  if (isCloudAPI) {
+    try {
+      const formattedPhone = normalizePhoneNumber(phone);
+      const response = await fetch(
+        `https://graph.facebook.com/v18.0/${whatsappConfig.cloudPhoneId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${whatsappConfig.cloudApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: formattedPhone,
+            type: "text",
+            text: { body: message },
+          }),
+        }
+      );
+      const result = (await response.json()) as any;
+      if (response.ok && result.messages) {
+        return { success: true };
+      }
+      return { success: false, error: result.error?.message || "WhatsApp Cloud API error" };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Connection error to Meta" };
+    }
+  } else if (isRealMode) {
+    try {
+      if (!sock || (realConnectionStatus !== "connected" && !sock.user)) {
+        return { success: false, error: "جهاز الواتساب غير متصل حالياً. يرجى إتمام عملية الربط أولاً." };
+      }
+      const formattedPhone = normalizePhoneNumber(phone);
+      if (!formattedPhone || formattedPhone.length < 8) {
+        return { success: false, error: "رقم الجوال غير صالح" };
+      }
+      const jid = `${formattedPhone}@s.whatsapp.net`;
+      await sock.sendMessage(jid, { text: message });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || "فشل إرسال رسالة الواتساب" };
+    }
+  } else {
+    // Simulated sending
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return { success: true };
+  }
+}
+
 // Default initial config load
 const CONFIG_FILE = path.join(process.cwd(), "whatsapp_config.json");
 if (fs.existsSync(CONFIG_FILE)) {
@@ -508,9 +627,279 @@ app.get("/api/app-state", (req, res) => {
     template: activeTemplate,
     users: systemUsersList,
     attendanceRecords: attendanceRecordsStore,
+    teachers: teachersList,
+    schedule: scheduleAssignments,
+    inquiries: inquiryRequestsStore,
     totalCampaigns: Object.keys(campaigns).length,
     totalIndividualLogs: individualLogs.length,
   });
+});
+
+// Teachers Management API Endpoints
+app.get("/api/teachers", (req, res) => {
+  res.json({ teachers: teachersList, total: teachersList.length });
+});
+
+app.post("/api/teachers", (req, res) => {
+  const { teachers } = req.body || {};
+  if (Array.isArray(teachers)) {
+    teachersList = teachers;
+    saveTeachersList();
+  }
+  res.json({ success: true, count: teachersList.length, teachers: teachersList });
+});
+
+// School Timetable Schedule API Endpoints
+app.get("/api/schedule", (req, res) => {
+  res.json({ assignments: scheduleAssignments, total: scheduleAssignments.length });
+});
+
+app.post("/api/schedule", (req, res) => {
+  const { assignments } = req.body || {};
+  if (Array.isArray(assignments)) {
+    scheduleAssignments = assignments;
+    saveScheduleAssignments();
+  }
+  res.json({ success: true, count: scheduleAssignments.length, assignments: scheduleAssignments });
+});
+
+// Student Inquiry & Teacher Evaluation API Endpoints
+app.get("/api/inquiries", (req, res) => {
+  res.json({ inquiries: inquiryRequestsStore, total: inquiryRequestsStore.length });
+});
+
+app.post("/api/inquiries/create", async (req, res) => {
+  try {
+    const { requests, origin } = req.body || {};
+    if (!Array.isArray(requests) || requests.length === 0) {
+      return res.status(400).json({ error: "لم يتم تحديد معلمين لإرسال الاستعلام إليهم" });
+    }
+
+    const baseUrl = origin || `${req.protocol}://${req.get("host")}`;
+    const createdInquiries: any[] = [];
+    const results: any[] = [];
+
+    for (const item of requests) {
+      const { teacherName, teacherPhone, subject, section, grade, students } = item;
+      if (!teacherName || !students || students.length === 0) continue;
+
+      const inquiryId = `inq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      // Generate 6-digit verification access code
+      const accessCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Build WhatsApp message text
+      let studentText = "";
+      if (students.length === 1) {
+        studentText = `الطالب ${students[0].name} (الصف: ${students[0].grade || grade || ""} - الشعبة: ${section || students[0].className || ""})`;
+      } else {
+        studentText = `الطلاب الموضحين أدناه في شعبة (${section}):\n` + students.map((s: any, idx: number) => `${idx + 1}. ${s.name}`).join("\n");
+      }
+
+      const evalLink = `${baseUrl}/?eval=${inquiryId}`;
+      const schoolTitle = appSettings.schoolName || "ثانوية الأبناء الأولى";
+
+      const message = `أهلاً أستاذ ${teacherName}،\nنأمل منك مشكوراً تزويدنا بملاحظاتك عن ${studentText} في مادة (${subject}).\n\n🔗 *رابط التقييم المباشر:*\n${evalLink}\n\n🔑 *رمز الدخول (التفعيل):*\n*${accessCode}*\n\nشاكرين ومقدرين حسن تعاونكم،\nإدارة ${schoolTitle}`;
+
+      // Dispatch WhatsApp message
+      let whatsappStatus: "pending" | "success" | "failed" = "pending";
+      let whatsappError = "";
+
+      if (teacherPhone) {
+        const sendResult = await sendDirectWhatsAppMessage(teacherPhone, message);
+        if (sendResult.success) {
+          whatsappStatus = "success";
+        } else {
+          whatsappStatus = "failed";
+          whatsappError = sendResult.error || "فشل إرسال رسالة الواتساب";
+        }
+      }
+
+      const inquiryRecord = {
+        id: inquiryId,
+        accessCode,
+        teacherId: item.teacherId || "",
+        teacherName,
+        teacherPhone: teacherPhone || "",
+        subject,
+        section: section || "",
+        grade: grade || "",
+        schoolName: schoolTitle,
+        students,
+        status: "pending" as const,
+        whatsappStatus,
+        whatsappError,
+        sentAt: new Date().toISOString(),
+        isVerified: false,
+      };
+
+      inquiryRequestsStore.unshift(inquiryRecord);
+      createdInquiries.push(inquiryRecord);
+      results.push({
+        id: inquiryId,
+        teacherName,
+        teacherPhone,
+        whatsappStatus,
+        whatsappError,
+      });
+    }
+
+    saveInquiryRequests();
+    res.json({
+      success: true,
+      message: `تم إنشاء ${createdInquiries.length} طلب استعلام وإرسال الرسائل للمعلمين بنجاح`,
+      inquiries: createdInquiries,
+      results,
+    });
+  } catch (err: any) {
+    console.error("Error creating inquiry requests:", err);
+    res.status(500).json({ error: err.message || "فشل إنشاء طلبات الاستعلام" });
+  }
+});
+
+app.post("/api/inquiries/resend", async (req, res) => {
+  try {
+    const { id, origin } = req.body || {};
+    const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+    if (!inquiry) {
+      return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+    }
+
+    const baseUrl = origin || `${req.protocol}://${req.get("host")}`;
+    const evalLink = `${baseUrl}/?eval=${inquiry.id}`;
+    const schoolTitle = appSettings.schoolName || inquiry.schoolName || "ثانوية الأبناء الأولى";
+
+    let studentText = "";
+    if (inquiry.students.length === 1) {
+      studentText = `الطالب ${inquiry.students[0].name} (الصف: ${inquiry.students[0].grade || inquiry.grade || ""} - الشعبة: ${inquiry.section || inquiry.students[0].className || ""})`;
+    } else {
+      studentText = `الطلاب الموضحين أدناه في شعبة (${inquiry.section}):\n` + inquiry.students.map((s: any, idx: number) => `${idx + 1}. ${s.name}`).join("\n");
+    }
+
+    const message = `تذكير: أهلاً أستاذ ${inquiry.teacherName}،\nنأمل منك مشكوراً تزويدنا بملاحظاتك عن ${studentText} في مادة (${inquiry.subject}).\n\n🔗 *رابط التقييم المباشر:*\n${evalLink}\n\n🔑 *رمز الدخول (التفعيل):*\n*${inquiry.accessCode}*\n\nشاكرين ومقدرين حسن تعاونكم،\nإدارة ${schoolTitle}`;
+
+    const sendResult = await sendDirectWhatsAppMessage(inquiry.teacherPhone, message);
+    if (sendResult.success) {
+      inquiry.whatsappStatus = "success";
+      inquiry.whatsappError = "";
+    } else {
+      inquiry.whatsappStatus = "failed";
+      inquiry.whatsappError = sendResult.error || "فشل إرسال التذكير";
+    }
+
+    saveInquiryRequests();
+    res.json({
+      success: sendResult.success,
+      message: sendResult.success ? "تمت إعادة إرسال التذكير للمعلم بنجاح" : (sendResult.error || "فشل الإرسال"),
+      inquiry,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "حدث خطأ أثناء إعادة الإرسال" });
+  }
+});
+
+app.delete("/api/inquiries/:id", (req, res) => {
+  const { id } = req.params;
+  const initialLen = inquiryRequestsStore.length;
+  inquiryRequestsStore = inquiryRequestsStore.filter((item) => item.id !== id);
+  if (inquiryRequestsStore.length !== initialLen) {
+    saveInquiryRequests();
+    res.json({ success: true, message: "تم حذف الاستعلام بنجاح" });
+  } else {
+    res.status(404).json({ error: "الاستعلام غير موجود" });
+  }
+});
+
+// Public Teacher Evaluation Portal Endpoints
+app.get("/api/inquiries/public/:id", (req, res) => {
+  const { id } = req.params;
+  const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+  if (!inquiry) {
+    return res.status(404).json({ error: "طلب الاستعلام غير موجود أو منتهي الصلاحية" });
+  }
+
+  // Return public details without revealing the secret access code
+  res.json({
+    id: inquiry.id,
+    teacherName: inquiry.teacherName,
+    subject: inquiry.subject,
+    section: inquiry.section,
+    grade: inquiry.grade,
+    schoolName: appSettings.schoolName || inquiry.schoolName || "ثانوية الأبناء الأولى",
+    logoUrl: appSettings.logoUrl || "",
+    students: inquiry.students,
+    status: inquiry.status,
+    isVerified: inquiry.isVerified,
+    sentAt: inquiry.sentAt,
+    completedAt: inquiry.completedAt,
+    hasEvaluations: !!(inquiry.evaluations && inquiry.evaluations.length > 0),
+  });
+});
+
+app.post("/api/inquiries/public/verify", (req, res) => {
+  const { id, accessCode } = req.body || {};
+  const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+  if (!inquiry) {
+    return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+  }
+
+  const cleanInput = String(accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+  const cleanStored = String(inquiry.accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+
+  if (cleanInput !== cleanStored) {
+    return res.status(400).json({ error: "رمز الدخول والتفعيل غير صحيح. يرجى التأكد من الرمز المرسل عبر واتساب." });
+  }
+
+  if (inquiry.status === "pending") {
+    inquiry.status = "opened";
+    inquiry.openedAt = new Date().toISOString();
+    saveInquiryRequests();
+  }
+
+  res.json({
+    success: true,
+    message: "تم التحقق من الرمز بنجاح",
+    inquiry,
+  });
+});
+
+app.post("/api/inquiries/public/submit", (req, res) => {
+  try {
+    const { id, accessCode, evaluations } = req.body || {};
+    const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+    if (!inquiry) {
+      return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+    }
+
+    const cleanInput = String(accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+    const cleanStored = String(inquiry.accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+
+    if (cleanInput !== cleanStored) {
+      return res.status(400).json({ error: "رمز الدخول غير صحيح" });
+    }
+
+    if (!Array.isArray(evaluations) || evaluations.length === 0) {
+      return res.status(400).json({ error: "يرجى تعبئة تقييمات الطلاب قبل الحفظ" });
+    }
+
+    inquiry.evaluations = evaluations.map((ev: any) => ({
+      ...ev,
+      evaluatedAt: new Date().toISOString(),
+    }));
+    inquiry.status = "completed";
+    inquiry.isVerified = true;
+    inquiry.completedAt = new Date().toISOString();
+
+    saveInquiryRequests();
+
+    res.json({
+      success: true,
+      message: "تم حفظ واعتماد التقييم بنجاح. شكراً لحسن تعاونكم أستاذنا الفاضل.",
+      inquiry,
+    });
+  } catch (err: any) {
+    console.error("Error submitting inquiry evaluations:", err);
+    res.status(500).json({ error: err.message || "حدث خطأ أثناء حفظ التقييم" });
+  }
 });
 
 // Dedicated Year-Long Academic Attendance Storage Endpoints

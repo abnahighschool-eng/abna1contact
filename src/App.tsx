@@ -35,15 +35,21 @@ import HomeDashboard from "./components/HomeDashboard";
 import AttendanceSystem from "./components/AttendanceSystem";
 import LoginScreen from "./components/LoginScreen";
 import UserManagement from "./components/UserManagement";
-import { Student, WhatsAppConfig, SchoolSignatories, AppUser } from "./types";
+import StudentInquiry from "./components/StudentInquiry";
+import TeacherEvaluationPortal from "./components/TeacherEvaluationPortal";
+import { Student, WhatsAppConfig, SchoolSignatories, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
 import { 
   loadInitialAppData, 
   saveSchoolDataToCloud, 
   saveStudentsDataToCloud,
   saveUsersDataToCloud,
+  saveTeachersDataToCloud,
+  saveScheduleDataToCloud,
+  saveInquiriesDataToCloud,
   DEFAULT_ADMIN_USER,
   getCloudStorageStatus
 } from "./firebaseService";
+import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./utils/teachersScheduleParser";
 import { LogOut } from "lucide-react";
 
 export default function App() {
@@ -132,6 +138,55 @@ export default function App() {
   const [showSignatoriesConfig, setShowSignatoriesConfig] = useState(false);
   const [signatoriesSavedToast, setSignatoriesSavedToast] = useState(false);
 
+  // Direct Teacher Evaluation Portal URL parameter (?eval=<id>)
+  const [evaluationInquiryId, setEvaluationInquiryId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("eval");
+    }
+    return null;
+  });
+
+  // Teachers, Timetable Schedule, and Inquiry Requests State
+  const [teachers, setTeachers] = useState<Teacher[]>(() => {
+    const saved = localStorage.getItem("abna_teachers_roster");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return DEFAULT_SAMPLE_TEACHERS;
+  });
+
+  const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleAssignment[]>(() => {
+    const saved = localStorage.getItem("abna_school_schedule");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return DEFAULT_SAMPLE_SCHEDULE;
+  });
+
+  const [inquiryRequests, setInquiryRequests] = useState<TeacherInquiryRequest[]>(() => {
+    const saved = localStorage.getItem("abna_inquiry_requests");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [];
+  });
+
   // Debounced cloud sync timer ref for template edits
   const templateSyncTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -206,6 +261,18 @@ export default function App() {
         setUsers(cloudData.users);
         localStorage.setItem("abna_system_users", JSON.stringify(cloudData.users));
       }
+      if (Array.isArray(cloudData.teachers) && cloudData.teachers.length > 0) {
+        setTeachers(cloudData.teachers);
+        localStorage.setItem("abna_teachers_roster", JSON.stringify(cloudData.teachers));
+      }
+      if (Array.isArray(cloudData.scheduleAssignments) && cloudData.scheduleAssignments.length > 0) {
+        setScheduleAssignments(cloudData.scheduleAssignments);
+        localStorage.setItem("abna_school_schedule", JSON.stringify(cloudData.scheduleAssignments));
+      }
+      if (Array.isArray(cloudData.inquiryRequests) && cloudData.inquiryRequests.length > 0) {
+        setInquiryRequests(cloudData.inquiryRequests);
+        localStorage.setItem("abna_inquiry_requests", JSON.stringify(cloudData.inquiryRequests));
+      }
 
       // 2. Fallback / Sync from local server state
       const res = await fetch("/api/app-state");
@@ -226,6 +293,18 @@ export default function App() {
         if (Array.isArray(data.users) && data.users.length > 0 && (!cloudData.users || cloudData.users.length === 0)) {
           setUsers(data.users);
           localStorage.setItem("abna_system_users", JSON.stringify(data.users));
+        }
+        if (Array.isArray(data.teachers) && data.teachers.length > 0 && (!cloudData.teachers || cloudData.teachers.length === 0)) {
+          setTeachers(data.teachers);
+          localStorage.setItem("abna_teachers_roster", JSON.stringify(data.teachers));
+        }
+        if (Array.isArray(data.schedule) && data.schedule.length > 0 && (!cloudData.scheduleAssignments || cloudData.scheduleAssignments.length === 0)) {
+          setScheduleAssignments(data.schedule);
+          localStorage.setItem("abna_school_schedule", JSON.stringify(data.schedule));
+        }
+        if (Array.isArray(data.inquiries) && data.inquiries.length > 0 && (!cloudData.inquiryRequests || cloudData.inquiryRequests.length === 0)) {
+          setInquiryRequests(data.inquiries);
+          localStorage.setItem("abna_inquiry_requests", JSON.stringify(data.inquiries));
         }
       }
     } catch (e) {
@@ -341,7 +420,48 @@ export default function App() {
     }).catch(console.error);
   };
 
+  const handleUpdateTeachers = (newTeachers: Teacher[]) => {
+    setTeachers(newTeachers);
+    localStorage.setItem("abna_teachers_roster", JSON.stringify(newTeachers));
+    saveTeachersDataToCloud(newTeachers).catch(console.error);
+    fetch("/api/teachers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teachers: newTeachers }),
+    }).catch(console.error);
+  };
+
+  const handleUpdateSchedule = (newSchedule: ScheduleAssignment[]) => {
+    setScheduleAssignments(newSchedule);
+    localStorage.setItem("abna_school_schedule", JSON.stringify(newSchedule));
+    saveScheduleDataToCloud(newSchedule).catch(console.error);
+    fetch("/api/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignments: newSchedule }),
+    }).catch(console.error);
+  };
+
+  const handleUpdateInquiries = (newInquiries: TeacherInquiryRequest[]) => {
+    setInquiryRequests(newInquiries);
+    localStorage.setItem("abna_inquiry_requests", JSON.stringify(newInquiries));
+    saveInquiriesDataToCloud(newInquiries).catch(console.error);
+  };
+
   const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;
+
+  // Direct Teacher Evaluation Portal (Accessed directly via WhatsApp link)
+  if (evaluationInquiryId) {
+    return (
+      <TeacherEvaluationPortal
+        inquiryId={evaluationInquiryId}
+        onClose={() => {
+          setEvaluationInquiryId(null);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+      />
+    );
+  }
 
   // 1. Full Authentication Guard: Show login screen if not authenticated or blocked
   if (!currentUser || currentUser.status === "blocked") {
@@ -762,7 +882,26 @@ export default function App() {
             />
           )}
 
-          {/* 4. Main Section: Admin & User Management */}
+          {/* 4. Main Section: Student Inquiry & Teacher Feedback */}
+          {mainSection === "inquiry" && (
+            <StudentInquiry
+              students={students}
+              teachers={teachers}
+              scheduleAssignments={scheduleAssignments}
+              inquiryRequests={inquiryRequests}
+              onUpdateTeachers={handleUpdateTeachers}
+              onUpdateSchedule={handleUpdateSchedule}
+              onUpdateInquiries={handleUpdateInquiries}
+              schoolSignatories={signatories}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onNavigateToWhatsApp={() => {
+                setMainSection("messages");
+                setActiveTab("connection");
+              }}
+            />
+          )}
+
+          {/* 5. Main Section: Admin & User Management */}
           {mainSection === "admin" && currentUser.role === "admin" && (
             <UserManagement
               users={users}

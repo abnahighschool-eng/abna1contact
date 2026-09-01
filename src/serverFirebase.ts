@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, disableNetwork, enableNetwork } from "firebase/firestore";
 import fs from "fs";
 import path from "path";
 import firebaseConfig from "../firebase-applet-config.json";
@@ -11,36 +11,72 @@ export const firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId 
 const APP_STATE_COLLECTION = "abna_system_data";
 const WHATSAPP_SESSION_DOC = "whatsapp_baileys_session";
 const SERVER_DATA_DOC = "server_system_state";
+const QUOTA_FILE = path.join(process.cwd(), ".firestore_quota.json");
+const SERVER_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours cooldown for daily free tier write quota reset
 
 let isServerQuotaExceeded = false;
 let serverQuotaExceededTimestamp = 0;
-const SERVER_QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour cooldown
+
+// Load persisted server quota state from disk on startup
+try {
+  if (fs.existsSync(QUOTA_FILE)) {
+    const raw = fs.readFileSync(QUOTA_FILE, "utf-8");
+    const data = JSON.parse(raw);
+    if (data?.timestamp && Date.now() - data.timestamp < SERVER_QUOTA_COOLDOWN_MS) {
+      isServerQuotaExceeded = true;
+      serverQuotaExceededTimestamp = data.timestamp;
+      disableNetwork(firestoreDb).catch(() => {});
+      console.info("[Server Storage] Initialized in local-disk mode (Firestore daily free quota limit cached).");
+    }
+  }
+} catch (e) {
+  // ignore quota file read errors
+}
 
 let lastSessionBackupHash = "";
 let lastSessionBackupTime = 0;
-const MIN_SESSION_BACKUP_INTERVAL_MS = 5 * 60 * 1000; // At most once every 5 minutes
+const MIN_SESSION_BACKUP_INTERVAL_MS = 10 * 60 * 1000; // At most once every 10 minutes
 
 function isServerQuotaLimited(): boolean {
   if (!isServerQuotaExceeded) return false;
   if (Date.now() - serverQuotaExceededTimestamp > SERVER_QUOTA_COOLDOWN_MS) {
     isServerQuotaExceeded = false;
+    try {
+      if (fs.existsSync(QUOTA_FILE)) fs.unlinkSync(QUOTA_FILE);
+    } catch {}
+    enableNetwork(firestoreDb).catch(() => {});
     return false;
   }
   return true;
 }
 
 function handleServerQuotaError(err: any, opName: string) {
-  const errMsg = err?.message || String(err);
-  if (
+  const errMsg = err?.message || String(err || "");
+  const isQuota =
     errMsg.includes("resource-exhausted") ||
+    errMsg.includes("RESOURCE_EXHAUSTED") ||
     errMsg.includes("Quota limit exceeded") ||
     errMsg.includes("Quota exceeded") ||
     errMsg.includes("Free daily write units") ||
-    errMsg.includes("429")
-  ) {
+    errMsg.includes("Free daily read units") ||
+    errMsg.includes("maximum backoff delay") ||
+    errMsg.includes("Code: 8") ||
+    errMsg.includes("429");
+
+  if (isQuota) {
     isServerQuotaExceeded = true;
     serverQuotaExceededTimestamp = Date.now();
-    console.info(`[Server Notice] Firestore cloud sync paused due to daily free quota limits. Server is operating with local disk storage.`);
+    try {
+      fs.writeFileSync(QUOTA_FILE, JSON.stringify({ timestamp: serverQuotaExceededTimestamp }), "utf-8");
+    } catch {}
+
+    if (serverSyncTimeout) {
+      clearTimeout(serverSyncTimeout);
+      serverSyncTimeout = null;
+    }
+    // Shut down write stream immediately to avoid continuous backoff retry loops
+    disableNetwork(firestoreDb).catch(() => {});
+    console.info(`[Server Storage] Firestore cloud writes throttled (Daily quota reached). Server is storing all data reliably on local disk.`);
   } else {
     console.warn(`[Firebase Notice] ${opName}:`, errMsg);
   }
@@ -211,6 +247,9 @@ export async function syncServerStateToFirestore(state: {
   individualLogs?: any[];
   whatsappConfig?: any;
   attendanceRecords?: any;
+  teachersList?: any[];
+  scheduleAssignments?: any[];
+  inquiryRequests?: any[];
 }): Promise<void> {
   if (isServerQuotaLimited()) return;
 

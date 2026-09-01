@@ -23,6 +23,21 @@
           "description": "Authorized staff and admin user accounts",
           "validation": "optional"
         },
+        "teachers": {
+          "type": "array",
+          "description": "School teaching staff roster with specialties and contact phone numbers",
+          "validation": "optional"
+        },
+        "scheduleAssignments": {
+          "type": "array",
+          "description": "School timetable linking teachers, subjects, and student sections",
+          "validation": "optional"
+        },
+        "inquiryRequests": {
+          "type": "array",
+          "description": "Student inquiry requests sent to subject teachers with evaluation ratings and verification status",
+          "validation": "optional"
+        },
         "lastUpdated": {
           "type": "string",
           "description": "ISO timestamp of the last system sync",

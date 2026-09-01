@@ -11,11 +11,12 @@ import {
   ShieldCheck,
   Users,
   Menu,
-  X
+  X,
+  UserCheck
 } from "lucide-react";
 import { AppUser } from "../types";
 
-export type MainSectionType = "home" | "messages" | "attendance" | "admin";
+export type MainSectionType = "home" | "messages" | "attendance" | "inquiry" | "admin";
 
 interface SidebarProps {
   currentSection: MainSectionType;
@@ -85,6 +86,15 @@ export default function Sidebar({
       shortLabel: "الغياب",
       icon: UserX,
       description: "رصد الحضور والغياب اليومي وإجراءات التوجيه",
+      badge: null,
+      statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
+    },
+    {
+      id: "inquiry" as MainSectionType,
+      label: "الاستعلام عن طالب",
+      shortLabel: "الاستعلام",
+      icon: UserCheck,
+      description: "إرسال طلبات تقييم واستعلام المعلمين عن الطلاب",
       badge: null,
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
     },
