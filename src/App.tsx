@@ -274,7 +274,7 @@ export default function App() {
         localStorage.setItem("abna_inquiry_requests", JSON.stringify(cloudData.inquiryRequests));
       }
 
-      // 2. Fallback / Sync from local server state
+      // 2. Sync from local server state (Live source of truth for inquiries & real-time evaluations)
       const res = await fetch("/api/app-state");
       if (res.ok) {
         const data = await res.json();
@@ -302,13 +302,37 @@ export default function App() {
           setScheduleAssignments(data.schedule);
           localStorage.setItem("abna_school_schedule", JSON.stringify(data.schedule));
         }
-        if (Array.isArray(data.inquiries) && data.inquiries.length > 0 && (!cloudData.inquiryRequests || cloudData.inquiryRequests.length === 0)) {
+        if (Array.isArray(data.inquiries) && data.inquiries.length > 0) {
           setInquiryRequests(data.inquiries);
           localStorage.setItem("abna_inquiry_requests", JSON.stringify(data.inquiries));
         }
       }
     } catch (e) {
       console.error("Could not fetch remote app-state", e);
+    }
+  };
+
+  // Dedicated real-time sync for inquiries so teacher submissions reflect instantly
+  const syncInquiriesFromServer = async () => {
+    try {
+      const res = await fetch("/api/inquiries");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.inquiries)) {
+          setInquiryRequests((prev) => {
+            // Check if there are changes before triggering re-renders
+            const prevSerialized = JSON.stringify(prev);
+            const nextSerialized = JSON.stringify(data.inquiries);
+            if (prevSerialized !== nextSerialized) {
+              localStorage.setItem("abna_inquiry_requests", nextSerialized);
+              return data.inquiries;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch {
+      // Quiet background polling error handling
     }
   };
 
@@ -369,7 +393,10 @@ export default function App() {
     fetchConfig();
     fetchFullAppState();
 
-    const interval = setInterval(fetchConfig, 3000);
+    const interval = setInterval(() => {
+      fetchConfig();
+      syncInquiriesFromServer();
+    }, 3000);
 
     // Initial local fallback if server hasn't responded yet
     const savedTemplate = localStorage.getItem("whatsapp_student_template");

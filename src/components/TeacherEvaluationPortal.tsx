@@ -180,11 +180,47 @@ export default function TeacherEvaluationPortal({ inquiryId, onClose }: TeacherE
 
   const handleSubmitEvaluations = async () => {
     if (!inquiry) return;
-    const evalList = Object.values(evaluations);
-    if (evalList.length === 0) {
-      alert("يرجى تقييم طالب واحد على الأقل قبل الحفظ");
-      return;
-    }
+    
+    // Ensure all students in inquiry are populated with either custom ratings or defaults
+    const evalList: StudentEvaluationItem[] = inquiry.students.map((student) => {
+      const existing = evaluations[student.id];
+      if (existing) {
+        return {
+          studentId: student.id,
+          studentName: student.name,
+          grade: student.grade || inquiry.grade,
+          className: student.className || inquiry.section,
+          nationalId: student.nationalId,
+          academicAchievement: (existing.academicLevel || existing.academicAchievement || "ممتاز") as any,
+          academicLevel: (existing.academicLevel || existing.academicAchievement || "ممتاز") as any,
+          disciplineAndCommitment: (existing.disciplineLevel || existing.disciplineAndCommitment || "ممتاز") as any,
+          disciplineLevel: (existing.disciplineLevel || existing.disciplineAndCommitment || "ممتاز") as any,
+          behaviorAndEthics: (existing.behaviorLevel || existing.behaviorAndEthics || "متميز") as any,
+          behaviorLevel: (existing.behaviorLevel || existing.behaviorAndEthics || "متميز") as any,
+          participationAndInteraction: (existing.participationLevel || existing.participationAndInteraction || "متفاعل دائماً") as any,
+          participationLevel: (existing.participationLevel || existing.participationAndInteraction || "متفاعل دائماً") as any,
+          teacherNotes: existing.teacherNotes || "",
+          evaluatedAt: new Date().toISOString(),
+        };
+      }
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        grade: student.grade || inquiry.grade,
+        className: student.className || inquiry.section,
+        nationalId: student.nationalId,
+        academicAchievement: "ممتاز",
+        academicLevel: "ممتاز",
+        disciplineAndCommitment: "ممتاز",
+        disciplineLevel: "ممتاز",
+        behaviorAndEthics: "متميز",
+        behaviorLevel: "متميز",
+        participationAndInteraction: "متفاعل دائماً",
+        participationLevel: "متفاعل دائماً",
+        teacherNotes: "",
+        evaluatedAt: new Date().toISOString(),
+      };
+    });
 
     try {
       setSubmitting(true);
