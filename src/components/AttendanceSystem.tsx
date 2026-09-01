@@ -7,30 +7,33 @@ import {
   Printer, 
   Search, 
   CheckCircle2, 
-  AlertTriangle,
-  Check,
-  X,
-  Smartphone,
-  Sparkles,
-  Calendar,
-  School,
-  Loader2,
-  Zap,
-  PauseCircle,
-  XCircle,
-  FileSpreadsheet,
-  ShieldCheck,
-  Bookmark,
-  FileText,
-  RotateCcw,
-  ShieldAlert,
-  History,
-  LayoutGrid,
-  List
+  AlertTriangle, 
+  Check, 
+  X, 
+  Smartphone, 
+  Sparkles, 
+  Calendar, 
+  School, 
+  Loader2, 
+  Zap, 
+  PauseCircle, 
+  XCircle, 
+  FileSpreadsheet, 
+  ShieldCheck, 
+  Bookmark, 
+  FileText, 
+  RotateCcw, 
+  ShieldAlert, 
+  History, 
+  LayoutGrid, 
+  List,
+  CheckSquare,
+  Square,
+  Filter,
+  Users
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../types";
 import { saveAttendanceDataToCloud } from "../firebaseService";
-import GuidanceAbsenceWorkflow from "./GuidanceAbsenceWorkflow";
 import DisciplineReportsPrinter from "./DisciplineReportsPrinter";
 
 interface AttendanceSystemProps {
@@ -141,30 +144,9 @@ export default function AttendanceSystem({
   isWhatsAppConnected,
   onNavigateToMessages,
 }: AttendanceSystemProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"guidance_workflow" | "daily_absence" | "daily_tardiness" | "notifications" | "reports">("guidance_workflow");
+  const [activeSubTab, setActiveSubTab] = useState<"daily_absence" | "daily_tardiness" | "notifications" | "reports">("daily_absence");
   
-  // Direct send message handler for Guidance workflow
-  const handleDirectSendSingleMessage = async (
-    phone: string, 
-    message: string, 
-    studentName: string, 
-    grade?: string, 
-    className?: string
-  ): Promise<boolean> => {
-    try {
-      const res = await fetch("/api/whatsapp/send-single", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, message, studentName, grade, className })
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  };
-
   // Selected date for attendance (YYYY-MM-DD)
-
   const getTodayISO = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -194,7 +176,7 @@ export default function AttendanceSystem({
     return {};
   });
 
-  // Filters
+  // Filters for Daily Absence / Tardiness
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGrade, setSelectedGrade] = useState<string>("ALL");
   const [selectedClass, setSelectedClass] = useState<string>("ALL");
@@ -220,7 +202,14 @@ export default function AttendanceSystem({
   // Anti-Duplicate Protection States for Attendance & Tardiness
   const [excludeAlreadySentToday, setExcludeAlreadySentToday] = useState(true);
   const [todaySentMap, setTodaySentMap] = useState<Record<string, { time: string; phone: string; campaignName: string; status: string }>>({});
-  const [notificationFilterTab, setNotificationFilterTab] = useState<"unsent_today" | "all" | "sent_today">("unsent_today");
+  const [notificationFilterTab, setNotificationFilterTab] = useState<"unsent_today" | "all" | "sent_today" | "selected">("unsent_today");
+
+  // Selection & Specific Filters for Parent Notifications Tab
+  const [selectedNotifStudentIds, setSelectedNotifStudentIds] = useState<string[]>([]);
+  const [notifGradeFilter, setNotifGradeFilter] = useState<string>("ALL");
+  const [notifClassFilter, setNotifClassFilter] = useState<string>("ALL");
+  const [notifTypeFilter, setNotifTypeFilter] = useState<"ALL" | "absence" | "tardiness">("ALL");
+  const [notifSearchQuery, setNotifSearchQuery] = useState<string>("");
 
   // Helper to normalize phone
   const normalizePhone = (phoneStr?: string) => {
@@ -565,21 +554,75 @@ export default function AttendanceSystem({
     });
   }, [students, currentDayData]);
 
-  // Target students to notify according to anti-duplicate exclusion setting
+  // Available classes for notifications tab
+  const notifAvailableClasses = useMemo(() => {
+    const set = new Set<string>();
+    recordedStudents.forEach((s) => {
+      const g = extractStudentGrade(s);
+      const c = extractStudentClass(s);
+      if (notifGradeFilter === "ALL" || g === notifGradeFilter) {
+        if (c) set.add(c);
+      }
+    });
+    return Array.from(set);
+  }, [recordedStudents, notifGradeFilter]);
+
+  // Target students to notify according to anti-duplicate exclusion setting and user filters
   const targetStudentsToNotify = useMemo(() => {
-    return recordedStudents.filter((st) => {
-      const sentInfo = getStudentSentTodayInfo(st);
+    return recordedStudents.filter((student, idx) => {
+      const studentName = extractStudentName(student, idx + 1);
+      const studentPhone = extractStudentPhone(student);
+      const studentGrade = extractStudentGrade(student);
+      const studentClass = extractStudentClass(student);
+      const rec = currentDayData[student.id];
+      const status = rec?.status;
+      const isTardy = status === "tardy";
+      const sentInfo = getStudentSentTodayInfo(student);
       const isSentToday = !!sentInfo;
 
+      // Filter by type (absence / tardiness)
+      if (notifTypeFilter === "absence" && isTardy) return false;
+      if (notifTypeFilter === "tardiness" && !isTardy) return false;
+
+      // Filter by grade
+      if (notifGradeFilter !== "ALL" && studentGrade !== notifGradeFilter) return false;
+
+      // Filter by class
+      if (notifClassFilter !== "ALL" && studentClass !== notifClassFilter) return false;
+
+      // Filter by search query
+      if (notifSearchQuery.trim()) {
+        const q = notifSearchQuery.trim().toLowerCase();
+        const matchName = studentName.toLowerCase().includes(q);
+        const matchPhone = studentPhone.includes(q);
+        const matchId = (student.id || "").toLowerCase().includes(q);
+        if (!matchName && !matchPhone && !matchId) return false;
+      }
+
+      // Filter by tab
       if (notificationFilterTab === "unsent_today") {
         return !isSentToday;
       }
       if (notificationFilterTab === "sent_today") {
         return isSentToday;
       }
+      if (notificationFilterTab === "selected") {
+        return selectedNotifStudentIds.includes(student.id);
+      }
       return true;
     });
-  }, [recordedStudents, notificationFilterTab, todaySentMap, currentDayData, selectedDate]);
+  }, [
+    recordedStudents,
+    notificationFilterTab,
+    notifTypeFilter,
+    notifGradeFilter,
+    notifClassFilter,
+    notifSearchQuery,
+    selectedNotifStudentIds,
+    todaySentMap,
+    currentDayData,
+    selectedDate,
+  ]);
 
   // Count of recorded students already sent today
   const sentTodayCount = useMemo(() => {
@@ -587,6 +630,29 @@ export default function AttendanceSystem({
   }, [recordedStudents, todaySentMap, currentDayData, selectedDate]);
 
   const unsentTodayCount = recordedStudents.length - sentTodayCount;
+
+  // Toggle selection for a single student in notifications tab
+  const toggleSelectNotifStudent = (studentId: string) => {
+    setSelectedNotifStudentIds((prev) =>
+      prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
+    );
+  };
+
+  const handleSelectAllFilteredNotif = () => {
+    const allIds = targetStudentsToNotify.map((s) => s.id);
+    setSelectedNotifStudentIds((prev) => Array.from(new Set([...prev, ...allIds])));
+  };
+
+  const handleSelectUnsentFilteredNotif = () => {
+    const unsentIds = targetStudentsToNotify
+      .filter((s) => !getStudentSentTodayInfo(s))
+      .map((s) => s.id);
+    setSelectedNotifStudentIds(unsentIds);
+  };
+
+  const handleDeselectAllNotif = () => {
+    setSelectedNotifStudentIds([]);
+  };
 
   // Send single WhatsApp notification
   const handleSendSingleNotification = async (student: Student, type: "absence" | "tardiness", forceSend = false) => {
@@ -641,6 +707,7 @@ export default function AttendanceSystem({
               ...day[student.id],
               notified: true,
               notifiedAt: nowTime,
+              sentMessage: message,
             };
           }
           return { ...prev, [selectedDate]: day };
@@ -715,18 +782,36 @@ export default function AttendanceSystem({
   };
 
   // Launch Batch WhatsApp sending with interactive live modal and 15-second anti-ban interval
-  const handleStartBatchNotifications = async () => {
-    // Determine target batch candidates according to anti-duplicate exclusion
-    const batchCandidates = excludeAlreadySentToday 
-      ? recordedStudents.filter((st) => !getStudentSentTodayInfo(st))
-      : recordedStudents;
+  const handleStartBatchNotifications = async (customCandidates?: Student[]) => {
+    let batchCandidates: Student[] = [];
+
+    if (customCandidates && customCandidates.length > 0) {
+      batchCandidates = customCandidates;
+    } else if (selectedNotifStudentIds.length > 0) {
+      batchCandidates = recordedStudents.filter((s) => selectedNotifStudentIds.includes(s.id));
+    } else if (excludeAlreadySentToday) {
+      batchCandidates = recordedStudents.filter((st) => !getStudentSentTodayInfo(st));
+    } else {
+      batchCandidates = recordedStudents;
+    }
 
     if (batchCandidates.length === 0) {
       if (recordedStudents.length > 0 && excludeAlreadySentToday) {
-        alert("🛡️ درع الحماية نشط:\nتم إرسال إشعارات الغياب/التأخر لجميع هؤلاء الطلاب اليوم بالفعل ولا يوجد طلاب متبقين للإرسال.\nإذا كنت ترغب في إعادة الإرسال لهم، يرجى تعطيل خيار «استثناء المرسل لهم اليوم» من شريط الحماية بالأعلى.");
+        alert(
+          "🛡️ درع الحماية نشط:\nتم إرسال إشعارات الغياب/التأخر لجميع هؤلاء الطلاب اليوم بالفعل ولا يوجد طلاب متبقين للإرسال.\nإذا كنت ترغب في إعادة الإرسال لهم، يرجى تحديد الطلاب يدوياً أو إلغاء تفعيل استثناء المرسل لهم اليوم."
+        );
       } else {
-        alert("لا يوجد طلاب مسجلين كغائبين أو متأخرين لهذا اليوم لإرسال الإشعارات لهم.");
+        alert("لا يوجد طلاب محددين لإرسال الإشعارات لهم. يرجى تحديد طالب واحد على الأقل.");
       }
+      return;
+    }
+
+    // If only 1 student is selected, send directly without waiting interval!
+    if (batchCandidates.length === 1) {
+      const singleStudent = batchCandidates[0];
+      const status = currentDayData[singleStudent.id]?.status;
+      const type = status === "tardy" ? "tardiness" : "absence";
+      await handleSendSingleNotification(singleStudent, type, true);
       return;
     }
 
@@ -817,11 +902,13 @@ export default function AttendanceSystem({
                 ...day[student.id],
                 notified: true,
                 notifiedAt: nowTime,
+                sentMessage: message,
               };
             }
             const next = { ...prev, [selectedDate]: day };
             try {
-              localStorage.setItem("attendance_records", JSON.stringify(next));
+              localStorage.setItem("school_attendance_records", JSON.stringify(next));
+              saveAttendanceDataToCloud(next).catch(console.error);
             } catch (e) {
               console.error(e);
             }
@@ -930,6 +1017,9 @@ export default function AttendanceSystem({
         isRunning: false,
         countdownSeconds: 0,
       }));
+      setToastMessage("تم إيقاف الإرسال مؤقتاً. تم حفظ حالة الطلاب الذين تم إرسال الرسائل لهم بنجاح.");
+      setSaveSuccessToast(true);
+      setTimeout(() => setSaveSuccessToast(false), 3000);
     }
   };
 
@@ -1229,19 +1319,8 @@ export default function AttendanceSystem({
           </button>
         </div>
 
-        {/* 0. Subtab: Noor Extractor & Guidance Procedures Workflow */}
-        {activeSubTab === "guidance_workflow" && (
-          <GuidanceAbsenceWorkflow
-            students={students}
-            signatories={signatories}
-            isWhatsAppConnected={isWhatsAppConnected}
-            onSendSingleMessage={handleDirectSendSingleMessage}
-          />
-        )}
-
         {/* Global Attendance Controls & Stats Bar for Manual Daily Tabs */}
-        {activeSubTab !== "guidance_workflow" && (
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs space-y-4 no-print">
+        <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs space-y-4 no-print">
             
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
               
@@ -1322,7 +1401,6 @@ export default function AttendanceSystem({
             </div>
 
           </div>
-        )}
 
 
           {/* 1. Subtab: Daily Absence Recording */}
@@ -2107,41 +2185,59 @@ export default function AttendanceSystem({
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                     <Bell className="w-5 h-5 text-emerald-600" />
-                    <span>إشعارات الغياب والتأخر لأولياء الأمور عبر الواتساب</span>
+                    <span>إشعارات أولياء الأمور للغياب والتأخر عبر الواتساب</span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    إرسال رسائل معتمدة ومخصصة لكافة أولياء أمور الطلاب المسجلين كغائبين أو متأخرين لتاريخ {selectedDate} ({recordedStudents.length} طالب).
+                    مراجعة الطلاب الغائبين والمتأخرين المسجلين لتاريخ {selectedDate} ({recordedStudents.length} طالب) مع خيار الإرسال الفردي المباشر أو الإطلاق كحملة جماعية بفاصل أمان 15 ثانية.
                   </p>
                 </div>
 
-                {/* Primary Dual Actions: Direct Send OR Launch as Official Campaign */}
+                {/* Primary Sending Action Button (Adapts to 1 student vs Multiple students) */}
                 <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-                  
-                  {/* Direct Batch Sending */}
-                  <button
-                    onClick={handleStartBatchNotifications}
-                    disabled={(excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length) === 0}
-                    className="flex-1 lg:flex-none px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                    id="btn-batch-send-notifications"
-                    title={excludeAlreadySentToday ? `إرسال الإشعارات للمتبقين فقط (${unsentTodayCount} طالب)` : `إرسال الإشعارات للجميع (${recordedStudents.length} طالب)`}
-                  >
-                    <Zap className="w-4 h-4 text-emerald-200" />
-                    <span>
-                      إرسال الإشعارات فوريًا ({excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length})
-                    </span>
-                  </button>
+                  {selectedNotifStudentIds.length === 1 ? (
+                    <button
+                      onClick={() => {
+                        const targetStudent = recordedStudents.find((s) => s.id === selectedNotifStudentIds[0]);
+                        if (targetStudent) {
+                          const status = currentDayData[targetStudent.id]?.status;
+                          const type = status === "tardy" ? "tardiness" : "absence";
+                          handleSendSingleNotification(targetStudent, type, true);
+                        }
+                      }}
+                      className="flex-1 lg:flex-none px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
+                      id="btn-single-direct-send"
+                      title="إرسال إشعار فوري مباشر للطالب المحدد بدون فواصل زمنية"
+                    >
+                      <Zap className="w-4 h-4 text-emerald-200" />
+                      <span>إرسال مباشر للطالب المحدد (فوري بدون انتظار)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleStartBatchNotifications()}
+                      disabled={selectedNotifStudentIds.length === 0 && (excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length) === 0}
+                      className="flex-1 lg:flex-none px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                      id="btn-batch-send-notifications"
+                      title="إرسال حملة جماعية مع فاصل أمان 15 ثانية بين كل رسالة لحماية الرقم"
+                    >
+                      <Zap className="w-4 h-4 text-emerald-200" />
+                      <span>
+                        {selectedNotifStudentIds.length > 0
+                          ? `إرسال حملة جماعية للمحددين (${selectedNotifStudentIds.length} طالب) - بفاصل 15 ثانية`
+                          : `إرسال حملة جماعية (${excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length} طالب) - بفاصل 15 ثانية`}
+                      </span>
+                    </button>
+                  )}
 
-                  {/* Launch as Official Campaign in Campaign Monitor */}
+                  {/* Launch into Campaign Monitor if preferred */}
                   <button
-                    onClick={handleLaunchAsOfficialCampaign}
-                    disabled={(excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length) === 0}
+                    onClick={() => handleLaunchAsOfficialCampaign()}
+                    disabled={selectedNotifStudentIds.length === 0 && (excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length) === 0}
                     className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="إطلاق كحملة إرسال في نظام الرسائل مع شريط تقدم مباشر"
+                    title="إطلاق كحملة رسمية في نظام الرسائل مع شريط تقدم وتتبع"
                   >
                     <Send className="w-4 h-4 rotate-180 text-emerald-400" />
-                    <span>إطلاق كحملة إرسال جماعي ({excludeAlreadySentToday ? unsentTodayCount : recordedStudents.length})</span>
+                    <span>نظام الحملات الجماعية</span>
                   </button>
-
                 </div>
               </div>
 
@@ -2153,13 +2249,13 @@ export default function AttendanceSystem({
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-extrabold text-slate-900">درع الحماية الذكي من تكرار رسائل الغياب والتأخر</h4>
+                      <h4 className="text-xs font-extrabold text-slate-900">درع الحماية الذكي وحفظ حالة الإرسال</h4>
                       <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200">
-                        مفعل تلقائياً
+                        مفعل ومحفوظ دائماً
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-600 mt-0.5">
-                      يمنع النظام تكرار إرسال إشعارات الغياب والتأخر لنفس الطالب أو رقم الجوال خلال اليوم ويستثنيهم من الدفعات الجديدة.
+                      يمنع النظام تكرار إرسال إشعارات الغياب والتأخر لنفس الطالب أو الصف بعد التوقف أو الانتقال لصف آخر، ويحفظ الحالة مباشرة.
                     </p>
                   </div>
                 </div>
@@ -2244,57 +2340,158 @@ export default function AttendanceSystem({
 
               </div>
 
-              {/* Target Students List with Filter Tabs */}
-              <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">
-                      الطلاب المطلوب إشعار أولياء أمورهم لتاريخ {selectedDate} ({recordedStudents.length}):
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      المتبقي للإرسال: <span className="font-bold text-emerald-700">{unsentTodayCount} طالب</span> | تم الإرسال لهم اليوم: <span className="font-bold text-slate-700">{sentTodayCount} طالب</span>
-                    </p>
+              {/* Filters & Multi-Selection Control Bar */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                
+                {/* Search and Dropdowns */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  
+                  <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                    {/* Search */}
+                    <div className="relative flex-1 min-w-[180px]">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={notifSearchQuery}
+                        onChange={(e) => setNotifSearchQuery(e.target.value)}
+                        placeholder="بحث بالاسم أو الجوال..."
+                        className="w-full pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                      />
+                      {notifSearchQuery && (
+                        <button onClick={() => setNotifSearchQuery("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Grade Filter */}
+                    {availableGrades.length > 0 && (
+                      <select
+                        value={notifGradeFilter}
+                        onChange={(e) => {
+                          setNotifGradeFilter(e.target.value);
+                          setNotifClassFilter("ALL");
+                        }}
+                        className="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">جميع الصفوف</option>
+                        {availableGrades.map((g) => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Class Filter */}
+                    {notifAvailableClasses.length > 0 && (
+                      <select
+                        value={notifClassFilter}
+                        onChange={(e) => setNotifClassFilter(e.target.value)}
+                        className="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">جميع الفصول</option>
+                        {notifAvailableClasses.map((c) => (
+                          <option key={c} value={c}>فصل {c}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Type Filter */}
+                    <select
+                      value={notifTypeFilter}
+                      onChange={(e) => setNotifTypeFilter(e.target.value as any)}
+                      className="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
+                    >
+                      <option value="ALL">الكل (غياب وتأخر)</option>
+                      <option value="absence">غياب فقط</option>
+                      <option value="tardiness">تأخر فقط</option>
+                    </select>
                   </div>
 
                   {/* Filter Sub-Tabs */}
-                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-bold">
+                  <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 text-xs font-bold">
                     <button
                       onClick={() => setNotificationFilterTab("unsent_today")}
-                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                         notificationFilterTab === "unsent_today"
-                          ? "bg-white text-slate-900 shadow-xs"
+                          ? "bg-slate-900 text-white shadow-xs"
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <Bell className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>غير المرسل لهم اليوم ({unsentTodayCount})</span>
+                      <Bell className="w-3 h-3 text-emerald-400" />
+                      <span>غير المرسل لهم ({unsentTodayCount})</span>
                     </button>
 
                     <button
                       onClick={() => setNotificationFilterTab("sent_today")}
-                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                         notificationFilterTab === "sent_today"
-                          ? "bg-white text-slate-900 shadow-xs"
+                          ? "bg-slate-900 text-white shadow-xs"
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>تم الإرسال لهم اليوم ({sentTodayCount})</span>
+                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                      <span>تم الإرسال ({sentTodayCount})</span>
+                    </button>
+
+                    <button
+                      onClick={() => setNotificationFilterTab("selected")}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        notificationFilterTab === "selected"
+                          ? "bg-slate-900 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>المحددون ({selectedNotifStudentIds.length})</span>
                     </button>
 
                     <button
                       onClick={() => setNotificationFilterTab("all")}
-                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                         notificationFilterTab === "all"
-                          ? "bg-white text-slate-900 shadow-xs"
+                          ? "bg-slate-900 text-white shadow-xs"
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <span>عرض الكل ({recordedStudents.length})</span>
+                      <span>الكل ({recordedStudents.length})</span>
                     </button>
+                  </div>
+
+                </div>
+
+                {/* Quick Selection Buttons */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/80 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-600 text-[11px]">التحكم بالتحديد:</span>
+                    <button
+                      onClick={handleSelectUnsentFilteredNotif}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-[11px] cursor-pointer transition-all border border-emerald-300"
+                    >
+                      تحديد غير المرسل لهم المعروضين
+                    </button>
+                    <button
+                      onClick={handleSelectAllFilteredNotif}
+                      className="px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-[11px] cursor-pointer transition-all"
+                    >
+                      تحديد كل المعروض ({targetStudentsToNotify.length})
+                    </button>
+                    <button
+                      onClick={handleDeselectAllNotif}
+                      className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-800 font-bold text-[11px] cursor-pointer transition-all"
+                    >
+                      إلغاء التحديد
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 font-semibold">
+                    تم تحديد <span className="font-black text-slate-900">{selectedNotifStudentIds.length}</span> من أصل <span className="font-black text-slate-900">{recordedStudents.length}</span> طالب
                   </div>
                 </div>
 
+              </div>
+
+              {/* Target Students List */}
+              <div className="space-y-3">
                 {targetStudentsToNotify.length === 0 ? (
                   <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-8 text-center text-slate-500 text-xs">
                     {recordedStudents.length === 0 ? (
@@ -2302,7 +2499,7 @@ export default function AttendanceSystem({
                     ) : notificationFilterTab === "unsent_today" ? (
                       <div className="space-y-1.5">
                         <p className="font-bold text-emerald-700 text-sm">🎉 رائع! تم إرسال كافة إشعارات الغياب والتأخر لجميع طلاب اليوم بنجاح.</p>
-                        <p className="text-slate-500 text-xs">لا يوجد طلاب متبقين في قائمة الانتظار. تم حمايتهم من تكرار الرسائل.</p>
+                        <p className="text-slate-500 text-xs">لا يوجد طلاب متبقين في قائمة الانتظار. تم حمايتهم من تكرار الرسائل وتوثيق حالتهم.</p>
                       </div>
                     ) : (
                       "لا توجد نتائج مطابقة للتصفية المختارة."
@@ -2321,33 +2518,48 @@ export default function AttendanceSystem({
                       const isExcused = status === "absent_excused";
                       const notifStatus = notificationStatus[student.id];
                       const sentTodayInfo = getStudentSentTodayInfo(student);
+                      const isSelected = selectedNotifStudentIds.includes(student.id);
 
                       return (
                         <div
                           key={student.id}
-                          className={`border rounded-2xl p-4 flex flex-col justify-between gap-3 text-right transition-all shadow-2xs ${
-                            sentTodayInfo 
-                              ? "bg-emerald-50/40 border-emerald-200/80 hover:border-emerald-300"
-                              : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                          className={`border rounded-2xl p-4 flex flex-col justify-between gap-3 text-right transition-all shadow-2xs cursor-pointer ${
+                            isSelected
+                              ? "ring-2 ring-emerald-500 bg-emerald-50/20 border-emerald-300"
+                              : sentTodayInfo 
+                              ? "bg-slate-50/80 border-emerald-200/80 hover:border-emerald-300"
+                              : "bg-white border-slate-200 hover:border-slate-300"
                           }`}
+                          onClick={() => toggleSelectNotifStudent(student.id)}
                         >
                           <div>
+                            {/* Card Header with Checkbox and Status Badge */}
                             <div className="flex items-center justify-between mb-2">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
-                                isTardy 
-                                  ? "bg-amber-100 text-amber-800 border border-amber-200" 
-                                  : isExcused
-                                  ? "bg-blue-100 text-blue-800 border border-blue-200"
-                                  : "bg-red-100 text-red-800 border border-red-200"
-                              }`}>
-                                {isTardy ? `تأخر (${rec?.tardyMinutes || 15} دقيقة)` : isExcused ? "غياب بعذر مقبول" : "غياب بدون عذر"}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelectNotifStudent(student.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                                />
+                                <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
+                                  isTardy 
+                                    ? "bg-amber-100 text-amber-800 border border-amber-200" 
+                                    : isExcused
+                                    ? "bg-blue-100 text-blue-800 border border-blue-200"
+                                    : "bg-red-100 text-red-800 border border-red-200"
+                                }`}>
+                                  {isTardy ? `تأخر (${rec?.tardyMinutes || 15} دقيقة)` : isExcused ? "غياب بعذر مقبول" : "غياب بدون عذر"}
+                                </span>
+                              </div>
 
-                              <span className="text-[11px] font-mono text-slate-600 font-bold bg-white px-2 py-0.5 rounded border border-slate-200" dir="ltr">
+                              <span className="text-[11px] font-mono text-slate-600 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200" dir="ltr">
                                 {studentPhone}
                               </span>
                             </div>
 
+                            {/* Student Meta */}
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <h5 className="text-sm font-bold text-slate-900">{studentName}</h5>
@@ -2360,14 +2572,34 @@ export default function AttendanceSystem({
                                 </span>
                               )}
                             </div>
+
+                            {/* Compact Message Box */}
+                            <div className="mt-2.5 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-right">
+                              <div className="flex items-center justify-between text-[9px] text-slate-500 font-bold mb-1 border-b border-slate-200/60 pb-0.5">
+                                <span className="flex items-center gap-1 text-emerald-800">
+                                  <Send className="w-2.5 h-2.5 rotate-180" />
+                                  <span>نص الإشعار المرسل لولي الأمر:</span>
+                                </span>
+                                <span className="font-mono text-[8.5px] text-slate-500">
+                                  {sentTodayInfo ? `وقت الإرسال: ${sentTodayInfo.time}` : `تاريخ الرصد: ${selectedDate}`}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-800 leading-relaxed font-normal whitespace-pre-line select-text">
+                                {rec?.sentMessage || constructNotificationMessage(student, isTardy ? "tardiness" : "absence")}
+                              </p>
+                            </div>
                           </div>
 
-                          <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between gap-2">
+                          {/* Footer Action & Status */}
+                          <div 
+                            className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <span className="text-[10px] text-slate-500 font-medium">
                               {sentTodayInfo ? (
                                 <span className="text-emerald-700 font-bold flex items-center gap-1">
                                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  <span>تم الإرسال اليوم ({sentTodayInfo.time})</span>
+                                  <span>تم الإرسال ({sentTodayInfo.time})</span>
                                 </span>
                               ) : rec?.notified ? (
                                 <span className="text-emerald-700 font-bold">تم الإشعار ✓ ({rec.notifiedAt || ""})</span>
@@ -2388,6 +2620,7 @@ export default function AttendanceSystem({
                                   ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                                   : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
                               }`}
+                              title={sentTodayInfo ? "إعادة إرسال إشعار مباشر لهذا الطالب" : "إرسال إشعار فوري بدون انتظار"}
                             >
                               {notifStatus === "sending" ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2399,7 +2632,7 @@ export default function AttendanceSystem({
                                   ? "جارِ الإرسال..." 
                                   : sentTodayInfo 
                                   ? "إعادة الإرسال" 
-                                  : "إرسال واتساب"}
+                                  : "إرسال مباشر"}
                               </span>
                             </button>
                           </div>

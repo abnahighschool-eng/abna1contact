@@ -112,6 +112,7 @@ export interface ReportPrintOptions {
   removeBlankLines: boolean;
   showSignatures: boolean;
   showStatsBox: boolean;
+  showSentMessageInTable?: boolean;
 }
 
 // Noor System Student Absence Record
