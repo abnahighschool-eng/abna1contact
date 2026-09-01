@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link2, Unlink, QrCode, Shield, CheckCircle2, Loader2, Smartphone, Copy, Check, RotateCcw, AlertTriangle, Key, ExternalLink, HelpCircle } from "lucide-react";
+import { Link2, Unlink, QrCode, Shield, CheckCircle2, Loader2, Smartphone, Copy, Check, RotateCcw, AlertTriangle, Key, ExternalLink, HelpCircle, Send, Sparkles } from "lucide-react";
 import { WhatsAppConfig } from "../types";
 
 interface ConnectionPanelProps {
@@ -18,6 +18,12 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Live Test Message State
+  const [testPhoneInput, setTestPhoneInput] = useState("");
+  const [isTestingSend, setIsTestingSend] = useState(false);
+  const [testSendResult, setTestSendResult] = useState<string | null>(null);
+  const [testSendError, setTestSendError] = useState<string | null>(null);
 
   // Real WhatsApp polling state
   const [realStatus, setRealStatus] = useState<{
@@ -52,9 +58,18 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
 
   useEffect(() => {
     fetchRealStatus();
-    const interval = setInterval(fetchRealStatus, 2500);
+    // Fast polling while connecting or waiting for scan/pairing (1200ms), standard otherwise (3000ms)
+    const pollInterval = (realStatus.status === "connecting" || realStatus.status === "qr_ready" || realStatus.status === "pairing_code_ready") ? 1200 : 3000;
+    const interval = setInterval(fetchRealStatus, pollInterval);
     return () => clearInterval(interval);
-  }, [config.mode, activeTab]);
+  }, [config.mode, activeTab, realStatus.status]);
+
+  const handleSwitchMethod = (method: "pairing_code" | "qr") => {
+    setRealMethod(method);
+    if (realStatus.status === "error" || (realStatus.status === "qr_ready" && method === "pairing_code") || (realStatus.status === "pairing_code_ready" && method === "qr")) {
+      setRealStatus(prev => ({ ...prev, status: "disconnected", error: "" }));
+    }
+  };
 
   const handleStartRealPairing = async (method: "pairing_code" | "qr") => {
     if (method === "pairing_code" && !phoneNumberInput.trim()) {
@@ -63,6 +78,8 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     }
 
     setIsActionLoading(true);
+    setRealStatus(prev => ({ ...prev, status: "connecting", qr: "", pairingCode: "", error: "" }));
+    
     try {
       const res = await fetch("/api/whatsapp/real/start", {
         method: "POST",
@@ -70,14 +87,21 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
         body: JSON.stringify({
           method,
           phone: phoneNumberInput.trim(),
+          force: true,
         }),
       });
       if (res.ok) {
         const data = await res.json();
         setRealStatus(prev => ({ ...prev, status: data.status, error: "" }));
+        // Immediate follow-up status checks
+        setTimeout(fetchRealStatus, 400);
+        setTimeout(fetchRealStatus, 1000);
+        setTimeout(fetchRealStatus, 2200);
+        setTimeout(fetchRealStatus, 4000);
       }
     } catch (e) {
       console.error(e);
+      setRealStatus(prev => ({ ...prev, status: "error", error: "فشل إرسال طلب الربط، يرجى المحاولة مرة أخرى." }));
     } finally {
       setIsActionLoading(false);
     }
@@ -115,6 +139,40 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
 
   const normalizeArabicDigits = (str: string) => {
     return str.replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+  };
+
+  const handleSendTestMessage = async () => {
+    const target = testPhoneInput.trim() || realStatus.phone || config.simulatedPhone;
+    if (!target) {
+      setTestSendError("يرجى كتابة رقم الجوال لإرسال الرسالة التجريبية إليه.");
+      return;
+    }
+
+    setIsTestingSend(true);
+    setTestSendResult(null);
+    setTestSendError(null);
+
+    try {
+      const res = await fetch("/api/whatsapp/test-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: target,
+          message: `✨ رسالة اختبار وصول وتأكيد ربط من نظام الإرسال المدرسي الذكي.\nتم إرسال هذه الرسالة مباشرة وتأكيد استلامها.\nالوقت: ${new Date().toLocaleTimeString("ar-SA")}`
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestSendResult(data.message || `تم إرسال الرسالة بنجاح إلى الرقم (+${target})! تفقد هاتفك الآن.`);
+      } else {
+        setTestSendError(data.error || "تعذر تسليم الرسالة التجريبية. تأكد من أن الرقم مسجل بواتساب.");
+      }
+    } catch (err: any) {
+      setTestSendError(err.message || "حدث خطأ في الاتصال بالخادم.");
+    } finally {
+      setIsTestingSend(false);
+    }
   };
 
   const handleCopyPairingCode = () => {
@@ -279,7 +337,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                 <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-xl">
                   <button
                     type="button"
-                    onClick={() => setRealMethod("pairing_code")}
+                    onClick={() => handleSwitchMethod("pairing_code")}
                     className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                       realMethod === "pairing_code"
                         ? "bg-white text-emerald-700 shadow-sm"
@@ -291,7 +349,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRealMethod("qr")}
+                    onClick={() => handleSwitchMethod("qr")}
                     className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                       realMethod === "qr"
                         ? "bg-white text-slate-800 shadow-sm"
@@ -304,8 +362,11 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                 </div>
               )}
 
-              {/* State 1: Disconnected / Input */}
-              {realStatus.status === "disconnected" && (
+              {/* State 1: Disconnected / Input / Mode Switch */}
+              {(realStatus.status === "disconnected" || 
+                (realStatus.status === "qr_ready" && realMethod === "pairing_code") ||
+                (realStatus.status === "pairing_code_ready" && realMethod === "qr")
+              ) && (
                 <div className="flex flex-col gap-4">
                   {realMethod === "pairing_code" ? (
                     <div className="flex flex-col gap-4 bg-slate-50/70 p-5 rounded-2xl border border-slate-200/80">
@@ -373,12 +434,14 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
 
               {/* State 2: Connecting / Loading */}
               {realStatus.status === "connecting" && (
-                <div className="flex flex-col items-center justify-center text-center gap-4 py-10 bg-slate-50/50 rounded-2xl border border-slate-100">
+                <div className="flex flex-col items-center justify-center text-center gap-4 py-10 bg-slate-50/50 rounded-2xl border border-slate-100 animate-fadeIn">
                   <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
                   <div>
                     <h4 className="font-bold text-slate-800 text-sm">جاري تهيئة الاتصال بخوادم واتساب...</h4>
                     <p className="text-slate-500 text-xs mt-1 max-w-xs mx-auto">
-                      يرجى الانتظار ثوانٍ معدودة لحين استلام استجابة البوابة
+                      {realMethod === "pairing_code" 
+                        ? "جاري طلب رمز التحقق المباشر من واتساب..."
+                        : "جاري إنشاء وتجهيز باركود الاستجابة السريعة..."}
                     </p>
                   </div>
                   <button
@@ -392,7 +455,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
               )}
 
               {/* State 3: Pairing Code Ready */}
-              {realStatus.status === "pairing_code_ready" && realStatus.pairingCode && (
+              {realStatus.status === "pairing_code_ready" && realMethod === "pairing_code" && realStatus.pairingCode && (
                 <div className="flex flex-col items-center text-center gap-5 bg-emerald-50/40 p-6 rounded-2xl border border-emerald-200 animate-fadeIn">
                   <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
                     <Smartphone className="w-6 h-6" />
@@ -464,7 +527,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
               )}
 
               {/* State 4: QR Code Ready */}
-              {realStatus.status === "qr_ready" && (
+              {realStatus.status === "qr_ready" && realMethod === "qr" && (
                 <div className="flex flex-col items-center text-center gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80 animate-fadeIn">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-slate-700">امسح الباركود بجوالك للربط المباشر</span>
@@ -489,13 +552,23 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                   <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
                     افتح واتساب على جوالك &gt; <b>الأجهزة المرتبطة</b> &gt; <b>ربط جهاز</b> &gt; وجّه كاميرا الجوال نحو هذا الباركود.
                   </p>
-                  <button
-                    onClick={handleResetSession}
-                    className="text-xs text-slate-500 hover:text-rose-600 flex items-center gap-1 cursor-pointer mt-1"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    إعادة توليد الرمز
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleStartRealPairing("qr")}
+                      disabled={isActionLoading}
+                      className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      تحديث الباركود (Refresh)
+                    </button>
+                    <button
+                      onClick={handleResetSession}
+                      className="text-xs text-slate-500 hover:text-rose-600 flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      إعادة تعيين الجلسة
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -533,20 +606,72 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
 
               {/* State 6: Connected */}
               {realStatus.status === "connected" && (
-                <div className="flex flex-col items-center text-center gap-4 bg-emerald-50/50 p-8 rounded-2xl border border-emerald-200 animate-fadeIn">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-emerald-200">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">تم ربط حساب الواتساب بنجاح! 🎉</h3>
-                    <p className="text-slate-500 text-xs mt-1">الرقم المتصل والجاهز للإرسال:</p>
-                    <p className="text-emerald-700 text-base font-bold font-mono mt-1.5 bg-white px-4 py-1 rounded-full border border-emerald-200 inline-block">
-                      +{realStatus.phone}
+                <div className="flex flex-col gap-5 animate-fadeIn">
+                  <div className="flex flex-col items-center text-center gap-3 bg-emerald-50/70 p-6 rounded-2xl border border-emerald-200 shadow-xs">
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-emerald-200 shadow-xs">
+                      <CheckCircle2 className="w-7 h-7 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-base">تم ربط حساب الواتساب بنجاح! 🎉</h3>
+                      <p className="text-slate-500 text-xs mt-0.5">الرقم المتصل والجاهز للإرسال الفعلي:</p>
+                      <p className="text-emerald-800 text-base font-bold font-mono mt-1 bg-white px-4 py-1 rounded-full border border-emerald-200 inline-block shadow-2xs">
+                        +{realStatus.phone}
+                      </p>
+                    </div>
+                    <p className="text-xs text-slate-600 max-w-md leading-relaxed">
+                      جهازك متصل ومستقر. جميع الرسائل والحملات الصادرة ستصل الآن مباشرة إلى أجهزة أولياء الأمور والمعلمين عبر هذا الرقم.
                     </p>
                   </div>
-                  <p className="text-xs text-slate-600 max-w-sm leading-relaxed">
-                    يمكنك الآن التوجه لتبويب <b>«رفع كشوف الطلاب»</b> و <b>«حملة الإرسال الجماعي»</b> للبدء بإرسال الرسائل فوراً.
-                  </p>
+
+                  {/* Interactive Test Send Tool */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-emerald-600" />
+                        <h4 className="text-xs font-bold text-slate-800">اختبار إرسال رسالة فورية إلى هاتفك</h4>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium">لتأكيد وصول الرسائل لجهازك</span>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-2">
+                      <input
+                        type="tel"
+                        dir="ltr"
+                        placeholder={`مثال: 0501234567 أو ${realStatus.phone || "966500000000"}`}
+                        value={testPhoneInput}
+                        onChange={(e) => setTestPhoneInput(normalizeArabicDigits(e.target.value))}
+                        className="w-full sm:flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={handleSendTestMessage}
+                        disabled={isTestingSend}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                      >
+                        {isTestingSend ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        إرسال رسالة تجريبية الآن
+                      </button>
+                    </div>
+
+                    {testSendResult && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2 animate-fadeIn">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-bold">تم الإرسال بنجاح!</p>
+                          <p className="text-[11px] text-emerald-700 mt-0.5">{testSendResult}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {testSendError && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2 animate-fadeIn">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-bold">فشل الإرسال:</p>
+                          <p className="text-[11px] text-rose-700 mt-0.5">{testSendError}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

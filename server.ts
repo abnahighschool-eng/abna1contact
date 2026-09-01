@@ -12,6 +12,7 @@ import {
   syncServerStateToFirestore,
   loadServerStateFromFirestore,
 } from "./src/serverFirebase";
+import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -33,9 +34,9 @@ process.on("unhandledRejection", (reason) => {
   console.warn("Recovered from unhandledRejection:", reason);
 });
 
-// Initialize Express app with dynamic PORT for Render / Cloud platforms
+// Initialize Express app
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -63,11 +64,20 @@ let whatsappConfig = {
   cloudAccountId: "",
 };
 
-function normalizePhoneNumber(input: string): string {
-  if (!input) return "";
-  let cleaned = input.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+function normalizePhoneNumber(input: string | number): string {
+  if (input === undefined || input === null || input === "") return "";
+  let str = String(input).trim();
+  // Strip trailing decimal from Excel float conversions like 501234567.0 or 501234567.00
+  str = str.replace(/\.0+$/, "").replace(/\.[0-9]+$/, "");
+  // Convert Arabic/Eastern Hindi digits to Western digits
+  let cleaned = str.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+  
   if (cleaned.startsWith("00966")) {
     cleaned = "966" + cleaned.substring(5);
+  } else if (cleaned.startsWith("00")) {
+    cleaned = cleaned.substring(2);
+  } else if (cleaned.startsWith("96605")) {
+    cleaned = "966" + cleaned.substring(4); // fix 96605... -> 9665...
   } else if (cleaned.startsWith("966")) {
     cleaned = cleaned;
   } else if (cleaned.startsWith("05")) {
@@ -78,6 +88,54 @@ function normalizePhoneNumber(input: string): string {
   return cleaned;
 }
 
+// Dedicated Baileys Real Message Dispatcher
+async function sendBaileysMessage(phone: string, text: string): Promise<{ success: boolean; error?: string; jid?: string; messageId?: string }> {
+  const isConnected = !!(sock && (sock.user || realConnectionStatus === "connected"));
+  if (!isConnected) {
+    return { 
+      success: false, 
+      error: "جهاز الواتساب غير متصل حالياً. يرجى التوجه لتبويب '1. الربط والاتصال' وربط جهازك بالرمز أو الباركود أولاً حتى تصل الرسائل لهواتف المستلمين." 
+    };
+  }
+
+  const formattedPhone = normalizePhoneNumber(phone);
+  if (!formattedPhone || formattedPhone.length < 8) {
+    return { success: false, error: `رقم الجوال غير صالح أو غير مكتمل (${phone})` };
+  }
+
+  let targetJid = `${formattedPhone}@s.whatsapp.net`;
+  
+  // If user is sending to themselves (Notes to self / self-test):
+  const myCleanPhone = connectedPhoneNumber ? normalizePhoneNumber(connectedPhoneNumber) : "";
+  if (myCleanPhone && (formattedPhone === myCleanPhone) && sock.user?.id) {
+    targetJid = sock.user.id.includes(":") ? `${sock.user.id.split(":")[0]}@s.whatsapp.net` : sock.user.id;
+  }
+
+  try {
+    console.log(`[WhatsApp Real Dispatch] Initiating send to ${targetJid}...`);
+    
+    try {
+      await sock.sendPresenceUpdate("composing", targetJid);
+    } catch (presErr) {
+      // non-fatal
+    }
+
+    const sentMsg = await sock.sendMessage(targetJid, { text });
+    if (!sentMsg || !sentMsg.key) {
+      return { success: false, error: "لم يتم استلام تأكيد تسليم الرسالة من خادم واتساب." };
+    }
+    const messageId = sentMsg.key.id || "";
+    console.log(`[WhatsApp Real Dispatch] Successfully delivered to ${targetJid} (MsgId: ${messageId})`);
+    return { success: true, jid: targetJid, messageId };
+  } catch (sendErr: any) {
+    console.error(`[WhatsApp Real Dispatch Error] Failed for ${targetJid}:`, sendErr);
+    return { 
+      success: false, 
+      error: sendErr?.message || "فشل إرسال الرسالة عبر خادم واتساب. يرجى التأكد من اتصال هاتفك بالإنترنت وصحة الرقم." 
+    };
+  }
+}
+
 let sock: any = null;
 let realQrCodeUrl: string = "";
 let realPairingCode: string = "";
@@ -86,19 +144,22 @@ let realConnectionStatus: "disconnected" | "qr_ready" | "pairing_code_ready" | "
 let connectedPhoneNumber: string = "";
 let connectionTimeoutTimer: NodeJS.Timeout | null = null;
 let firestoreSessionBackupTimer: NodeJS.Timeout | null = null;
+let isExplicitlyDisconnected = false;
 
-function scheduleFirestoreSessionBackup() {
+// 3 Days Expiration in milliseconds (3 days * 24 hours * 60 mins * 60 secs * 1000 ms)
+const INQUIRY_EXPIRATION_MS = 3 * 24 * 60 * 60 * 1000;
+
+function scheduleFirestoreSessionBackup(force = false) {
   if (firestoreSessionBackupTimer) clearTimeout(firestoreSessionBackupTimer);
   firestoreSessionBackupTimer = setTimeout(() => {
     const authFolder = path.join(process.cwd(), "auth_info_baileys");
-    backupBaileysSessionToFirestore(authFolder).catch((err) => {
-      console.warn("[Firebase] WhatsApp session auto-backup error:", err);
-    });
-  }, 2000);
+    backupBaileysSessionToFirestore(authFolder, force).catch(() => {});
+  }, 15000); // 15 seconds debounce
 }
 
 async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr", targetPhone?: string) {
   try {
+    isExplicitlyDisconnected = false;
     if (connectionTimeoutTimer) {
       clearTimeout(connectionTimeoutTimer);
       connectionTimeoutTimer = null;
@@ -111,15 +172,7 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
       realConnectionStatus = "connecting";
     }
 
-    // Set fallback timeout (60 seconds) in case WhatsApp servers do not respond
-    connectionTimeoutTimer = setTimeout(() => {
-      if (realConnectionStatus === "connecting") {
-        realConnectionStatus = "error";
-        realErrorMessage = "استغرق الاتصال بخوادم واتساب وقتاً أطول من المعتاد. يرجى تجربة رمز الربط بالهاتف أو إعادة التعيين.";
-      }
-    }, 60000);
-
-    // Clean up previous socket instance if any
+    // Clean up previous socket instance completely if starting a new pairing session
     if (sock && method !== "resume") {
       try {
         sock.ev?.removeAllListeners("creds.update");
@@ -132,31 +185,61 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
     }
 
     const authFolder = path.join(process.cwd(), "auth_info_baileys");
+    
+    // If starting a fresh new pairing (QR or Pairing Code), wipe any previous partial/stale auth state
+    if (method === "qr" || method === "pairing_code") {
+      if (fs.existsSync(authFolder)) {
+        try {
+          fs.rmSync(authFolder, { recursive: true, force: true });
+        } catch (e) {}
+      }
+      connectedPhoneNumber = "";
+      whatsappConfig.simulatedPhone = "";
+      whatsappConfig.simulatedStatus = "disconnected";
+    }
+
     if (!fs.existsSync(authFolder)) {
       fs.mkdirSync(authFolder, { recursive: true });
     }
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
-    // Using stable tested WhatsApp multi-device version directly for instant initialization
-    const waVersion = [2, 3000, 1043857760] as any;
-    
-    sock = makeWASocket({
-      version: waVersion,
+    let waVersion: any = undefined;
+    try {
+      if (typeof fetchLatestBaileysVersion === "function") {
+        const v = await fetchLatestBaileysVersion();
+        if (v && v.version) {
+          waVersion = v.version;
+          console.log(`[WhatsApp] Using dynamic Baileys version: ${waVersion.join(".")}`);
+        }
+      }
+    } catch (verErr) {
+      console.warn("fetchLatestBaileysVersion fallback used");
+    }
+
+    const browserInfo = typeof Browsers?.ubuntu === "function"
+      ? Browsers.ubuntu("Chrome")
+      : ["Ubuntu", "Chrome", "20.0.04"];
+
+    const socketOptions: any = {
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: "silent" }) as any,
-      browser: ["Ubuntu", "Chrome", "22.04.4"],
-      connectTimeoutMs: 30000,
-      defaultQueryTimeoutMs: 30000,
+      browser: browserInfo,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
       syncFullHistory: false,
-      markOnlineOnConnect: false,
+      markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      fireInitQueries: false,
-      emitOwnEvents: false,
       getMessage: async () => undefined,
       shouldIgnoreJid: (jid: string) => !jid || jid.includes("@broadcast") || jid.endsWith("@newsletter"),
-    });
+    };
+
+    if (waVersion) {
+      socketOptions.version = waVersion;
+    }
+
+    sock = makeWASocket(socketOptions);
     
     sock.ev.on("creds.update", async () => {
       await saveCreds();
@@ -171,7 +254,16 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
         realConnectionStatus = "qr_ready";
         realErrorMessage = "";
         try {
-          realQrCodeUrl = await QRCode.toDataURL(qr);
+          realQrCodeUrl = await QRCode.toDataURL(qr, {
+            errorCorrectionLevel: "M",
+            margin: 2,
+            scale: 8,
+            color: {
+              dark: "#0f172a",
+              light: "#ffffff",
+            },
+          });
+          console.log("[WhatsApp] QR Code generated successfully as DataURL");
         } catch (err) {
           console.error("Error generating QR code data URL", err);
         }
@@ -190,23 +282,36 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
         realPairingCode = "";
         realErrorMessage = "";
         const userJid = sock.user?.id || "";
-        connectedPhoneNumber = userJid.split(":")[0];
+        connectedPhoneNumber = userJid.split(":")[0]?.replace(/[^0-9]/g, "") || "";
         
         // Update general config
         whatsappConfig.simulatedStatus = "connected";
         whatsappConfig.simulatedPhone = "+" + connectedPhoneNumber;
         saveConfig();
-        scheduleFirestoreSessionBackup();
-        console.log(`Real WhatsApp linked successfully: +${connectedPhoneNumber}`);
+        scheduleFirestoreSessionBackup(true);
+        console.log(`[WhatsApp] Connected successfully to number: +${connectedPhoneNumber}`);
+
+        try {
+          await sock.sendPresenceUpdate("available");
+        } catch (presErr) {
+          // non-blocking
+        }
       }
       
       if (connection === "close") {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason?.loggedOut && statusCode !== 401 && statusCode !== 403;
+        const errorMessage = (lastDisconnect?.error as any)?.message || "";
+        const isLoggedOut =
+          isExplicitlyDisconnected ||
+          statusCode === DisconnectReason?.loggedOut ||
+          statusCode === 401;
+
+        const shouldReconnect = !isLoggedOut;
         
-        console.log(`Real WhatsApp connection closed. StatusCode: ${statusCode}. ShouldReconnect: ${shouldReconnect}`);
+        console.log(`[WhatsApp] Connection closed. StatusCode: ${statusCode}. isLoggedOut: ${isLoggedOut}. ShouldReconnect: ${shouldReconnect}`);
         
-        if (statusCode === DisconnectReason?.loggedOut || statusCode === 401 || statusCode === 403) {
+        if (isLoggedOut) {
+          // Total disconnection & purge of all previous phone numbers and auth files
           realConnectionStatus = "disconnected";
           realQrCodeUrl = "";
           realPairingCode = "";
@@ -215,18 +320,44 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
           whatsappConfig.simulatedPhone = "";
           saveConfig();
           deleteBaileysSessionInFirestore().catch(() => {});
+          
+          const authDir = path.join(process.cwd(), "auth_info_baileys");
+          if (fs.existsSync(authDir)) {
+            try {
+              fs.rmSync(authDir, { recursive: true, force: true });
+            } catch (e) {}
+          }
+          
+          if (sock) {
+            try {
+              sock.ev?.removeAllListeners("creds.update");
+              sock.ev?.removeAllListeners("connection.update");
+              sock.end(undefined);
+            } catch (e) {}
+            sock = null;
+          }
         } else if (shouldReconnect) {
           // Reconnect automatically on 515 (restartRequired) or temporary closed socket during handshake
-          console.log("Automatically resuming Baileys socket handshake / session...");
+          console.log("[WhatsApp] Auto-resuming Baileys socket handshake / session...");
           setTimeout(() => {
-            initRealWhatsApp("resume", targetPhone);
-          }, 1200);
+            if (!isExplicitlyDisconnected) {
+              initRealWhatsApp("resume", targetPhone);
+            }
+          }, 1500);
         } else if (realConnectionStatus !== "connected") {
           realConnectionStatus = "error";
-          realErrorMessage = "انقطع الاتصال بخوادم واتساب. يرجى الضغط على إعادة التعيين والمحاولة مجدداً.";
+          realErrorMessage = "انقطع الاتصال بخوادم واتساب. يمكنك طلب رمز جديد أو مسح الباركود فوراً دون الحاجة لتسجيل الخروج.";
         }
       }
     });
+
+    // Fallback timeout in case WhatsApp servers do not respond
+    connectionTimeoutTimer = setTimeout(() => {
+      if (realConnectionStatus === "connecting") {
+        realConnectionStatus = "error";
+        realErrorMessage = "استغرق طلب الرمز من خوادم واتساب وقتاً أطول من المعتاد. يمكنك الضغط على 'إعادة المحاولة' لتوليد رمز فوري جديد.";
+      }
+    }, 35000);
 
     // Handle Pairing Code flow if requested
     if (method === "pairing_code" && targetPhone && !sock.authState?.creds?.registered) {
@@ -236,24 +367,26 @@ async function initRealWhatsApp(method: "qr" | "pairing_code" | "resume" = "qr",
         try {
           if (!sock || sock.authState?.creds?.registered) return;
           const code = await sock.requestPairingCode(cleanPhone);
-          if (connectionTimeoutTimer) clearTimeout(connectionTimeoutTimer);
-          
-          realPairingCode = code || "";
-          realConnectionStatus = "pairing_code_ready";
-          realErrorMessage = "";
-          console.log(`WhatsApp pairing code generated for ${cleanPhone}: ${code}`);
+          if (code) {
+            if (connectionTimeoutTimer) clearTimeout(connectionTimeoutTimer);
+            realPairingCode = code || "";
+            realConnectionStatus = "pairing_code_ready";
+            realErrorMessage = "";
+            console.log(`[WhatsApp] Pairing code generated for ${cleanPhone}: ${code}`);
+            return;
+          }
         } catch (err: any) {
-          if (attempt < 3 && !realPairingCode) {
-            setTimeout(() => tryRequestCode(attempt + 1), 2000);
+          if (attempt < 5 && realConnectionStatus === "connecting") {
+            setTimeout(() => tryRequestCode(attempt + 1), 1000);
           } else {
             console.error("Error requesting WhatsApp pairing code:", err);
             realConnectionStatus = "error";
-            realErrorMessage = err?.message || "فشل توليد رمز الربط لرقم الهاتف. تأكد من صحة الرقم ومفتاح الدولة.";
+            realErrorMessage = err?.message || "فشل توليد رمز الربط لرقم الهاتف. تأكد من صحة الرقم ومفتاح الدولة ثم اضغط إعادة المحاولة.";
           }
         }
       };
 
-      setTimeout(() => tryRequestCode(1), 2000);
+      setTimeout(() => tryRequestCode(1), 700);
     }
   } catch (err: any) {
     console.error("Error starting Baileys socket connection:", err);
@@ -310,6 +443,9 @@ const STUDENTS_FILE = path.join(process.cwd(), "students_store.json");
 const TEMPLATE_FILE = path.join(process.cwd(), "template_store.json");
 const USERS_FILE = path.join(process.cwd(), "users_store.json");
 const ATTENDANCE_FILE = path.join(process.cwd(), "attendance_store.json");
+const TEACHERS_FILE = path.join(process.cwd(), "teachers_store.json");
+const SCHEDULE_FILE = path.join(process.cwd(), "schedule_store.json");
+const INQUIRIES_FILE = path.join(process.cwd(), "inquiries_store.json");
 
 // Default initial school settings
 let appSettings = {
@@ -329,6 +465,10 @@ let appSettings = {
 let activeStudentsList: any[] = [];
 let activeTemplate: string = "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة";
 let attendanceRecordsStore: Record<string, Record<string, any>> = {};
+let teachersList: any[] = [...DEFAULT_SAMPLE_TEACHERS];
+let scheduleAssignments: any[] = [...DEFAULT_SAMPLE_SCHEDULE];
+let inquiryRequestsStore: any[] = [];
+
 let systemUsersList: any[] = [
   {
     id: "admin_root_1",
@@ -362,6 +502,36 @@ if (fs.existsSync(ATTENDANCE_FILE)) {
     }
   } catch (e) {
     console.error("Error reading attendance_store.json", e);
+  }
+}
+
+if (fs.existsSync(TEACHERS_FILE)) {
+  try {
+    const raw = fs.readFileSync(TEACHERS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) teachersList = parsed;
+  } catch (e) {
+    console.error("Error reading teachers_store.json", e);
+  }
+}
+
+if (fs.existsSync(SCHEDULE_FILE)) {
+  try {
+    const raw = fs.readFileSync(SCHEDULE_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) scheduleAssignments = parsed;
+  } catch (e) {
+    console.error("Error reading schedule_store.json", e);
+  }
+}
+
+if (fs.existsSync(INQUIRIES_FILE)) {
+  try {
+    const raw = fs.readFileSync(INQUIRIES_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) inquiryRequestsStore = parsed;
+  } catch (e) {
+    console.error("Error reading inquiries_store.json", e);
   }
 }
 
@@ -482,6 +652,76 @@ function saveAttendanceRecords() {
   }
 }
 
+function saveTeachersList() {
+  try {
+    fs.writeFileSync(TEACHERS_FILE, JSON.stringify(teachersList, null, 2), "utf-8");
+    syncServerStateToFirestore({ teachersList }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving teachers_store.json", e);
+  }
+}
+
+function saveScheduleAssignments() {
+  try {
+    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(scheduleAssignments, null, 2), "utf-8");
+    syncServerStateToFirestore({ scheduleAssignments }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving schedule_store.json", e);
+  }
+}
+
+function saveInquiryRequests() {
+  try {
+    fs.writeFileSync(INQUIRIES_FILE, JSON.stringify(inquiryRequestsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving inquiries_store.json", e);
+  }
+}
+
+async function sendDirectWhatsAppMessage(phone: string, message: string): Promise<{ success: boolean; error?: string }> {
+  if (!phone || !message) return { success: false, error: "رقم الهاتف أو نص الرسالة غير موجود" };
+  const isCloudAPI = whatsappConfig.mode === "cloud_api" && whatsappConfig.cloudApiKey && whatsappConfig.cloudPhoneId;
+  const isRealConnected = (sock && sock.user) || realConnectionStatus === "connected";
+
+  if (isCloudAPI) {
+    try {
+      const formattedPhone = normalizePhoneNumber(phone);
+      const response = await fetch(
+        `https://graph.facebook.com/v18.0/${whatsappConfig.cloudPhoneId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${whatsappConfig.cloudApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: formattedPhone,
+            type: "text",
+            text: { body: message },
+          }),
+        }
+      );
+      const result = (await response.json()) as any;
+      if (response.ok && result.messages) {
+        return { success: true };
+      }
+      return { success: false, error: result.error?.message || "WhatsApp Cloud API error" };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Connection error to Meta" };
+    }
+  } else if (isRealConnected) {
+    return await sendBaileysMessage(phone, message);
+  } else {
+    // If not connected to real WhatsApp
+    return { 
+      success: false, 
+      error: "جهاز الواتساب غير مرتبط حالياً. يرجى التوجه إلى صفحة 'ربط الواتساب' وربط الجوال لإرسال الرسائل الفعلية." 
+    };
+  }
+}
+
 // Default initial config load
 const CONFIG_FILE = path.join(process.cwd(), "whatsapp_config.json");
 if (fs.existsSync(CONFIG_FILE)) {
@@ -510,9 +750,308 @@ app.get("/api/app-state", (req, res) => {
     template: activeTemplate,
     users: systemUsersList,
     attendanceRecords: attendanceRecordsStore,
+    teachers: teachersList,
+    schedule: scheduleAssignments,
+    inquiries: inquiryRequestsStore,
     totalCampaigns: Object.keys(campaigns).length,
     totalIndividualLogs: individualLogs.length,
   });
+});
+
+// Teachers Management API Endpoints
+app.get("/api/teachers", (req, res) => {
+  res.json({ teachers: teachersList, total: teachersList.length });
+});
+
+app.post("/api/teachers", (req, res) => {
+  const { teachers } = req.body || {};
+  if (Array.isArray(teachers)) {
+    teachersList = teachers;
+    saveTeachersList();
+  }
+  res.json({ success: true, count: teachersList.length, teachers: teachersList });
+});
+
+// School Timetable Schedule API Endpoints
+app.get("/api/schedule", (req, res) => {
+  res.json({ assignments: scheduleAssignments, total: scheduleAssignments.length });
+});
+
+app.post("/api/schedule", (req, res) => {
+  const { assignments } = req.body || {};
+  if (Array.isArray(assignments)) {
+    scheduleAssignments = assignments;
+    saveScheduleAssignments();
+  }
+  res.json({ success: true, count: scheduleAssignments.length, assignments: scheduleAssignments });
+});
+
+// Student Inquiry & Teacher Evaluation API Endpoints
+app.get("/api/inquiries", (req, res) => {
+  res.json({ inquiries: inquiryRequestsStore, total: inquiryRequestsStore.length });
+});
+
+app.post("/api/inquiries/create", async (req, res) => {
+  try {
+    const { requests, origin } = req.body || {};
+    if (!Array.isArray(requests) || requests.length === 0) {
+      return res.status(400).json({ error: "لم يتم تحديد معلمين لإرسال الاستعلام إليهم" });
+    }
+
+    const baseUrl = origin || `${req.protocol}://${req.get("host")}`;
+    const createdInquiries: any[] = [];
+    const results: any[] = [];
+
+    for (const item of requests) {
+      const { teacherName, teacherPhone, subject, section, grade, students } = item;
+      if (!teacherName || !students || students.length === 0) continue;
+
+      const inquiryId = `inq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      // Generate 6-digit verification access code
+      const accessCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Build WhatsApp message text
+      let studentText = "";
+      if (students.length === 1) {
+        studentText = `الطالب ${students[0].name} (الصف: ${students[0].grade || grade || ""} - الشعبة: ${section || students[0].className || ""})`;
+      } else {
+        studentText = `الطلاب الموضحين أدناه في شعبة (${section}):\n` + students.map((s: any, idx: number) => `${idx + 1}. ${s.name}`).join("\n");
+      }
+
+      const evalLink = `${baseUrl}/?eval=${inquiryId}`;
+      const schoolTitle = appSettings.schoolName || "ثانوية الأبناء الأولى";
+
+      const message = `أهلاً أستاذ ${teacherName}،\nنأمل منك مشكوراً تزويدنا بملاحظاتك عن ${studentText} في مادة (${subject}).\n\n🔗 *رابط التقييم المباشر:*\n${evalLink}\n\n🔑 *رمز الدخول (التفعيل):*\n*${accessCode}*\n\nشاكرين ومقدرين حسن تعاونكم،\nإدارة ${schoolTitle}`;
+
+      // Dispatch WhatsApp message
+      let whatsappStatus: "pending" | "success" | "failed" = "pending";
+      let whatsappError = "";
+
+      if (teacherPhone) {
+        const sendResult = await sendDirectWhatsAppMessage(teacherPhone, message);
+        if (sendResult.success) {
+          whatsappStatus = "success";
+        } else {
+          whatsappStatus = "failed";
+          whatsappError = sendResult.error || "فشل إرسال رسالة الواتساب";
+        }
+      }
+
+      const inquiryRecord = {
+        id: inquiryId,
+        accessCode,
+        teacherId: item.teacherId || "",
+        teacherName,
+        teacherPhone: teacherPhone || "",
+        subject,
+        section: section || "",
+        grade: grade || "",
+        schoolName: schoolTitle,
+        students,
+        status: "pending" as const,
+        whatsappStatus,
+        whatsappError,
+        sentAt: new Date().toISOString(),
+        isVerified: false,
+      };
+
+      inquiryRequestsStore.unshift(inquiryRecord);
+      createdInquiries.push(inquiryRecord);
+      results.push({
+        id: inquiryId,
+        teacherName,
+        teacherPhone,
+        whatsappStatus,
+        whatsappError,
+      });
+    }
+
+    saveInquiryRequests();
+    res.json({
+      success: true,
+      message: `تم إنشاء ${createdInquiries.length} طلب استعلام وإرسال الرسائل للمعلمين بنجاح`,
+      inquiries: createdInquiries,
+      results,
+    });
+  } catch (err: any) {
+    console.error("Error creating inquiry requests:", err);
+    res.status(500).json({ error: err.message || "فشل إنشاء طلبات الاستعلام" });
+  }
+});
+
+app.post("/api/inquiries/resend", async (req, res) => {
+  try {
+    const { id, origin } = req.body || {};
+    const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+    if (!inquiry) {
+      return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+    }
+
+    // Refresh sentAt timestamp to renew 3-day validity
+    inquiry.sentAt = new Date().toISOString();
+
+    const baseUrl = origin || `${req.protocol}://${req.get("host")}`;
+    const evalLink = `${baseUrl}/?eval=${inquiry.id}`;
+    const schoolTitle = appSettings.schoolName || inquiry.schoolName || "ثانوية الأبناء الأولى";
+
+    let studentText = "";
+    if (inquiry.students.length === 1) {
+      studentText = `الطالب ${inquiry.students[0].name} (الصف: ${inquiry.students[0].grade || inquiry.grade || ""} - الشعبة: ${inquiry.section || inquiry.students[0].className || ""})`;
+    } else {
+      studentText = `الطلاب الموضحين أدناه في شعبة (${inquiry.section}):\n` + inquiry.students.map((s: any, idx: number) => `${idx + 1}. ${s.name}`).join("\n");
+    }
+
+    const message = `تذكير: أهلاً أستاذ ${inquiry.teacherName}،\nنأمل منك مشكوراً تزويدنا بملاحظاتك عن ${studentText} في مادة (${inquiry.subject}).\n\n🔗 *رابط التقييم المباشر (صالح لمدة 3 أيام):*\n${evalLink}\n\n🔑 *رمز الدخول (التفعيل):*\n*${inquiry.accessCode}*\n\nشاكرين ومقدرين حسن تعاونكم،\nإدارة ${schoolTitle}`;
+
+    const sendResult = await sendDirectWhatsAppMessage(inquiry.teacherPhone, message);
+    if (sendResult.success) {
+      inquiry.whatsappStatus = "success";
+      inquiry.whatsappError = "";
+    } else {
+      inquiry.whatsappStatus = "failed";
+      inquiry.whatsappError = sendResult.error || "فشل إرسال التذكير";
+    }
+
+    saveInquiryRequests();
+    res.json({
+      success: sendResult.success,
+      message: sendResult.success ? "تمت إعادة إرسال التذكير وتجديد صلاحية الرابط بنجاح" : (sendResult.error || "فشل الإرسال"),
+      inquiry,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "حدث خطأ أثناء إعادة الإرسال" });
+  }
+});
+
+app.delete("/api/inquiries/:id", (req, res) => {
+  const { id } = req.params;
+  const initialLen = inquiryRequestsStore.length;
+  inquiryRequestsStore = inquiryRequestsStore.filter((item) => item.id !== id);
+  if (inquiryRequestsStore.length !== initialLen) {
+    saveInquiryRequests();
+    res.json({ success: true, message: "تم حذف الاستعلام بنجاح" });
+  } else {
+    res.status(404).json({ error: "الاستعلام غير موجود" });
+  }
+});
+
+// Public Teacher Evaluation Portal Endpoints with 3-Day Expiration Guard
+app.get("/api/inquiries/public/:id", (req, res) => {
+  const { id } = req.params;
+  const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+  if (!inquiry) {
+    return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+  }
+
+  // Check 3 days expiration (72 hours) from sentAt
+  const sentTime = new Date(inquiry.sentAt || inquiry.createdAt || Date.now()).getTime();
+  const isExpired = Date.now() - sentTime > INQUIRY_EXPIRATION_MS;
+
+  // Return public details without revealing the secret access code
+  res.json({
+    id: inquiry.id,
+    teacherName: inquiry.teacherName,
+    subject: inquiry.subject,
+    section: inquiry.section,
+    grade: inquiry.grade,
+    schoolName: appSettings.schoolName || inquiry.schoolName || "ثانوية الأبناء الأولى",
+    logoUrl: appSettings.logoUrl || "",
+    students: inquiry.students,
+    status: inquiry.status,
+    isVerified: inquiry.isVerified,
+    sentAt: inquiry.sentAt,
+    completedAt: inquiry.completedAt,
+    isExpired: isExpired && inquiry.status !== "completed",
+    expirationLimitDays: 3,
+    hasEvaluations: !!(inquiry.evaluations && inquiry.evaluations.length > 0),
+  });
+});
+
+app.post("/api/inquiries/public/verify", (req, res) => {
+  const { id, accessCode } = req.body || {};
+  const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+  if (!inquiry) {
+    return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+  }
+
+  const sentTime = new Date(inquiry.sentAt || inquiry.createdAt || Date.now()).getTime();
+  const isExpired = Date.now() - sentTime > INQUIRY_EXPIRATION_MS;
+
+  if (isExpired && inquiry.status !== "completed") {
+    return res.status(403).json({
+      error: "انتهت صلاحية هذا الرابط المحدد بـ 3 أيام من تاريخ الإرسال للحفاظ على موارد وأمان النظام. يرجى التواصل مع إدارة المدرسة لإعادة تفعيل الرابط.",
+      isExpired: true,
+    });
+  }
+
+  const cleanInput = String(accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+  const cleanStored = String(inquiry.accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+
+  if (cleanInput !== cleanStored) {
+    return res.status(400).json({ error: "رمز الدخول والتفعيل غير صحيح. يرجى التأكد من الرمز المرسل عبر واتساب." });
+  }
+
+  if (inquiry.status === "pending") {
+    inquiry.status = "opened";
+    inquiry.openedAt = new Date().toISOString();
+    saveInquiryRequests();
+  }
+
+  res.json({
+    success: true,
+    message: "تم التحقق من الرمز بنجاح",
+    inquiry,
+  });
+});
+
+app.post("/api/inquiries/public/submit", (req, res) => {
+  try {
+    const { id, accessCode, evaluations } = req.body || {};
+    const inquiry = inquiryRequestsStore.find((item) => item.id === id);
+    if (!inquiry) {
+      return res.status(404).json({ error: "طلب الاستعلام غير موجود" });
+    }
+
+    const sentTime = new Date(inquiry.sentAt || inquiry.createdAt || Date.now()).getTime();
+    const isExpired = Date.now() - sentTime > INQUIRY_EXPIRATION_MS;
+
+    if (isExpired && inquiry.status !== "completed") {
+      return res.status(403).json({
+        error: "انتهت صلاحية هذا الرابط (مضت 3 أيام على إرساله). يرجى مراجعة إدارة المدرسة لإعادة توليد الرابط.",
+        isExpired: true,
+      });
+    }
+
+    const cleanInput = String(accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+    const cleanStored = String(inquiry.accessCode || "").trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
+
+    if (cleanInput !== cleanStored) {
+      return res.status(400).json({ error: "رمز الدخول غير صحيح" });
+    }
+
+    if (!Array.isArray(evaluations) || evaluations.length === 0) {
+      return res.status(400).json({ error: "يرجى تعبئة تقييمات الطلاب قبل الحفظ" });
+    }
+
+    inquiry.evaluations = evaluations.map((ev: any) => ({
+      ...ev,
+      evaluatedAt: new Date().toISOString(),
+    }));
+    inquiry.status = "completed";
+    inquiry.isVerified = true;
+    inquiry.completedAt = new Date().toISOString();
+
+    saveInquiryRequests();
+
+    res.json({
+      success: true,
+      message: "تم حفظ واعتماد التقييم بنجاح. شكراً لحسن تعاونكم أستاذنا الفاضل.",
+      inquiry,
+    });
+  } catch (err: any) {
+    console.error("Error submitting inquiry evaluations:", err);
+    res.status(500).json({ error: err.message || "حدث خطأ أثناء حفظ التقييم" });
+  }
 });
 
 // Dedicated Year-Long Academic Attendance Storage Endpoints
@@ -610,16 +1149,15 @@ app.post("/api/app-state/cleanup", (req, res) => {
 
 // API Endpoints for WhatsApp Config
 app.get("/api/whatsapp/config", (req, res) => {
-  const isRealConnected = realConnectionStatus === "connected" || (sock && sock.user);
-  const isConnected = isRealConnected || whatsappConfig.simulatedStatus === "connected";
-  const activePhone = connectedPhoneNumber ? `+${connectedPhoneNumber}` : (whatsappConfig.simulatedPhone || "");
+  const isRealConnected = realConnectionStatus === "connected" && !!(sock && sock.user);
+  const activePhone = isRealConnected && connectedPhoneNumber ? `+${connectedPhoneNumber}` : "";
 
   res.json({
-    mode: isRealConnected ? "real" : whatsappConfig.mode,
-    simulatedStatus: isConnected ? "connected" : (realConnectionStatus === "qr_ready" ? "qr_ready" : (realConnectionStatus === "connecting" ? "connecting" : whatsappConfig.simulatedStatus)),
+    mode: "real",
+    simulatedStatus: isRealConnected ? "connected" : (realConnectionStatus === "qr_ready" ? "qr_ready" : (realConnectionStatus === "connecting" ? "connecting" : "disconnected")),
     simulatedPhone: activePhone,
-    isConnected,
-    realStatus: realConnectionStatus,
+    isConnected: isRealConnected,
+    realStatus: isRealConnected ? "connected" : realConnectionStatus,
     hasCloudApiKey: !!whatsappConfig.cloudApiKey,
     cloudPhoneId: whatsappConfig.cloudPhoneId,
     cloudAccountId: whatsappConfig.cloudAccountId,
@@ -673,41 +1211,54 @@ app.post("/api/whatsapp/simulated/action", (req, res) => {
 
 // Manage Real WhatsApp Web Pairing
 app.post("/api/whatsapp/real/start", async (req, res) => {
-  const { method = "qr", phone = "", phoneNumber = "" } = req.body || {};
+  const { method = "qr", phone = "", phoneNumber = "", force = false } = req.body || {};
   const targetPhone = phone || phoneNumber || "";
   whatsappConfig.mode = "real";
-  saveConfig();
   
-  if (realConnectionStatus === "connected") {
+  const isReallyConnected = realConnectionStatus === "connected" && !!(sock && sock.user);
+  if (isReallyConnected && !force) {
     return res.json({ status: "connected", phone: connectedPhoneNumber });
   }
   
   realConnectionStatus = "connecting";
-  await initRealWhatsApp(method, targetPhone);
-  res.json({ status: "connecting" });
+  realErrorMessage = "";
+  realPairingCode = "";
+  realQrCodeUrl = "";
+  
+  // Trigger background initialization immediately
+  initRealWhatsApp(method, targetPhone).catch((err) => {
+    console.error("initRealWhatsApp error:", err);
+  });
+
+  res.json({ status: "connecting", message: "جاري توليد الرمز والباركود..." });
 });
 
 app.get("/api/whatsapp/real/status", (req, res) => {
-  const isConnected = realConnectionStatus === "connected" || (sock && sock.user);
+  const isReallyConnected = realConnectionStatus === "connected" && !!(sock && sock.user);
   res.json({
-    status: isConnected ? "connected" : realConnectionStatus,
+    status: isReallyConnected ? "connected" : (realConnectionStatus === "connected" ? "disconnected" : realConnectionStatus),
     qr: realQrCodeUrl,
     pairingCode: realPairingCode,
     error: realErrorMessage,
-    phone: connectedPhoneNumber ? `+${connectedPhoneNumber}` : (whatsappConfig.simulatedPhone || ""),
-    isConnected: !!isConnected,
+    phone: isReallyConnected ? (connectedPhoneNumber ? `+${connectedPhoneNumber}` : "") : "",
+    isConnected: isReallyConnected,
   });
 });
 
 app.post("/api/whatsapp/real/reset", async (req, res) => {
+  isExplicitlyDisconnected = true;
   try {
     if (sock) {
       try {
+        sock.ev?.removeAllListeners("creds.update");
+        sock.ev?.removeAllListeners("connection.update");
         await sock.logout();
       } catch (e) {
         // ignore logout errors on reset
       }
-      sock.end(undefined);
+      try {
+        sock.end(undefined);
+      } catch (e) {}
       sock = null;
     }
   } catch (e) {
@@ -734,14 +1285,21 @@ app.post("/api/whatsapp/real/reset", async (req, res) => {
     }
   }
   
-  res.json({ status: "disconnected", message: "تمت إعادة تعيين جلسة الواتساب بنجاح" });
+  res.json({ status: "disconnected", isConnected: false, message: "تمت إعادة تعيين جلسة الواتساب بنجاح" });
 });
 
 app.post("/api/whatsapp/real/disconnect", async (req, res) => {
+  isExplicitlyDisconnected = true;
   try {
     if (sock) {
-      await sock.logout();
-      sock.end(undefined);
+      try {
+        sock.ev?.removeAllListeners("creds.update");
+        sock.ev?.removeAllListeners("connection.update");
+        await sock.logout();
+      } catch (e) {}
+      try {
+        sock.end(undefined);
+      } catch (e) {}
       sock = null;
     }
   } catch (e) {
@@ -768,7 +1326,47 @@ app.post("/api/whatsapp/real/disconnect", async (req, res) => {
     }
   }
   
-  res.json({ status: "disconnected" });
+  res.json({ status: "disconnected", isConnected: false, message: "تم قطع الاتصال بنجاح" });
+});
+
+// Dedicated Real Test Message Endpoint for immediate connection testing
+app.post("/api/whatsapp/test-message", async (req, res) => {
+  const { phone, message } = req.body || {};
+  const testPhone = phone || connectedPhoneNumber || whatsappConfig.simulatedPhone;
+  const testMsg = message || `✨ رسالة اختبار من نظام الإرسال المدرسي الذكي.\nتم التحقق من ربط الواتساب بنجاح، وجميع الرسائل ستصل لهواتف المستلمين فوراً.\nالوقت: ${new Date().toLocaleTimeString("ar-SA")}`;
+
+  if (!testPhone) {
+    return res.status(400).json({ error: "يرجى تحديد رقم الجوال المراد إرسال رسالة الاختبار إليه." });
+  }
+
+  const isRealConnected = (realConnectionStatus === "connected" && !!sock?.user) || (!!sock?.user);
+
+  if (isRealConnected) {
+    const startTime = Date.now();
+    const result = await sendBaileysMessage(testPhone, testMsg);
+    const duration = Date.now() - startTime;
+    
+    if (result.success) {
+      return res.json({
+        success: true,
+        mode: "real",
+        phone: normalizePhoneNumber(testPhone),
+        jid: result.jid,
+        durationMs: duration,
+        message: `تم إرسال رسالة الاختبار بنجاح إلى الرقم (${testPhone}) خلال ${duration}ms! تفقد تطبيق الواتساب الآن.`
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: result.error || "فشل إرسال رسالة الاختبار عبر واتساب."
+      });
+    }
+  } else {
+    return res.status(400).json({
+      success: false,
+      error: "جهاز الواتساب غير متصل حالياً. يرجى مسح الباركود أو إدخال رمز الربط للتمكن من إرسال رسائل حقيقية."
+    });
+  }
 });
 
 // Helper functions for student data extraction
@@ -1021,46 +1619,28 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
         campaign.failed += 1;
       }
     } else if (isRealMode || (sock && sock.user)) {
-      try {
-        if (!sock || (realConnectionStatus !== "connected" && !sock.user)) {
-          throw new Error("جهاز الواتساب غير متصل حالياً. يرجى إتمام عملية الربط أولاً.");
-        }
-        
-        const formattedPhone = normalizePhoneNumber(log.phone);
-        if (!formattedPhone || formattedPhone.length < 8) {
-          throw new Error("رقم جوال غير صالح أو غير مكتمل");
-        }
-        
-        const jid = `${formattedPhone}@s.whatsapp.net`;
-        
-        // Quick presence update (non-blocking)
-        try {
-          sock.sendPresenceUpdate("available").catch(() => {});
-        } catch (presenceErr) {}
-
-        // Inject anti-spam zero-width hash variance to ensure unique payload hash
-        const randomizedMessage = injectAntiSpamVariation(log.message);
-        await sock.sendMessage(jid, { text: randomizedMessage });
-        
+      const randomizedMessage = injectAntiSpamVariation(log.message);
+      const sendResult = await sendBaileysMessage(log.phone, randomizedMessage);
+      if (sendResult.success) {
         log.status = "success";
         campaign.sent += 1;
         messagesInCurrentBatch += 1;
-      } catch (err: any) {
+      } else {
         log.status = "failed";
-        log.error = err.message || "فشل الإرسال عبر ربط الواتساب المباشر";
+        log.error = sendResult.error || "فشل الإرسال عبر ربط الواتساب المباشر";
         campaign.failed += 1;
       }
     } else {
-      // Simulated sending
+      // Not connected to real WhatsApp
       const cleanedPhone = normalizePhoneNumber(log.phone);
       if (cleanedPhone.length < 8) {
         log.status = "failed";
         log.error = "رقم جوال غير صالح أو قصير جداً";
         campaign.failed += 1;
       } else {
-        log.status = "success";
-        campaign.sent += 1;
-        messagesInCurrentBatch += 1;
+        log.status = "failed";
+        log.error = "جهاز الواتساب غير متصل. يرجى التوجه لصفحة 'ربط الواتساب' وربط جهازك بالباركود أو الرمز أولاً حتى يتم الإرسال للهاتف الفعلي.";
+        campaign.failed += 1;
       }
     }
 
@@ -1172,33 +1752,22 @@ app.post(["/api/whatsapp/send-single", "/api/whatsapp/send"], async (req, res) =
         error: logEntry.error
       });
     }
-  } else if (isRealMode) {
-    try {
-      if (!sock || (realConnectionStatus !== "connected" && !sock.user)) {
-        return res.status(400).json({ error: "جهاز الواتساب غير متصل حالياً. يرجى إتمام عملية الربط أولاً." });
-      }
-
-      const formattedPhone = normalizePhoneNumber(phone);
-      if (!formattedPhone || formattedPhone.length < 8) {
-        return res.status(400).json({ error: "رقم الجوال غير صالح أو غير مكتمل." });
-      }
-
-      const jid = `${formattedPhone}@s.whatsapp.net`;
-      await sock.sendMessage(jid, { text: message });
-
+  } else if (isRealMode || (sock && sock.user)) {
+    const sendResult = await sendBaileysMessage(phone, message);
+    if (sendResult.success) {
       logEntry.status = "success";
       individualLogs.unshift(logEntry);
       saveIndividualLogs();
-      return res.json({ success: true, message: "تم إرسال الرسالة الفردية بنجاح عبر واتساب" });
-    } catch (err: any) {
+      return res.json({ success: true, message: "تم إرسال الرسالة الفردية بنجاح إلى هاتف المستلم عبر واتساب" });
+    } else {
       logEntry.status = "failed";
-      logEntry.error = err.message || "فشل إرسال الرسالة الفردية عبر ربط الواتساب";
+      logEntry.error = sendResult.error || "فشل إرسال الرسالة الفردية عبر ربط الواتساب";
       individualLogs.unshift(logEntry);
       saveIndividualLogs();
-      return res.status(500).json({ error: logEntry.error });
+      return res.status(400).json({ error: logEntry.error });
     }
   } else {
-    // Simulated sending
+    // Not connected to real WhatsApp
     const cleanedPhone = normalizePhoneNumber(phone);
     if (cleanedPhone.length < 8) {
       logEntry.status = "failed";
@@ -1207,12 +1776,12 @@ app.post(["/api/whatsapp/send-single", "/api/whatsapp/send"], async (req, res) =
       saveIndividualLogs();
       return res.status(400).json({ error: logEntry.error });
     }
-    // Simulate latency
-    await new Promise(resolve => setTimeout(resolve, 800));
-    logEntry.status = "success";
+    
+    logEntry.status = "failed";
+    logEntry.error = "جهاز الواتساب غير متصل حالياً. يرجى الانتقال إلى صفحة 'ربط الواتساب' والتأكد من إتمام الربط بالباركود أو الرمز أولاً حتى تصل الرسالة إلى هاتف المستلم.";
     individualLogs.unshift(logEntry);
     saveIndividualLogs();
-    return res.json({ success: true, message: "تمت محاكاة إرسال الرسالة الفردية بنجاح" });
+    return res.status(400).json({ error: logEntry.error });
   }
 });
 
@@ -1324,35 +1893,7 @@ app.post("/api/guidance/actions", (req, res) => {
 // Setup Vite Dev Server / Serve static assets in production
 
 async function startServer() {
-  // 1. Restore server state from Firestore if available (useful on fresh cloud container boots)
-  try {
-    const cloudState = await loadServerStateFromFirestore();
-    if (cloudState) {
-      if (cloudState.appSettings && Object.keys(cloudState.appSettings).length > 0) {
-        appSettings = { ...appSettings, ...cloudState.appSettings };
-      }
-      if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
-        if (activeStudentsList.length === 0) activeStudentsList = cloudState.activeStudentsList;
-      }
-      if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
-        activeTemplate = cloudState.activeTemplate;
-      }
-      if (cloudState.whatsappConfig) {
-        whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
-      }
-      if (cloudState.campaigns && Object.keys(campaigns).length === 0) {
-        Object.assign(campaigns, cloudState.campaigns);
-      }
-      if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
-        individualLogs.push(...cloudState.individualLogs);
-      }
-      console.log("[Firebase] System state successfully synchronized from Firestore.");
-    }
-  } catch (e) {
-    console.warn("[Firebase] Could not restore initial server state:", e);
-  }
-
-  // 2. Setup Vite Dev Server or Serve static assets
+  // 1. Setup Vite Dev Server or Serve static assets
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1367,31 +1908,74 @@ async function startServer() {
     });
   }
 
-  // 3. Restore existing registered WhatsApp sessions from disk or Firestore on reboot/redeploy
-  const authFolder = path.join(process.cwd(), "auth_info_baileys");
-  const credsFile = path.join(authFolder, "creds.json");
-  
-  try {
-    if (!fs.existsSync(credsFile)) {
-      await restoreBaileysSessionFromFirestore(authFolder);
-    }
-  } catch (e) {
-    console.warn("[Firebase] Could not restore WhatsApp session from Firestore:", e);
-  }
+  // 2. Start HTTP listener
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 
-  if (fs.existsSync(credsFile)) {
+  // 3. Restore server state from Firestore in background
+  (async () => {
     try {
-      const credsData = JSON.parse(fs.readFileSync(credsFile, "utf-8"));
-      if (credsData && credsData.registered) {
-        console.log("Found existing registered WhatsApp Web session. Restoring connection...");
-        initRealWhatsApp("resume");
+      const cloudState = await loadServerStateFromFirestore();
+      if (cloudState) {
+        if (cloudState.appSettings && Object.keys(cloudState.appSettings).length > 0) {
+          appSettings = { ...appSettings, ...cloudState.appSettings };
+        }
+        if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
+          if (activeStudentsList.length === 0) activeStudentsList = cloudState.activeStudentsList;
+        }
+        if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
+          activeTemplate = cloudState.activeTemplate;
+        }
+        if (cloudState.whatsappConfig) {
+          whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
+          // If not currently actively connected, reset phone number and connection status
+          if (realConnectionStatus !== "connected") {
+            whatsappConfig.simulatedStatus = "disconnected";
+            whatsappConfig.simulatedPhone = "";
+          }
+        }
+        if (cloudState.campaigns && Object.keys(campaigns).length === 0) {
+          Object.assign(campaigns, cloudState.campaigns);
+        }
+        if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
+          individualLogs.push(...cloudState.individualLogs);
+        }
+        console.log("[Firebase] System state successfully synchronized from Firestore.");
       }
     } catch (e) {
-      console.warn("Could not inspect creds.json", e);
+      console.warn("[Firebase] Could not restore initial server state:", e);
     }
-  }
 
-  // 4. Background Reconnection Watchdog for Render sleep/wake cycles & network drops
+    // 4. Restore existing registered WhatsApp sessions from disk or Firestore
+    const authFolder = path.join(process.cwd(), "auth_info_baileys");
+    const credsFile = path.join(authFolder, "creds.json");
+    
+    try {
+      if (!fs.existsSync(credsFile)) {
+        await restoreBaileysSessionFromFirestore(authFolder);
+      }
+    } catch (e) {
+      console.warn("[Firebase] Could not restore WhatsApp session from Firestore:", e);
+    }
+
+    if (fs.existsSync(credsFile)) {
+      try {
+        const credsData = JSON.parse(fs.readFileSync(credsFile, "utf-8"));
+        if (credsData && credsData.registered) {
+          console.log("Found existing registered WhatsApp Web session. Restoring connection...");
+          initRealWhatsApp("resume");
+        }
+      } catch (e) {
+        console.warn("Could not inspect creds.json", e);
+      }
+    }
+  })().catch(err => {
+    console.warn("Error during background state restoration:", err);
+  });
+
+  // 5. Background Reconnection Watchdog for Render sleep/wake cycles & network drops
+  const authFolder = path.join(process.cwd(), "auth_info_baileys");
   setInterval(() => {
     if (whatsappConfig.mode === "real" && (realConnectionStatus === "disconnected" || realConnectionStatus === "error")) {
       const localCreds = path.join(authFolder, "creds.json");
@@ -1406,10 +1990,6 @@ async function startServer() {
       }
     }
   }, 45000);
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
 }
 
 startServer();
