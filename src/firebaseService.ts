@@ -1,33 +1,10 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, disableNetwork, enableNetwork, setLogLevel } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
-import { Student, SchoolSignatories, ReportItem, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
-
-// Silence internal Firestore SDK quota backoff / error noise in the console
-try {
-  setLogLevel("silent");
-} catch {}
+import { Student, SchoolSignatories, ReportItem, AppUser } from "./types";
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
-
-// Suppress and handle unhandled Firestore quota errors globally in the window
-if (typeof window !== "undefined") {
-  window.addEventListener("unhandledrejection", (event) => {
-    const reason = event.reason?.message || String(event.reason || "");
-    if (
-      reason.includes("resource-exhausted") ||
-      reason.includes("RESOURCE_EXHAUSTED") ||
-      reason.includes("Quota limit exceeded") ||
-      reason.includes("Free daily write units") ||
-      reason.includes("maximum backoff delay") ||
-      reason.includes("Code: 8")
-    ) {
-      event.preventDefault(); // Prevent bubbling up to the error banner
-      handleQuotaError(event.reason, "global-unhandled-rejection");
-    }
-  });
-}
 
 // Document IDs for ultra-optimized aggregation (1 Read / 1 Write per entity set)
 const SCHOOL_DOC_ID = "school_settings";
@@ -35,14 +12,11 @@ const STUDENTS_DOC_ID = "students_data";
 const REPORTS_DOC_ID = "reports_archive";
 const ATTENDANCE_DOC_ID = "attendance_records";
 const USERS_DOC_ID = "users_accounts";
-const TEACHERS_DOC_ID = "teachers_data";
-const SCHEDULE_DOC_ID = "schedule_data";
-const INQUIRIES_DOC_ID = "inquiries_data";
 const APP_STATE_COLLECTION = "abna_system_data";
 
 // In-memory & persisted cache quota backoff management
 const QUOTA_STORAGE_KEY = "firestore_quota_exceeded_timestamp";
-const QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours cooldown for daily free tier write quota reset
+const QUOTA_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes cooldown before retry
 
 let isFirestoreQuotaExceeded = false;
 let quotaExceededTimestamp = 0;
@@ -56,7 +30,6 @@ try {
       if (!isNaN(parsed) && Date.now() - parsed < QUOTA_COOLDOWN_MS) {
         isFirestoreQuotaExceeded = true;
         quotaExceededTimestamp = parsed;
-        disableNetwork(db).catch(() => {});
       }
     }
   }
@@ -77,7 +50,6 @@ export function isQuotaLimited(): boolean {
           if (!isNaN(parsed) && Date.now() - parsed < QUOTA_COOLDOWN_MS) {
             isFirestoreQuotaExceeded = true;
             quotaExceededTimestamp = parsed;
-            disableNetwork(db).catch(() => {});
             return true;
           }
         }
@@ -93,7 +65,6 @@ export function isQuotaLimited(): boolean {
       if (typeof window !== "undefined" && window.localStorage) {
         localStorage.removeItem(QUOTA_STORAGE_KEY);
       }
-      enableNetwork(db).catch(() => {});
     } catch {}
     return false;
   }
@@ -113,23 +84,18 @@ export function getCloudStorageStatus(): {
   return {
     isQuotaExceeded: isLimited,
     quotaMessage: isLimited 
-      ? "تم الوصول إلى الحد اليومي المجاني لعمليات الكتابة بقاعدة البيانات السحابية (Free Daily Write Quota). النظام يعمل بكامل كفاءته وسرعته مستنداً إلى التخزين المحلي والخادم الآمن."
+      ? "تم الوصول إلى الحد اليومي المجاني لقاعدة البيانات السحابية (Free Daily Quota). التطبيق يعمل بكامل كفاءته ويحفظ كل البيانات بأمان على القرص المحلي والخادم المباشر."
       : null,
     databaseUrl,
   };
 }
 
 function handleQuotaError(err: any, operationName: string) {
-  const errMsg = err instanceof Error ? err.message : String(err || "");
+  const errMsg = err instanceof Error ? err.message : String(err);
   const isQuota = 
     errMsg.includes("resource-exhausted") || 
-    errMsg.includes("RESOURCE_EXHAUSTED") || 
     errMsg.includes("Quota limit exceeded") || 
     errMsg.includes("Quota exceeded") ||
-    errMsg.includes("Free daily write units") ||
-    errMsg.includes("Free daily read units") ||
-    errMsg.includes("maximum backoff delay") ||
-    errMsg.includes("Code: 8") ||
     errMsg.includes("429");
   
   if (isQuota) {
@@ -140,11 +106,8 @@ function handleQuotaError(err: any, operationName: string) {
         localStorage.setItem(QUOTA_STORAGE_KEY, String(quotaExceededTimestamp));
       }
     } catch {}
-    // Disable Firestore network stream immediately to prevent continuous retry backoff loops
-    disableNetwork(db).catch(() => {});
-    console.info(`[Storage Status] Cloud Firestore write sync paused (Daily quota limit reached). All application data is safely preserved on the server & local disk.`);
   } else {
-    console.warn(`[Cloud Sync Notice] ${operationName}:`, errMsg);
+    console.warn(`[Cloud Sync Warning] ${operationName} error:`, errMsg);
   }
 }
 
@@ -167,9 +130,6 @@ export interface StoredAppState {
   studentReports?: ReportItem[];
   attendanceRecords?: Record<string, Record<string, any>>;
   users?: AppUser[];
-  teachers?: Teacher[];
-  scheduleAssignments?: ScheduleAssignment[];
-  inquiryRequests?: TeacherInquiryRequest[];
   savedTemplate?: string;
   savedVariables?: string[];
   lastUpdated?: string;
@@ -204,46 +164,13 @@ export function sanitizeForFirestore<T>(data: T): T {
  * Load all persistent app data in parallel (Lightweight aggregated reads on initial app start)
  */
 export async function loadInitialAppData(): Promise<StoredAppState> {
-  if (isQuotaLimited()) {
-    return {
-      users: [DEFAULT_ADMIN_USER],
-    };
-  }
-
   try {
-    const [schoolSnap, studentsSnap, reportsSnap, attendanceSnap, usersSnap, teachersSnap, scheduleSnap, inquiriesSnap] = await Promise.all([
-      getDoc(doc(db, APP_STATE_COLLECTION, SCHOOL_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "schoolSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "studentsSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "reportsSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "attendanceSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, USERS_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "usersSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, TEACHERS_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "teachersSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, SCHEDULE_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "scheduleSnap");
-        return null;
-      }),
-      getDoc(doc(db, APP_STATE_COLLECTION, INQUIRIES_DOC_ID)).catch((e) => {
-        handleQuotaError(e, "inquiriesSnap");
-        return null;
-      }),
+    const [schoolSnap, studentsSnap, reportsSnap, attendanceSnap, usersSnap] = await Promise.all([
+      getDoc(doc(db, APP_STATE_COLLECTION, SCHOOL_DOC_ID)).catch(() => null),
+      getDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID)).catch(() => null),
+      getDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID)).catch(() => null),
+      getDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID)).catch(() => null),
+      getDoc(doc(db, APP_STATE_COLLECTION, USERS_DOC_ID)).catch(() => null),
     ]);
 
     const result: StoredAppState = {};
@@ -279,27 +206,6 @@ export async function loadInitialAppData(): Promise<StoredAppState> {
       const data = attendanceSnap.data();
       if (data.attendanceRecords) {
         result.attendanceRecords = data.attendanceRecords;
-      }
-    }
-
-    if (teachersSnap && teachersSnap.exists()) {
-      const data = teachersSnap.data();
-      if (Array.isArray(data.teachers)) {
-        result.teachers = data.teachers;
-      }
-    }
-
-    if (scheduleSnap && scheduleSnap.exists()) {
-      const data = scheduleSnap.data();
-      if (Array.isArray(data.scheduleAssignments)) {
-        result.scheduleAssignments = data.scheduleAssignments;
-      }
-    }
-
-    if (inquiriesSnap && inquiriesSnap.exists()) {
-      const data = inquiriesSnap.data();
-      if (Array.isArray(data.inquiryRequests)) {
-        result.inquiryRequests = data.inquiryRequests;
       }
     }
 
@@ -478,99 +384,6 @@ export async function saveUsersDataToCloud(users: AppUser[]): Promise<boolean> {
     return true;
   } catch (error) {
     handleQuotaError(error, "saveUsersDataToCloud");
-    return false;
-  }
-}
-
-/**
- * Save teachers roster (1 Single Write for all teachers)
- */
-export async function saveTeachersDataToCloud(teachers: Teacher[]): Promise<boolean> {
-  if (isQuotaLimited()) return false;
-
-  try {
-    const rawContent = JSON.stringify(teachers);
-    if (lastSavedPayloadHashes[TEACHERS_DOC_ID] === rawContent) {
-      return true;
-    }
-
-    const payload = sanitizeForFirestore({
-      teachers,
-      totalTeachers: teachers.length,
-      lastUpdated: new Date().toISOString(),
-    });
-
-    await setDoc(
-      doc(db, APP_STATE_COLLECTION, TEACHERS_DOC_ID),
-      payload,
-      { merge: true }
-    );
-    lastSavedPayloadHashes[TEACHERS_DOC_ID] = rawContent;
-    return true;
-  } catch (error) {
-    handleQuotaError(error, "saveTeachersDataToCloud");
-    return false;
-  }
-}
-
-/**
- * Save schedule assignments (1 Single Write for schedule)
- */
-export async function saveScheduleDataToCloud(scheduleAssignments: ScheduleAssignment[]): Promise<boolean> {
-  if (isQuotaLimited()) return false;
-
-  try {
-    const rawContent = JSON.stringify(scheduleAssignments);
-    if (lastSavedPayloadHashes[SCHEDULE_DOC_ID] === rawContent) {
-      return true;
-    }
-
-    const payload = sanitizeForFirestore({
-      scheduleAssignments,
-      totalAssignments: scheduleAssignments.length,
-      lastUpdated: new Date().toISOString(),
-    });
-
-    await setDoc(
-      doc(db, APP_STATE_COLLECTION, SCHEDULE_DOC_ID),
-      payload,
-      { merge: true }
-    );
-    lastSavedPayloadHashes[SCHEDULE_DOC_ID] = rawContent;
-    return true;
-  } catch (error) {
-    handleQuotaError(error, "saveScheduleDataToCloud");
-    return false;
-  }
-}
-
-/**
- * Save inquiry requests and evaluations (1 Single Write for inquiries)
- */
-export async function saveInquiriesDataToCloud(inquiryRequests: TeacherInquiryRequest[]): Promise<boolean> {
-  if (isQuotaLimited()) return false;
-
-  try {
-    const rawContent = JSON.stringify(inquiryRequests);
-    if (lastSavedPayloadHashes[INQUIRIES_DOC_ID] === rawContent) {
-      return true;
-    }
-
-    const payload = sanitizeForFirestore({
-      inquiryRequests,
-      totalInquiries: inquiryRequests.length,
-      lastUpdated: new Date().toISOString(),
-    });
-
-    await setDoc(
-      doc(db, APP_STATE_COLLECTION, INQUIRIES_DOC_ID),
-      payload,
-      { merge: true }
-    );
-    lastSavedPayloadHashes[INQUIRIES_DOC_ID] = rawContent;
-    return true;
-  } catch (error) {
-    handleQuotaError(error, "saveInquiriesDataToCloud");
     return false;
   }
 }

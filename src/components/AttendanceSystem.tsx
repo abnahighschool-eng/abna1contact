@@ -24,9 +24,7 @@ import {
   FileText,
   RotateCcw,
   ShieldAlert,
-  History,
-  LayoutGrid,
-  List
+  History
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../types";
 import { saveAttendanceDataToCloud } from "../firebaseService";
@@ -199,10 +197,6 @@ export default function AttendanceSystem({
   const [selectedGrade, setSelectedGrade] = useState<string>("ALL");
   const [selectedClass, setSelectedClass] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "present" | "absent_unexcused" | "absent_excused" | "tardy">("ALL");
-  
-  // Responsive view layout: "cards" (touch-friendly on mobile/iPad) or "table" (dense on desktop/laptop)
-  const [attendanceViewMode, setAttendanceViewMode] = useState<"cards" | "table">("cards");
-  const [tardinessViewMode, setTardinessViewMode] = useState<"cards" | "table">("cards");
 
   // Notification Template States
   const [absenceTemplate, setAbsenceTemplate] = useState(
@@ -1405,40 +1399,8 @@ export default function AttendanceSystem({
 
                 </div>
 
-                {/* View Switcher & Bulk Action Buttons */}
-                <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 shrink-0">
-                  
-                  {/* View Mode Toggle (Cards for Mobile/Touch vs Table for Desktop) */}
-                  <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setAttendanceViewMode("cards")}
-                      className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                        attendanceViewMode === "cards"
-                          ? "bg-white text-slate-900 shadow-xs font-extrabold"
-                          : "text-slate-500 hover:text-slate-900"
-                      }`}
-                      title="عرض بطاقات لمس سريعة ومناسبة للجوال والآيباد"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span className="text-[11px]">بطاقات سريعة</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAttendanceViewMode("table")}
-                      className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                        attendanceViewMode === "table"
-                          ? "bg-white text-slate-900 shadow-xs font-extrabold"
-                          : "text-slate-500 hover:text-slate-900"
-                      }`}
-                      title="عرض جدول كامل للشاشات الكبيرة واللابتوب"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                      <span className="text-[11px]">جدول تفصيلي</span>
-                    </button>
-                  </div>
-
+                {/* Bulk Action Buttons */}
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => handleBulkSetStatus("present")}
                     className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all"
@@ -1452,177 +1414,39 @@ export default function AttendanceSystem({
                     className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
                   >
                     <Bell className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>إرسال الإشعارات ({attendanceStats.totalAbsent + attendanceStats.tardy})</span>
+                    <span>إرسال إشعارات الغياب والتأخر ({attendanceStats.totalAbsent + attendanceStats.tardy})</span>
                   </button>
                 </div>
 
               </div>
 
-              {filteredStudents.length === 0 ? (
-                <div className="p-12 text-center bg-slate-50/50 rounded-2xl border border-slate-200 text-slate-400 font-semibold text-xs">
-                  لا توجد نتائج مطابقة لبحثك في كشف الطلاب المعتمد.
-                </div>
-              ) : attendanceViewMode === "cards" ? (
-                /* Responsive Touch Cards View (Ideal for mobile, tablets, iPads, and touch screens) */
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
-                  {filteredStudents.map((student, idx) => {
-                    const studentName = extractStudentName(student, idx + 1);
-                    const studentGrade = extractStudentGrade(student) || "-";
-                    const studentClass = extractStudentClass(student) || "-";
-                    const studentPhone = extractStudentPhone(student) || "-";
+              {/* Students Attendance Table */}
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
                     
-                    const record = currentDayData[student.id];
-                    const currentStatus = record?.status || "present";
-                    const notes = record?.notes || "";
-                    const notifState = notificationStatus[student.id];
-                    const isAbsent = currentStatus === "absent_unexcused" || currentStatus === "absent_excused";
-                    const isTardy = currentStatus === "tardy";
-                    const sentTodayInfo = getStudentSentTodayInfo(student);
+                    <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3 w-12 text-center">#</th>
+                        <th className="p-3 min-w-[180px]">اسم الطالب</th>
+                        <th className="p-3 min-w-[100px]">الصف</th>
+                        <th className="p-3 min-w-[80px]">الفصل</th>
+                        <th className="p-3 min-w-[120px]">جوال ولي الأمر</th>
+                        <th className="p-3 min-w-[260px] text-center">حالة الحضور والغياب اليوم</th>
+                        <th className="p-3 min-w-[140px]">ملاحظات / السبب</th>
+                        <th className="p-3 min-w-[110px] text-center">إشعار فوري</th>
+                      </tr>
+                    </thead>
 
-                    return (
-                      <div 
-                        key={student.id}
-                        className={`p-4 rounded-2xl border transition-all space-y-3 ${
-                          currentStatus === "absent_unexcused"
-                            ? "bg-red-50/70 border-red-200 shadow-xs"
-                            : currentStatus === "absent_excused"
-                            ? "bg-blue-50/70 border-blue-200 shadow-xs"
-                            : currentStatus === "tardy"
-                            ? "bg-amber-50/70 border-amber-200 shadow-xs"
-                            : "bg-white border-slate-200 hover:border-slate-300 shadow-2xs"
-                        }`}
-                      >
-                        {/* Card Header: Student Name & Meta */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-500 font-bold text-[11px] flex items-center justify-center shrink-0">
-                              {idx + 1}
-                            </span>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-black text-slate-900 truncate" title={studentName}>
-                                {studentName}
-                              </h4>
-                              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5">
-                                <span className="font-semibold">{studentGrade}</span>
-                                <span>•</span>
-                                <span>فصل ({studentClass})</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Quick Phone Badge */}
-                          <div className="shrink-0 text-left">
-                            <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md inline-block" dir="ltr">
-                              {studentPhone}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Interactive Status Selector (Large Touch Targets for Mobile) */}
-                        <div className="grid grid-cols-3 gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200/80">
-                          {/* Present */}
-                          <button
-                            type="button"
-                            onClick={() => handleSetStudentStatus(student.id, "present")}
-                            className={`py-2 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 min-h-[38px] ${
-                              currentStatus === "present"
-                                ? "bg-emerald-600 text-white shadow-xs"
-                                : "text-slate-600 hover:bg-white hover:text-slate-900"
-                            }`}
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>حاضر</span>
-                          </button>
-
-                          {/* Absent Unexcused */}
-                          <button
-                            type="button"
-                            onClick={() => handleSetStudentStatus(student.id, "absent_unexcused")}
-                            className={`py-2 px-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 min-h-[38px] ${
-                              currentStatus === "absent_unexcused"
-                                ? "bg-red-600 text-white shadow-xs"
-                                : "text-red-700 hover:bg-red-100/60"
-                            }`}
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>بدون عذر</span>
-                          </button>
-
-                          {/* Absent Excused */}
-                          <button
-                            type="button"
-                            onClick={() => handleSetStudentStatus(student.id, "absent_excused")}
-                            className={`py-2 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 min-h-[38px] ${
-                              currentStatus === "absent_excused"
-                                ? "bg-blue-600 text-white shadow-xs"
-                                : "text-blue-700 hover:bg-blue-100/60"
-                            }`}
-                          >
-                            <span>بعذر</span>
-                          </button>
-                        </div>
-
-                        {/* Notes Input + Action Row */}
-                        <div className="flex items-center gap-2 pt-1">
-                          <input
-                            type="text"
-                            placeholder="ملاحظة أو سبب الغياب..."
-                            value={notes}
-                            onChange={(e) => handleSetStudentStatus(student.id, currentStatus, undefined, e.target.value)}
-                            className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
-                          />
-
-                          {(isAbsent || isTardy) && (
-                            <button
-                              type="button"
-                              onClick={() => handleSendSingleNotification(student, isTardy ? "tardiness" : "absence")}
-                              disabled={notifState === "sending"}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 min-h-[34px] ${
-                                notifState === "sending"
-                                  ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                                  : sentTodayInfo
-                                  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
-                                  : record?.notified
-                                  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
-                                  : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
-                              }`}
-                              title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار فوري لولي الأمر عبر واتساب"}
-                            >
-                              {notifState === "sending" ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : sentTodayInfo ? (
-                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-                              ) : (
-                                <Send className="w-3.5 h-3.5 rotate-180 text-emerald-400" />
-                              )}
-                              <span>{notifState === "sending" ? "..." : sentTodayInfo ? "مرسل ✓" : record?.notified ? "إعادة" : "إشعار"}</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                /* Comprehensive Table View (Optimized for desktop / widescreen with smooth touch scroll) */
-                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
-                  <div className="overflow-x-auto smooth-touch-scroll">
-                    <table className="w-full text-right text-xs">
-                      <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+                    <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                      {filteredStudents.length === 0 ? (
                         <tr>
-                          <th className="p-3 w-12 text-center">#</th>
-                          <th className="p-3 min-w-[180px]">اسم الطالب</th>
-                          <th className="p-3 min-w-[100px]">الصف</th>
-                          <th className="p-3 min-w-[80px]">الفصل</th>
-                          <th className="p-3 min-w-[120px]">جوال ولي الأمر</th>
-                          <th className="p-3 min-w-[260px] text-center">حالة الحضور والغياب اليوم</th>
-                          <th className="p-3 min-w-[140px]">ملاحظات / السبب</th>
-                          <th className="p-3 min-w-[110px] text-center">إشعار فوري</th>
+                          <td colSpan={8} className="p-8 text-center text-slate-400 font-semibold">
+                            لا توجد نتائج مطابقة لبحثك في كشف الطلاب المعتمد.
+                          </td>
                         </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
-                        {filteredStudents.map((student, idx) => {
+                      ) : (
+                        filteredStudents.map((student, idx) => {
                           const studentName = extractStudentName(student, idx + 1);
                           const studentGrade = extractStudentGrade(student) || "-";
                           const studentClass = extractStudentClass(student) || "-";
@@ -1634,7 +1458,6 @@ export default function AttendanceSystem({
                           const notifState = notificationStatus[student.id];
                           const isAbsent = currentStatus === "absent_unexcused" || currentStatus === "absent_excused";
                           const isTardy = currentStatus === "tardy";
-                          const sentTodayInfo = getStudentSentTodayInfo(student);
 
                           return (
                             <tr 
@@ -1725,29 +1548,34 @@ export default function AttendanceSystem({
                               {/* Instant Send Action */}
                               <td className="p-2.5 text-center">
                                 {(isAbsent || isTardy) ? (
-                                  <button
-                                    onClick={() => handleSendSingleNotification(student, isTardy ? "tardiness" : "absence")}
-                                    disabled={notifState === "sending"}
-                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
-                                      notifState === "sending"
-                                        ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                                        : sentTodayInfo
-                                        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
-                                        : record?.notified
-                                        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
-                                        : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
-                                    }`}
-                                    title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار فوري لولي الأمر عبر واتساب"}
-                                  >
-                                    {notifState === "sending" ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : sentTodayInfo ? (
-                                      <ShieldCheck className="w-3 h-3 text-emerald-700" />
-                                    ) : (
-                                      <Send className="w-3 h-3 rotate-180 text-emerald-400" />
-                                    )}
-                                    <span>{notifState === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "إعادة الإرسال" : "إشعار واتساب"}</span>
-                                  </button>
+                                  (() => {
+                                    const sentTodayInfo = getStudentSentTodayInfo(student);
+                                    return (
+                                      <button
+                                        onClick={() => handleSendSingleNotification(student, isTardy ? "tardiness" : "absence")}
+                                        disabled={notifState === "sending"}
+                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
+                                          notifState === "sending"
+                                            ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                                            : sentTodayInfo
+                                            ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
+                                            : record?.notified
+                                            ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300"
+                                            : "bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
+                                        }`}
+                                        title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار فوري لولي الأمر عبر واتساب"}
+                                      >
+                                        {notifState === "sending" ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : sentTodayInfo ? (
+                                          <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                                        ) : (
+                                          <Send className="w-3 h-3 rotate-180 text-emerald-400" />
+                                        )}
+                                        <span>{notifState === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "إعادة الإرسال" : "إشعار واتساب"}</span>
+                                      </button>
+                                    );
+                                  })()
                                 ) : (
                                   <span className="text-slate-400 text-[10px]">-</span>
                                 )}
@@ -1755,12 +1583,13 @@ export default function AttendanceSystem({
 
                             </tr>
                           );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                        })
+                      )}
+                    </tbody>
+
+                  </table>
                 </div>
-              )}
+              </div>
 
             </div>
           )}
@@ -1787,314 +1616,166 @@ export default function AttendanceSystem({
                 </div>
               </div>
 
-              {/* Search & Filter & View Mode Toggle */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2 flex-1">
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="ابحث عن الطالب لرصد تأخره..."
-                      className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                    />
-                  </div>
-
-                  {availableGrades.length > 0 && (
-                    <select
-                      value={selectedGrade}
-                      onChange={(e) => setSelectedGrade(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700"
-                    >
-                      <option value="ALL">جميع الصفوف</option>
-                      {availableGrades.map((g) => (
-                        <option key={g} value={g}>{g}</option>
-                      ))}
-                    </select>
-                  )}
+              {/* Search & Filter */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="ابحث عن الطالب لرصد تأخره..."
+                    className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  />
                 </div>
 
-                {/* Tardiness View Switcher */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold self-end sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => setTardinessViewMode("cards")}
-                    className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                      tardinessViewMode === "cards"
-                        ? "bg-white text-slate-900 shadow-xs font-extrabold"
-                        : "text-slate-500 hover:text-slate-900"
-                    }`}
-                    title="عرض بطاقات لمس سريعة ومناسبة للجوال والآيباد"
+                {availableGrades.length > 0 && (
+                  <select
+                    value={selectedGrade}
+                    onChange={(e) => setSelectedGrade(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700"
                   >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">بطاقات سريعة</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTardinessViewMode("table")}
-                    className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                      tardinessViewMode === "table"
-                        ? "bg-white text-slate-900 shadow-xs font-extrabold"
-                        : "text-slate-500 hover:text-slate-900"
-                    }`}
-                    title="عرض جدول كامل للشاشات الكبيرة واللابتوب"
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">جدول تفصيلي</span>
-                  </button>
-                </div>
+                    <option value="ALL">جميع الصفوف</option>
+                    {availableGrades.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
-              {filteredStudents.length === 0 ? (
-                <div className="p-12 text-center bg-slate-50/50 rounded-2xl border border-slate-200 text-slate-400 font-semibold text-xs">
-                  لا توجد نتائج مطابقة لبحثك في كشف الطلاب المعتمد.
-                </div>
-              ) : tardinessViewMode === "cards" ? (
-                /* Responsive Touch Cards View for Tardiness */
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
-                  {filteredStudents.map((student, idx) => {
-                    const studentName = extractStudentName(student, idx + 1);
-                    const studentGrade = extractStudentGrade(student) || "-";
-                    const studentClass = extractStudentClass(student) || "-";
-                    const record = currentDayData[student.id];
-                    const isTardy = record?.status === "tardy";
-                    const tardyMins = record?.tardyMinutes || 15;
-                    const notes = record?.notes || "";
-                    const notifStatus = notificationStatus[student.id];
-                    const sentTodayInfo = getStudentSentTodayInfo(student);
+              {/* Tardiness Table */}
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3 w-12 text-center">#</th>
+                        <th className="p-3 min-w-[180px]">اسم الطالب</th>
+                        <th className="p-3 min-w-[100px]">الصف والفصل</th>
+                        <th className="p-3 min-w-[120px]">حالة التأخر</th>
+                        <th className="p-3 min-w-[160px]">دقائق التأخر</th>
+                        <th className="p-3 min-w-[180px]">سبب التأخر</th>
+                        <th className="p-3 min-w-[120px] text-center">إشعار ولي الأمر</th>
+                      </tr>
+                    </thead>
 
-                    return (
-                      <div 
-                        key={student.id}
-                        className={`p-4 rounded-2xl border transition-all space-y-3 ${
-                          isTardy
-                            ? "bg-amber-50/70 border-amber-200 shadow-xs"
-                            : "bg-white border-slate-200 hover:border-slate-300 shadow-2xs"
-                        }`}
-                      >
-                        {/* Header */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-500 font-bold text-[11px] flex items-center justify-center shrink-0">
-                              {idx + 1}
-                            </span>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-black text-slate-900 truncate" title={studentName}>
-                                {studentName}
-                              </h4>
-                              <div className="text-[10px] text-slate-500 mt-0.5">
-                                {studentGrade} - فصل ({studentClass})
-                              </div>
-                            </div>
-                          </div>
+                    <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                      {filteredStudents.map((student, idx) => {
+                        const studentName = extractStudentName(student, idx + 1);
+                        const studentGrade = extractStudentGrade(student) || "-";
+                        const studentClass = extractStudentClass(student) || "-";
+                        const record = currentDayData[student.id];
+                        const isTardy = record?.status === "tardy";
+                        const tardyMins = record?.tardyMinutes || 15;
+                        const notes = record?.notes || "";
+                        const notifStatus = notificationStatus[student.id];
 
-                          {/* Mark as tardy button */}
-                          <button
-                            type="button"
-                            onClick={() => handleSetStudentStatus(student.id, isTardy ? "present" : "tardy", tardyMins, notes)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 min-h-[34px] shrink-0 ${
-                              isTardy
-                                ? "bg-amber-600 text-white shadow-xs"
-                                : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                            }`}
+                        return (
+                          <tr 
+                            key={student.id} 
+                            className={`transition-colors ${isTardy ? "bg-amber-50/60 font-semibold" : "hover:bg-slate-50"}`}
                           >
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>{isTardy ? "متأخر ✓" : "رصد كتأخر"}</span>
-                          </button>
-                        </div>
+                            <td className="p-3 text-center text-slate-400 font-bold">{idx + 1}</td>
+                            
+                            <td className="p-3 font-bold text-slate-900">
+                              {studentName}
+                            </td>
 
-                        {/* If Tardy: Selector + Reason + Send */}
-                        {isTardy && (
-                          <div className="space-y-2.5 pt-1 border-t border-amber-200/70">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-amber-950 shrink-0">مدة التأخر:</span>
-                              <select
-                                value={tardyMins}
-                                onChange={(e) => handleSetStudentStatus(student.id, "tardy", parseInt(e.target.value), notes)}
-                                className="flex-1 bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs font-bold text-amber-950 focus:outline-none"
-                              >
-                                <option value={5}>5 دقائق</option>
-                                <option value={10}>10 دقائق</option>
-                                <option value={15}>15 دقيقة</option>
-                                <option value={20}>20 دقيقة</option>
-                                <option value={30}>30 دقيقة (نصف ساعة)</option>
-                                <option value={45}>45 دقيقة (حصة كاملة)</option>
-                              </select>
-                            </div>
+                            <td className="p-3 text-slate-600">
+                              {studentGrade} - فصل ({studentClass})
+                            </td>
 
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder="سبب التأخر (مثال: ازدحام)..."
-                                value={notes}
-                                onChange={(e) => handleSetStudentStatus(student.id, "tardy", tardyMins, e.target.value)}
-                                className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none"
-                              />
-
+                            {/* Mark as tardy toggle */}
+                            <td className="p-3">
                               <button
-                                type="button"
-                                onClick={() => handleSendSingleNotification(student, "tardiness")}
-                                disabled={notifStatus === "sending"}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 min-h-[34px] ${
-                                  notifStatus === "sending"
-                                    ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                                    : sentTodayInfo
-                                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
-                                    : record?.notified
-                                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
-                                    : "bg-slate-900 hover:bg-slate-800 text-white"
+                                onClick={() => handleSetStudentStatus(student.id, isTardy ? "present" : "tardy", tardyMins, notes)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                  isTardy
+                                    ? "bg-amber-600 text-white shadow-xs"
+                                    : "bg-slate-100 hover:bg-slate-200 text-slate-700"
                                 }`}
-                                title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار تأخر فوري لولي الأمر عبر واتساب"}
                               >
-                                {notifStatus === "sending" ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : sentTodayInfo ? (
-                                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-                                ) : (
-                                  <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-                                )}
-                                <span>{notifStatus === "sending" ? "..." : sentTodayInfo ? "مرسل ✓" : record?.notified ? "إعادة" : "إشعار"}</span>
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>{isTardy ? "متأخر ✓" : "رصد كتأخر"}</span>
                               </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                /* Tardiness Table */
-                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
-                  <div className="overflow-x-auto smooth-touch-scroll">
-                    <table className="w-full text-right text-xs">
-                      <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
-                        <tr>
-                          <th className="p-3 w-12 text-center">#</th>
-                          <th className="p-3 min-w-[180px]">اسم الطالب</th>
-                          <th className="p-3 min-w-[100px]">الصف والفصل</th>
-                          <th className="p-3 min-w-[120px]">حالة التأخر</th>
-                          <th className="p-3 min-w-[160px]">دقائق التأخر</th>
-                          <th className="p-3 min-w-[180px]">سبب التأخر</th>
-                          <th className="p-3 min-w-[120px] text-center">إشعار ولي الأمر</th>
-                        </tr>
-                      </thead>
+                            </td>
 
-                      <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
-                        {filteredStudents.map((student, idx) => {
-                          const studentName = extractStudentName(student, idx + 1);
-                          const studentGrade = extractStudentGrade(student) || "-";
-                          const studentClass = extractStudentClass(student) || "-";
-                          const record = currentDayData[student.id];
-                          const isTardy = record?.status === "tardy";
-                          const tardyMins = record?.tardyMinutes || 15;
-                          const notes = record?.notes || "";
-                          const notifStatus = notificationStatus[student.id];
-                          const sentTodayInfo = getStudentSentTodayInfo(student);
-
-                          return (
-                            <tr 
-                              key={student.id} 
-                              className={`transition-colors ${isTardy ? "bg-amber-50/60 font-semibold" : "hover:bg-slate-50"}`}
-                            >
-                              <td className="p-3 text-center text-slate-400 font-bold">{idx + 1}</td>
-                              
-                              <td className="p-3 font-bold text-slate-900">
-                                {studentName}
-                              </td>
-
-                              <td className="p-3 text-slate-600">
-                                {studentGrade} - فصل ({studentClass})
-                              </td>
-
-                              {/* Mark as tardy toggle */}
-                              <td className="p-3">
-                                <button
-                                  onClick={() => handleSetStudentStatus(student.id, isTardy ? "present" : "tardy", tardyMins, notes)}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                                    isTardy
-                                      ? "bg-amber-600 text-white shadow-xs"
-                                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                                  }`}
+                            {/* Minutes selector */}
+                            <td className="p-3">
+                              {isTardy ? (
+                                <select
+                                  value={tardyMins}
+                                  onChange={(e) => handleSetStudentStatus(student.id, "tardy", parseInt(e.target.value), notes)}
+                                  className="bg-white border border-amber-300 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-950 focus:outline-none"
                                 >
-                                  <Clock className="w-3.5 h-3.5" />
-                                  <span>{isTardy ? "متأخر ✓" : "رصد كتأخر"}</span>
-                                </button>
-                              </td>
+                                  <option value={5}>5 دقائق</option>
+                                  <option value={10}>10 دقائق</option>
+                                  <option value={15}>15 دقيقة</option>
+                                  <option value={20}>20 دقيقة</option>
+                                  <option value={30}>30 دقيقة (نصف ساعة)</option>
+                                  <option value={45}>45 دقيقة (حصة كاملة)</option>
+                                </select>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
 
-                              {/* Minutes selector */}
-                              <td className="p-3">
-                                {isTardy ? (
-                                  <select
-                                    value={tardyMins}
-                                    onChange={(e) => handleSetStudentStatus(student.id, "tardy", parseInt(e.target.value), notes)}
-                                    className="bg-white border border-amber-300 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-950 focus:outline-none"
-                                  >
-                                    <option value={5}>5 دقائق</option>
-                                    <option value={10}>10 دقائق</option>
-                                    <option value={15}>15 دقيقة</option>
-                                    <option value={20}>20 دقيقة</option>
-                                    <option value={30}>30 دقيقة (نصف ساعة)</option>
-                                    <option value={45}>45 دقيقة (حصة كاملة)</option>
-                                  </select>
-                                ) : (
-                                  <span className="text-slate-400 text-[11px]">-</span>
-                                )}
-                              </td>
+                            {/* Reason Notes */}
+                            <td className="p-3">
+                              {isTardy ? (
+                                <input
+                                  type="text"
+                                  placeholder="سبب التأخر (مثال: ازدحام مروري)..."
+                                  value={notes}
+                                  onChange={(e) => handleSetStudentStatus(student.id, "tardy", tardyMins, e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800"
+                                />
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
 
-                              {/* Reason Notes */}
-                              <td className="p-3">
-                                {isTardy ? (
-                                  <input
-                                    type="text"
-                                    placeholder="سبب التأخر (مثال: ازدحام مروري)..."
-                                    value={notes}
-                                    onChange={(e) => handleSetStudentStatus(student.id, "tardy", tardyMins, e.target.value)}
-                                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800"
-                                  />
-                                ) : (
-                                  <span className="text-slate-400 text-[11px]">-</span>
-                                )}
-                              </td>
+                            {/* Single Send WhatsApp Button */}
+                            <td className="p-3 text-center">
+                              {isTardy && (
+                                (() => {
+                                  const sentTodayInfo = getStudentSentTodayInfo(student);
+                                  return (
+                                    <button
+                                      onClick={() => handleSendSingleNotification(student, "tardiness")}
+                                      disabled={notifStatus === "sending"}
+                                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
+                                        notifStatus === "sending"
+                                          ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                                          : sentTodayInfo
+                                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
+                                          : record?.notified
+                                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
+                                          : "bg-slate-900 hover:bg-slate-800 text-white"
+                                      }`}
+                                      title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار تأخر فوري لولي الأمر عبر واتساب"}
+                                    >
+                                      {notifStatus === "sending" ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : sentTodayInfo ? (
+                                        <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                                      ) : (
+                                        <Smartphone className="w-3 h-3 text-emerald-400" />
+                                      )}
+                                      <span>{notifStatus === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "تم الإشعار ✓" : "إشعار واتساب"}</span>
+                                    </button>
+                                  );
+                                })()
+                              )}
+                            </td>
 
-                              {/* Single Send WhatsApp Button */}
-                              <td className="p-3 text-center">
-                                {isTardy && (
-                                  <button
-                                    onClick={() => handleSendSingleNotification(student, "tardiness")}
-                                    disabled={notifStatus === "sending"}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
-                                      notifStatus === "sending"
-                                        ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                                        : sentTodayInfo
-                                        ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
-                                        : record?.notified
-                                        ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
-                                        : "bg-slate-900 hover:bg-slate-800 text-white"
-                                    }`}
-                                    title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار تأخر فوري لولي الأمر عبر واتساب"}
-                                  >
-                                    {notifStatus === "sending" ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : sentTodayInfo ? (
-                                      <ShieldCheck className="w-3 h-3 text-emerald-700" />
-                                    ) : (
-                                      <Smartphone className="w-3 h-3 text-emerald-400" />
-                                    )}
-                                    <span>{notifStatus === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "تم الإشعار ✓" : "إشعار واتساب"}</span>
-                                  </button>
-                                )}
-                              </td>
-
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              )}
+              </div>
 
             </div>
           )}

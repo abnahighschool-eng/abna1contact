@@ -52,11 +52,9 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
 
   useEffect(() => {
     fetchRealStatus();
-    // Fast polling while connecting or waiting for scan/pairing (1200ms), standard otherwise (3000ms)
-    const pollInterval = (realStatus.status === "connecting" || realStatus.status === "qr_ready" || realStatus.status === "pairing_code_ready") ? 1200 : 3000;
-    const interval = setInterval(fetchRealStatus, pollInterval);
+    const interval = setInterval(fetchRealStatus, 2500);
     return () => clearInterval(interval);
-  }, [config.mode, activeTab, realStatus.status]);
+  }, [config.mode, activeTab]);
 
   const handleStartRealPairing = async (method: "pairing_code" | "qr") => {
     if (method === "pairing_code" && !phoneNumberInput.trim()) {
@@ -65,8 +63,6 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
     }
 
     setIsActionLoading(true);
-    setRealStatus(prev => ({ ...prev, status: "connecting", qr: "", pairingCode: "", error: "" }));
-    
     try {
       const res = await fetch("/api/whatsapp/real/start", {
         method: "POST",
@@ -79,14 +75,9 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
       if (res.ok) {
         const data = await res.json();
         setRealStatus(prev => ({ ...prev, status: data.status, error: "" }));
-        // Immediate follow-up status checks
-        setTimeout(fetchRealStatus, 400);
-        setTimeout(fetchRealStatus, 1200);
-        setTimeout(fetchRealStatus, 2500);
       }
     } catch (e) {
       console.error(e);
-      setRealStatus(prev => ({ ...prev, status: "error", error: "فشل إرسال طلب الربط، يرجى المحاولة مرة أخرى." }));
     } finally {
       setIsActionLoading(false);
     }
@@ -313,11 +304,8 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                 </div>
               )}
 
-              {/* State 1: Disconnected / Input / Mode Switch */}
-              {(realStatus.status === "disconnected" || 
-                (realStatus.status === "qr_ready" && realMethod === "pairing_code") ||
-                (realStatus.status === "pairing_code_ready" && realMethod === "qr")
-              ) && (
+              {/* State 1: Disconnected / Input */}
+              {realStatus.status === "disconnected" && (
                 <div className="flex flex-col gap-4">
                   {realMethod === "pairing_code" ? (
                     <div className="flex flex-col gap-4 bg-slate-50/70 p-5 rounded-2xl border border-slate-200/80">
@@ -385,14 +373,12 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
 
               {/* State 2: Connecting / Loading */}
               {realStatus.status === "connecting" && (
-                <div className="flex flex-col items-center justify-center text-center gap-4 py-10 bg-slate-50/50 rounded-2xl border border-slate-100 animate-fadeIn">
+                <div className="flex flex-col items-center justify-center text-center gap-4 py-10 bg-slate-50/50 rounded-2xl border border-slate-100">
                   <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
                   <div>
                     <h4 className="font-bold text-slate-800 text-sm">جاري تهيئة الاتصال بخوادم واتساب...</h4>
                     <p className="text-slate-500 text-xs mt-1 max-w-xs mx-auto">
-                      {realMethod === "pairing_code" 
-                        ? "جاري طلب رمز التحقق المباشر من واتساب..."
-                        : "جاري إنشاء وتجهيز باركود الاستجابة السريعة..."}
+                      يرجى الانتظار ثوانٍ معدودة لحين استلام استجابة البوابة
                     </p>
                   </div>
                   <button
@@ -406,7 +392,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
               )}
 
               {/* State 3: Pairing Code Ready */}
-              {realStatus.status === "pairing_code_ready" && realMethod === "pairing_code" && realStatus.pairingCode && (
+              {realStatus.status === "pairing_code_ready" && realStatus.pairingCode && (
                 <div className="flex flex-col items-center text-center gap-5 bg-emerald-50/40 p-6 rounded-2xl border border-emerald-200 animate-fadeIn">
                   <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
                     <Smartphone className="w-6 h-6" />
@@ -478,7 +464,7 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
               )}
 
               {/* State 4: QR Code Ready */}
-              {realStatus.status === "qr_ready" && realMethod === "qr" && (
+              {realStatus.status === "qr_ready" && (
                 <div className="flex flex-col items-center text-center gap-4 bg-slate-50/70 p-6 rounded-2xl border border-slate-200/80 animate-fadeIn">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-slate-700">امسح الباركود بجوالك للربط المباشر</span>
@@ -503,23 +489,13 @@ export default function ConnectionPanel({ config, onUpdateConfig, onRefreshConfi
                   <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
                     افتح واتساب على جوالك &gt; <b>الأجهزة المرتبطة</b> &gt; <b>ربط جهاز</b> &gt; وجّه كاميرا الجوال نحو هذا الباركود.
                   </p>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => handleStartRealPairing("qr")}
-                      disabled={isActionLoading}
-                      className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      تحديث الباركود (Refresh)
-                    </button>
-                    <button
-                      onClick={handleResetSession}
-                      className="text-xs text-slate-500 hover:text-rose-600 flex items-center gap-1 cursor-pointer"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      إعادة تعيين الجلسة
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleResetSession}
+                    className="text-xs text-slate-500 hover:text-rose-600 flex items-center gap-1 cursor-pointer mt-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    إعادة توليد الرمز
+                  </button>
                 </div>
               )}
 

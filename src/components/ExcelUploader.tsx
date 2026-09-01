@@ -825,8 +825,8 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
 
           {/* Clean 4-Column + Actions Student Table */}
           <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white" id="students-grid-container">
-            <div className="overflow-x-auto smooth-touch-scroll max-h-96">
-              <table className="w-full min-w-[600px] text-right border-collapse text-xs">
+            <div className="overflow-x-auto max-h-96">
+              <table className="w-full text-right border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-100/90 text-slate-800 border-b border-slate-200 font-bold sticky top-0 backdrop-blur-sm z-10">
                     <th className="px-4 py-3 w-12 text-center">#</th>
