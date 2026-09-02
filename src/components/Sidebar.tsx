@@ -85,7 +85,7 @@ export default function Sidebar({
       label: "الغياب والتأخر",
       shortLabel: "الغياب",
       icon: UserX,
-      description: "رصد الحضور والغياب اليومي وإجراءات التوجيه",
+      description: "رصد الحضور والغياب اليومي والتقارير",
       badge: null,
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
     },

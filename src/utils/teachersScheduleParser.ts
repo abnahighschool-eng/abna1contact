@@ -253,6 +253,115 @@ export function parseTeachersWorkbook(data: ArrayBuffer | Uint8Array | string): 
 }
 
 /**
+ * Check if a text is a non-academic duty/period (e.g. منتظر 1, انتظار, نشاط, ريادة, إشراف, فراغ)
+ */
+export function isNonAcademicDuty(text: string): boolean {
+  if (!text) return true;
+  const clean = text.trim().toLowerCase();
+  if (!clean || clean === "#" || clean === "-" || clean === "_" || clean === "." || /^\d+$/.test(clean)) {
+    return true;
+  }
+  return /^(منتظر|انتظار|نشاط|ريادة|اشراف|إشراف|احتياط|فراغ|شاغر|حصة فراغ|طابور|استراحة|فسحة)(\s*\d+)?$/i.test(clean) ||
+         /(منتظر\s*\d+|انتظار\s*\d+|حصة\s*نشاط|نشاط\s*مدرسي|إشراف\s*يومي)/i.test(clean);
+}
+
+/**
+ * Clean & Extract Subject and Section from a schedule cell text with extreme precision
+ */
+export function extractSubjectAndSectionFromCell(cellText: string): { subject: string; section: string } {
+  if (!cellText) return { subject: "", section: "" };
+  let clean = cellText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  
+  // Ignore purely numbers, administrative duty codes, or blank placeholders (e.g. منتظر, منتظر 1, انتظار, نشاط, ريادة)
+  if (isNonAcademicDuty(clean)) {
+    return { subject: "", section: "" };
+  }
+
+  let lines = clean.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Filter out any non-academic lines (e.g. if one line says "منتظر 1")
+  lines = lines.filter((l) => !isNonAcademicDuty(l));
+  if (lines.length === 0) {
+    return { subject: "", section: "" };
+  }
+
+  // Common Saudi High School subjects patterns for validation
+  const subjectPatterns = /(فيزياء|كيمياء|احياء|أحياء|رياضيات|حاسب|تقنية رقمية|كفايات|لغتي|لغة عربية|انجليزي|إنجليزي|علم الأرض|علوم الأرض|تاريخ|جغرافيا|دراسات|اجتماعيات|قرآن|قران|تفسير|توحيد|فقه|حديث|تربية بدنية|بدنية|صحية|تفكير ناقد|مهارات حياتية|فنون|علم بيئة|إدارة|تسويق|هندسة|ذكاء اصطناعي|بيانات)/i;
+
+  let section = "";
+  let subject = "";
+
+  if (lines.length >= 2) {
+    const l0 = lines[0];
+    const l1 = lines.slice(1).join(" ");
+
+    const l0HasSec = /شعبة|فصل|صف/i.test(l0) || /^\d+$/.test(l0);
+    const l1HasSubj = subjectPatterns.test(l1);
+    const l1HasSec = /شعبة|فصل|صف/i.test(l1) || /^\d+$/.test(l1);
+    const l0HasSubj = subjectPatterns.test(l0);
+
+    if (l0HasSec && !l0HasSubj) {
+      section = l0;
+      subject = l1;
+    } else if (l1HasSec && !l1HasSubj) {
+      subject = l0;
+      section = l1;
+    } else if (l0HasSubj && !l1HasSubj) {
+      subject = l0;
+      section = l1;
+    } else {
+      section = l0;
+      subject = l1;
+    }
+  } else {
+    // Single line text: e.g. "شعبة 5 - الفيزياء 2" or "الفيزياء 2 (شعبة 5)" or "كيمياء 1 / ش 2"
+    const single = lines[0] || clean;
+    const matchedSec = single.match(/(شعبة\s*\d+|فصل\s*\d+|ش\s*\d+|\(\s*شعبة\s*\d+\s*\))/i);
+    if (matchedSec) {
+      section = matchedSec[0].replace(/[\(\)]/g, "").trim();
+      subject = single.replace(matchedSec[0], "").replace(/^[\-\:\/\–\s]+|[\-\:\/\–\s]+$/g, "").trim();
+    } else {
+      // Look for digit at the end or start
+      const trailingDigitSec = single.match(/\b\d+\b/);
+      if (trailingDigitSec && subjectPatterns.test(single)) {
+        // e.g. "الفيزياء 2 شعبة 5" or "أحياء 1 فصل 2"
+        const secRegex = /(?:شعبة|فصل|صف)?\s*(\d+)$/;
+        const match = single.match(secRegex);
+        if (match) {
+          section = `شعبة ${match[1]}`;
+          subject = single.replace(secRegex, "").trim();
+        } else {
+          subject = single;
+        }
+      } else {
+        subject = single;
+      }
+    }
+  }
+
+  // Format section nicely if it's just a number
+  if (/^\d+$/.test(section.trim())) {
+    section = `شعبة ${section.trim()}`;
+  } else if (/^ش\s*\d+/i.test(section.trim())) {
+    section = section.replace(/^ش\s*/i, "شعبة ");
+  }
+
+  // Clean trailing punctuation
+  subject = subject.replace(/^[-\/:\s]+|[-\/:\s]+$/g, "").trim();
+  section = section.replace(/^[-\/:\s]+|[-\/:\s]+$/g, "").trim();
+
+  // Final check: If subject is non-academic or section itself is non-academic
+  if (isNonAcademicDuty(subject)) {
+    subject = "";
+  }
+  if (isNonAcademicDuty(section)) {
+    section = "";
+  }
+
+  return { subject, section };
+}
+
+/**
  * Intelligent Parser for School Schedule Timetable Excel (الجدول المدرسي)
  * Matches the layout from Image 2:
  * Rows: Teacher Names
@@ -306,16 +415,20 @@ export function parseScheduleWorkbook(data: ArrayBuffer | Uint8Array | string, e
       if (!row || row.length === 0) continue;
       const teacherName = String(row[tabTeacherCol] || "").trim();
       const subject = String(row[tabSubjectCol] || "").trim();
-      const section = String(row[tabSectionCol] || "").trim();
+      let section = String(row[tabSectionCol] || "").trim();
 
-      if (teacherName && subject && section) {
+      if (/^\d+$/.test(section)) {
+        section = `شعبة ${section}`;
+      }
+
+      if (teacherName && (subject || section)) {
         detectedTeachersSet.add(teacherName);
-        detectedSectionsSet.add(section);
+        if (section) detectedSectionsSet.add(section);
         assignments.push({
           id: `asg_${r}_${Math.random().toString(36).substring(2, 6)}`,
           teacherName,
-          subject,
-          section,
+          subject: subject || "المادة المقررة",
+          section: section || "عام",
         });
       }
     }
@@ -346,7 +459,6 @@ export function parseScheduleWorkbook(data: ArrayBuffer | Uint8Array | string, e
 
   // If "المعلم" header was not explicitly written, inspect column containing teacher names from existing teachers
   if (teacherColIdx === -1) {
-    // Try column 0 or 1 or rightmost column in RTL
     teacherColIdx = 1; // Default col B in Image 2
     startRowIdx = 3;
   }
@@ -362,7 +474,7 @@ export function parseScheduleWorkbook(data: ArrayBuffer | Uint8Array | string, e
       teacherName = String(row[teacherColIdx - 1] || "").trim();
     }
     if (!teacherName && row.length > 0) {
-      // Try first non-numeric cell
+      // Try first non-numeric cell with length > 3
       const nonNum = row.find(cell => typeof cell === "string" && cell.trim().length > 3 && isNaN(Number(cell)));
       if (nonNum) teacherName = String(nonNum).trim();
     }
@@ -384,53 +496,19 @@ export function parseScheduleWorkbook(data: ArrayBuffer | Uint8Array | string, e
       const cellVal = String(row[c] || "").trim();
       if (!cellVal) continue;
 
-      // Ignore waiting/standby or numeric cells
-      if (/^(منتظر|انتظار|ريادة|نشاط|إشراف|\d+)$/i.test(cellVal)) continue;
-
-      // Cell may look like: "شعبة 5\nالفيزياء 2" or "شعبة 1 / الكفايات اللغوية 1" or "الفيزياء 2 (شعبة 3)"
-      let section = "";
-      let subject = "";
-
-      const lines = cellVal.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
-      
-      if (lines.length >= 2) {
-        // Line 1 is usually Section e.g. "شعبة 5", Line 2 is Subject e.g. "الفيزياء 2"
-        const l0IsSection = /شعبة|فصل|صف|\b\d+\b/i.test(lines[0]);
-        const l1IsSection = /شعبة|فصل|صف|\b\d+\b/i.test(lines[1]);
-
-        if (l0IsSection && !l1IsSection) {
-          section = lines[0];
-          subject = lines.slice(1).join(" ");
-        } else if (l1IsSection && !l0IsSection) {
-          subject = lines[0];
-          section = lines.slice(1).join(" ");
-        } else {
-          section = lines[0];
-          subject = lines.slice(1).join(" ");
-        }
-      } else {
-        // Single line e.g. "شعبة 5 - الفيزياء 2" or "الفيزياء 2 شعبة 5"
-        const sectionMatch = cellVal.match(/(شعبة\s*\d+|فصل\s*\d+|ش\s*\d+)/i);
-        if (sectionMatch) {
-          section = sectionMatch[0];
-          subject = cellVal.replace(sectionMatch[0], "").replace(/[\-\:\/]/g, "").trim();
-        } else {
-          // If no explicit "شعبة", check for subject only or section only
-          subject = cellVal;
-        }
-      }
+      const { subject, section } = extractSubjectAndSectionFromCell(cellVal);
 
       if (section) {
         detectedSectionsSet.add(section);
       }
 
-      if (subject) {
-        // Avoid adding duplicate identical (teacher, subject, section) multiple times per day
+      if (subject || section) {
+        // Avoid adding duplicate identical (teacher, subject, section) multiple times per week
         const exists = assignments.some(
-          (a) => a.teacherName === teacherName && a.subject === subject && a.section === section
+          (a) => a.teacherName === teacherName && a.subject === (subject || "المادة المقررة") && a.section === (section || "عام")
         );
 
-        if (!exists && (section || subject)) {
+        if (!exists) {
           assignments.push({
             id: `asg_${r}_${c}_${Math.random().toString(36).substring(2, 6)}`,
             teacherName,
@@ -548,6 +626,7 @@ export async function parseScheduleExcelFile(
 
 /**
  * Find teachers assigned to a given section with fuzzy matching and digit extraction
+ * Strictly ignores non-academic duties like منتظر, نشاط, انتظار, ريادة, إشراف
  */
 export function findTeachersForSection(
   scheduleAssignments: ScheduleAssignment[],
@@ -556,6 +635,8 @@ export function findTeachersForSection(
   if (!sectionInput) return [];
   
   return scheduleAssignments.filter((asg) => {
+    if (!asg.subject || isNonAcademicDuty(asg.subject)) return false;
+    if (!asg.section || isNonAcademicDuty(asg.section)) return false;
     return isSectionMatching(sectionInput, asg.section || "");
   });
 }

@@ -182,9 +182,19 @@ export default function AttendanceSystem({
   const [selectedClass, setSelectedClass] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "present" | "absent_unexcused" | "absent_excused" | "tardy">("ALL");
   
-  // Responsive view layout: "cards" (touch-friendly on mobile/iPad) or "table" (dense on desktop/laptop)
-  const [attendanceViewMode, setAttendanceViewMode] = useState<"cards" | "table">("cards");
-  const [tardinessViewMode, setTardinessViewMode] = useState<"cards" | "table">("cards");
+  // Responsive view layout: Default to "table" on Laptop/iPad/Desktop (>= 768px), and "cards" on Mobile (< 768px)
+  const [attendanceViewMode, setAttendanceViewMode] = useState<"cards" | "table">(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth >= 768 ? "table" : "cards";
+    }
+    return "table";
+  });
+  const [tardinessViewMode, setTardinessViewMode] = useState<"cards" | "table">(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth >= 768 ? "table" : "cards";
+    }
+    return "table";
+  });
 
   // Notification Template States
   const [absenceTemplate, setAbsenceTemplate] = useState(
@@ -479,12 +489,16 @@ export default function AttendanceSystem({
       };
     });
 
+    if (status === "present") {
+      setSelectedNotifStudentIds((prev) => prev.filter((id) => id !== studentId));
+    }
+
     setToastMessage("تم حفظ وتحديث رصد الحضور بنجاح");
     setSaveSuccessToast(true);
     setTimeout(() => setSaveSuccessToast(false), 1500);
   };
 
-  // Bulk actions (Mark all filtered as present, absent, etc.)
+  // Bulk actions for Absence (Mark all filtered as present, absent, etc.)
   const handleBulkSetStatus = (status: "present" | "absent_unexcused" | "absent_excused") => {
     setAttendanceRecords((prev) => {
       const dayRecords = prev[selectedDate] ? { ...prev[selectedDate] } : {};
@@ -503,7 +517,39 @@ export default function AttendanceSystem({
       };
     });
 
-    setToastMessage(`تم تعيين حالة (${filteredStudents.length}) طالب بنجاح`);
+    if (status === "present") {
+      const filteredSet = new Set(filteredStudents.map((s) => s.id));
+      setSelectedNotifStudentIds((prev) => prev.filter((id) => !filteredSet.has(id)));
+    }
+
+    setToastMessage(`تم تعيين حالة (${filteredStudents.length}) طالب كـ ${status === "present" ? "حاضرين" : "غائبين"} بنجاح`);
+    setSaveSuccessToast(true);
+    setTimeout(() => setSaveSuccessToast(false), 2000);
+  };
+
+  // Bulk action for Tardiness (Reset all filtered students to not tardy / on time present)
+  const handleBulkSetTardinessPresent = () => {
+    setAttendanceRecords((prev) => {
+      const dayRecords = prev[selectedDate] ? { ...prev[selectedDate] } : {};
+      
+      filteredStudents.forEach((st) => {
+        dayRecords[st.id] = {
+          status: "present",
+          notes: "",
+          notified: false,
+        };
+      });
+
+      return {
+        ...prev,
+        [selectedDate]: dayRecords,
+      };
+    });
+
+    const filteredSet = new Set(filteredStudents.map((s) => s.id));
+    setSelectedNotifStudentIds((prev) => prev.filter((id) => !filteredSet.has(id)));
+
+    setToastMessage(`تم إلغاء رصد التأخر وتعيين (${filteredStudents.length}) طالب كـ حضور (غير متأخر) بنجاح`);
     setSaveSuccessToast(true);
     setTimeout(() => setSaveSuccessToast(false), 2000);
   };
@@ -729,6 +775,9 @@ export default function AttendanceSystem({
           return updated;
         });
 
+        // Automatically unselect notified student
+        setSelectedNotifStudentIds((prev) => prev.filter((id) => id !== student.id));
+
         // Add to local history for reports
         try {
           const newLog = {
@@ -930,6 +979,9 @@ export default function AttendanceSystem({
             if (cleanP) updated[`phone_${cleanP}`] = info;
             return updated;
           });
+
+          // Automatically unselect notified student
+          setSelectedNotifStudentIds((prev) => prev.filter((id) => id !== student.id));
 
           setBatchProgress((prev) => ({
             ...prev,
@@ -1208,7 +1260,7 @@ export default function AttendanceSystem({
       )}
 
       {/* Warning when no students exist yet for daily manual tabs */}
-      {activeSubTab !== "guidance_workflow" && students.length === 0 && (
+      {students.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-3xl p-8 text-center space-y-4 no-print">
           <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
             <AlertTriangle className="w-7 h-7" />
@@ -1235,22 +1287,8 @@ export default function AttendanceSystem({
       <div className="space-y-6">
         
         {/* Subtabs for Attendance Module */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-xs text-xs font-semibold text-slate-600 gap-1.5 no-print" id="attendance-subtabs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-xs text-xs font-semibold text-slate-600 gap-1.5 no-print" id="attendance-subtabs">
           
-          {/* 1. Noor Extractor & Guidance Actions Tab (Default Primary) */}
-          <button
-            onClick={() => setActiveSubTab("guidance_workflow")}
-            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer col-span-2 sm:col-span-1 ${
-              activeSubTab === "guidance_workflow"
-                ? "bg-emerald-600 text-white shadow-sm font-black"
-                : "hover:bg-slate-50 hover:text-slate-900 bg-emerald-50/60 text-emerald-900 border border-emerald-200/70"
-            }`}
-            id="tab-btn-guidance-workflow"
-          >
-            <Zap className="w-4 h-4 text-amber-300" />
-            <span>سحب غيابات نور وإجراءات التوجيه</span>
-          </button>
-
           <button
             onClick={() => setActiveSubTab("daily_absence")}
             className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
@@ -1486,7 +1524,7 @@ export default function AttendanceSystem({
                 {/* View Switcher & Bulk Action Buttons */}
                 <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 shrink-0">
                   
-                  {/* View Mode Toggle (Cards for Mobile/Touch vs Table for Desktop) */}
+                  {/* View Mode Toggle (Cards for Mobile vs Table for Laptop/iPad/Desktop) */}
                   <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold">
                     <button
                       type="button"
@@ -1496,7 +1534,7 @@ export default function AttendanceSystem({
                           ? "bg-white text-slate-900 shadow-xs font-extrabold"
                           : "text-slate-500 hover:text-slate-900"
                       }`}
-                      title="عرض بطاقات لمس سريعة ومناسبة للجوال والآيباد"
+                      title="عرض بطاقات سريعة مناسبة لشاشات الجوال"
                     >
                       <LayoutGrid className="w-3.5 h-3.5" />
                       <span className="text-[11px]">بطاقات سريعة</span>
@@ -1510,7 +1548,7 @@ export default function AttendanceSystem({
                           ? "bg-white text-slate-900 shadow-xs font-extrabold"
                           : "text-slate-500 hover:text-slate-900"
                       }`}
-                      title="عرض جدول كامل للشاشات الكبيرة واللابتوب"
+                      title="عرض جدول تفصيلي مناسب للابتوب والآيباد والشاشات الكبيرة"
                     >
                       <List className="w-3.5 h-3.5" />
                       <span className="text-[11px]">جدول تفصيلي</span>
@@ -1682,7 +1720,7 @@ export default function AttendanceSystem({
                   })}
                 </div>
               ) : (
-                /* Comprehensive Table View (Optimized for desktop / widescreen with smooth touch scroll) */
+                /* Comprehensive Table View (Optimized for desktop / widescreen matching Tardiness layout) */
                 <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
                   <div className="overflow-x-auto smooth-touch-scroll">
                     <table className="w-full text-right text-xs">
@@ -1690,12 +1728,10 @@ export default function AttendanceSystem({
                         <tr>
                           <th className="p-3 w-12 text-center">#</th>
                           <th className="p-3 min-w-[180px]">اسم الطالب</th>
-                          <th className="p-3 min-w-[100px]">الصف</th>
-                          <th className="p-3 min-w-[80px]">الفصل</th>
-                          <th className="p-3 min-w-[120px]">جوال ولي الأمر</th>
-                          <th className="p-3 min-w-[260px] text-center">حالة الحضور والغياب اليوم</th>
-                          <th className="p-3 min-w-[140px]">ملاحظات / السبب</th>
-                          <th className="p-3 min-w-[110px] text-center">إشعار فوري</th>
+                          <th className="p-3 min-w-[110px]">الصف والفصل</th>
+                          <th className="p-3 min-w-[240px] text-center">حالة الحضور والغياب</th>
+                          <th className="p-3 min-w-[140px]">سبب الغياب / ملاحظات</th>
+                          <th className="p-3 min-w-[120px] text-center">إشعار ولي الأمر</th>
                         </tr>
                       </thead>
 
@@ -1704,7 +1740,6 @@ export default function AttendanceSystem({
                           const studentName = extractStudentName(student, idx + 1);
                           const studentGrade = extractStudentGrade(student) || "-";
                           const studentClass = extractStudentClass(student) || "-";
-                          const studentPhone = extractStudentPhone(student) || "-";
                           
                           const record = currentDayData[student.id];
                           const currentStatus = record?.status || "present";
@@ -1740,9 +1775,9 @@ export default function AttendanceSystem({
                                 </div>
                               </td>
 
-                              <td className="p-3 text-slate-600 font-semibold">{studentGrade}</td>
-                              <td className="p-3 text-slate-600 font-semibold">{studentClass}</td>
-                              <td className="p-3 font-mono text-slate-600 text-[11px]" dir="ltr">{studentPhone}</td>
+                              <td className="p-3 text-slate-600">
+                                {studentGrade} - فصل ({studentClass})
+                              </td>
 
                               {/* Interactive 3-Way Status Toggle */}
                               <td className="p-2.5">
@@ -1796,7 +1831,7 @@ export default function AttendanceSystem({
                                   placeholder="ملاحظة أو سبب..."
                                   value={notes}
                                   onChange={(e) => handleSetStudentStatus(student.id, currentStatus, undefined, e.target.value)}
-                                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
+                                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-900"
                                 />
                               </td>
 
@@ -1806,7 +1841,7 @@ export default function AttendanceSystem({
                                   <button
                                     onClick={() => handleSendSingleNotification(student, isTardy ? "tardiness" : "absence")}
                                     disabled={notifState === "sending"}
-                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 mx-auto transition-all cursor-pointer ${
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 mx-auto transition-all cursor-pointer min-h-[34px] ${
                                       notifState === "sending"
                                         ? "bg-slate-200 text-slate-500 cursor-not-allowed"
                                         : sentTodayInfo
@@ -1818,16 +1853,16 @@ export default function AttendanceSystem({
                                     title={sentTodayInfo ? `تم الإرسال اليوم (${sentTodayInfo.time}) - انقر للإعادة` : "إرسال إشعار فوري لولي الأمر عبر واتساب"}
                                   >
                                     {notifState === "sending" ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                     ) : sentTodayInfo ? (
-                                      <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
                                     ) : (
-                                      <Send className="w-3 h-3 rotate-180 text-emerald-400" />
+                                      <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
                                     )}
-                                    <span>{notifState === "sending" ? "جارِ الإرسال..." : sentTodayInfo ? "مرسل اليوم ✓" : record?.notified ? "إعادة الإرسال" : "إشعار واتساب"}</span>
+                                    <span>{notifState === "sending" ? "..." : sentTodayInfo ? "مرسل ✓" : record?.notified ? "إعادة" : "إشعار واتساب"}</span>
                                   </button>
                                 ) : (
-                                  <span className="text-slate-400 text-[10px]">-</span>
+                                  <span className="text-slate-400 text-xs">-</span>
                                 )}
                               </td>
 
@@ -1882,45 +1917,88 @@ export default function AttendanceSystem({
                   {availableGrades.length > 0 && (
                     <select
                       value={selectedGrade}
-                      onChange={(e) => setSelectedGrade(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700"
+                      onChange={(e) => {
+                        setSelectedGrade(e.target.value);
+                        setSelectedClass("ALL");
+                      }}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer"
                     >
-                      <option value="ALL">جميع الصفوف</option>
+                      <option value="ALL">جميع الصفوف ({students.length})</option>
                       {availableGrades.map((g) => (
                         <option key={g} value={g}>{g}</option>
                       ))}
                     </select>
                   )}
+
+                  {availableClasses.length > 0 && (
+                    <select
+                      value={selectedClass}
+                      onChange={(e) => setSelectedClass(e.target.value)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer"
+                    >
+                      <option value="ALL">جميع الفصول</option>
+                      {availableClasses.map((c) => (
+                        <option key={c} value={c}>
+                          فصل: {c}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
-                {/* Tardiness View Switcher */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold self-end sm:self-auto">
+                {/* View Switcher & Notification Button for Tardiness */}
+                <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                  {/* Tardiness View Switcher (Cards for Mobile vs Table for Laptop/iPad/Desktop) */}
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setTardinessViewMode("cards")}
+                      className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                        tardinessViewMode === "cards"
+                          ? "bg-white text-slate-900 shadow-xs font-extrabold"
+                          : "text-slate-500 hover:text-slate-900"
+                      }`}
+                      title="عرض بطاقات سريعة مناسبة لشاشات الجوال"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">بطاقات سريعة</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTardinessViewMode("table")}
+                      className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                        tardinessViewMode === "table"
+                          ? "bg-white text-slate-900 shadow-xs font-extrabold"
+                          : "text-slate-500 hover:text-slate-900"
+                      }`}
+                      title="عرض جدول تفصيلي مناسب للابتوب والآيباد والشاشات الكبيرة"
+                    >
+                      <List className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">جدول تفصيلي</span>
+                    </button>
+                  </div>
+
                   <button
-                    type="button"
-                    onClick={() => setTardinessViewMode("cards")}
-                    className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                      tardinessViewMode === "cards"
-                        ? "bg-white text-slate-900 shadow-xs font-extrabold"
-                        : "text-slate-500 hover:text-slate-900"
-                    }`}
-                    title="عرض بطاقات لمس سريعة ومناسبة للجوال والآيباد"
+                    onClick={() => handleBulkSetTardinessPresent()}
+                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all"
+                    title="إلغاء رصد التأخر وتعيين جميع الطلاب المعروضين كـ غير متأخرين (حضور)"
+                    id="btn-tardiness-bulk-present"
                   >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">بطاقات سريعة</span>
+                    رصد المعروضين (حضور)
                   </button>
 
                   <button
-                    type="button"
-                    onClick={() => setTardinessViewMode("table")}
-                    className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                      tardinessViewMode === "table"
-                        ? "bg-white text-slate-900 shadow-xs font-extrabold"
-                        : "text-slate-500 hover:text-slate-900"
-                    }`}
-                    title="عرض جدول كامل للشاشات الكبيرة واللابتوب"
+                    onClick={() => {
+                      setNotifTypeFilter("tardiness");
+                      setActiveSubTab("notifications");
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                    id="btn-tardiness-go-to-notifications"
+                    title="الانتقال إلى صفحة إرسال إشعارات التأخر لأولياء الأمور"
                   >
-                    <List className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">جدول تفصيلي</span>
+                    <Bell className="w-3.5 h-3.5 text-amber-400" />
+                    <span>إرسال الإشعارات ({attendanceStats.tardy})</span>
                   </button>
                 </div>
               </div>

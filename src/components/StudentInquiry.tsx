@@ -29,7 +29,9 @@ import {
   X,
   Eye,
   Plus,
-  Edit3
+  Edit3,
+  Layers,
+  CheckCheck
 } from "lucide-react";
 import {
   Student,
@@ -45,7 +47,8 @@ import {
   parseScheduleExcelFile,
   findTeachersForSection,
   findAssignmentsForStudent,
-  matchTeacherInRoster
+  matchTeacherInRoster,
+  isNonAcademicDuty
 } from "../utils/teachersScheduleParser";
 
 interface StudentInquiryProps {
@@ -133,13 +136,28 @@ export default function StudentInquiry({
   
   // Modals for adding & editing teachers
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
-  const [newTeacherData, setNewTeacherData] = useState({ name: "", subject: "", phone: "" });
+  const [newTeacherData, setNewTeacherData] = useState({
+    name: "",
+    subject: "",
+    phone: "",
+    assignedSubjects: "",
+    assignedSections: "",
+  });
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
-  const [editingTeacherData, setEditingTeacherData] = useState<{ name: string; phone: string; subject: string }>({
+  const [editingTeacherData, setEditingTeacherData] = useState<{
+    name: string;
+    phone: string;
+    subject: string;
+  }>({
     name: "",
     phone: "",
     subject: "",
   });
+
+  // Modal for Teacher Schedule Assignments & Subjects
+  const [managingScheduleTeacher, setManagingScheduleTeacher] = useState<Teacher | null>(null);
+  const [newAssignmentSubject, setNewAssignmentSubject] = useState("");
+  const [newAssignmentSection, setNewAssignmentSection] = useState("");
 
   // Extract unique grades and sections
   const uniqueGrades = useMemo(() => {
@@ -147,17 +165,20 @@ export default function StudentInquiry({
     students.forEach((s) => {
       if (s.grade) grades.add(s.grade.trim());
     });
-    return Array.from(grades);
+    return Array.from(grades).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
   }, [students]);
 
-  const uniqueSections = useMemo(() => {
+  // Extract unique sections dynamically based on selected grade
+  const availableSections = useMemo(() => {
     const sections = new Set<string>();
     students.forEach((s) => {
-      const cls = s.className || (s as any)["الشعبة"] || (s as any)["الصف"] || "";
-      if (cls) sections.add(cls.trim());
+      if (selectedGrade === "all" || s.grade?.trim() === selectedGrade) {
+        const cls = s.className || (s as any)["الشعبة"] || (s as any)["الصف"] || "";
+        if (cls) sections.add(cls.trim());
+      }
     });
-    return Array.from(sections);
-  }, [students]);
+    return Array.from(sections).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
+  }, [students, selectedGrade]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -169,7 +190,7 @@ export default function StudentInquiry({
         (s.id && s.id.includes(studentSearchTerm));
 
       const matchesGrade = selectedGrade === "all" || s.grade?.trim() === selectedGrade;
-      const cls = s.className || (s as any)["الشعبة"] || "";
+      const cls = s.className || (s as any)["الشعبة"] || (s as any)["الصف"] || "";
       const matchesSection = selectedSection === "all" || cls.trim() === selectedSection;
 
       return matchesSearch && matchesGrade && matchesSection;
@@ -536,7 +557,7 @@ export default function StudentInquiry({
     }
   };
 
-  // Add Manual Teacher
+  // Add Manual Teacher (with optional assigned subjects and sections)
   const handleAddManualTeacher = async () => {
     if (!newTeacherData.name.trim() || !newTeacherData.phone.trim()) {
       alert("يرجى إدخال اسم المعلم ورقم جواله");
@@ -560,8 +581,98 @@ export default function StudentInquiry({
       body: JSON.stringify({ teachers: updated }),
     });
 
-    setNewTeacherData({ name: "", subject: "", phone: "" });
+    // If subjects and sections were also specified, create schedule assignments immediately
+    const rawSubjects = newTeacherData.assignedSubjects.split(/[,،\n]+/).map((s) => s.trim()).filter(Boolean);
+    const rawSections = newTeacherData.assignedSections.split(/[,،\n]+/).map((s) => s.trim()).filter(Boolean);
+
+    if (rawSubjects.length > 0 || rawSections.length > 0) {
+      const newAssignments: ScheduleAssignment[] = [];
+      const subjectsList = rawSubjects.length > 0 ? rawSubjects : [newTeacherData.subject.trim() || "عام"];
+      const sectionsList = rawSections.length > 0 ? rawSections : ["عام"];
+
+      for (const subj of subjectsList) {
+        for (const sec of sectionsList) {
+          let formattedSec = sec;
+          if (/^\d+$/.test(formattedSec)) {
+            formattedSec = `شعبة ${formattedSec}`;
+          }
+          newAssignments.push({
+            id: `asg_manual_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            teacherName: newTeacher.name,
+            subject: subj,
+            section: formattedSec,
+          });
+        }
+      }
+
+      const updatedSchedule = [...scheduleAssignments, ...newAssignments];
+      onUpdateSchedule(updatedSchedule);
+
+      try {
+        await fetch("/api/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignments: updatedSchedule }),
+        });
+      } catch {}
+    }
+
+    setNewTeacherData({
+      name: "",
+      subject: "",
+      phone: "",
+      assignedSubjects: "",
+      assignedSections: "",
+    });
     setShowAddTeacherModal(false);
+  };
+
+  // Add individual assignment to teacher
+  const handleAddTeacherAssignment = async (teacherName: string) => {
+    if (!newAssignmentSubject.trim() && !newAssignmentSection.trim()) {
+      alert("يرجى كتابة اسم المادة أو الشعبة");
+      return;
+    }
+
+    let sec = newAssignmentSection.trim() || "عام";
+    if (/^\d+$/.test(sec)) {
+      sec = `شعبة ${sec}`;
+    }
+
+    const newAsg: ScheduleAssignment = {
+      id: `asg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      teacherName: teacherName,
+      subject: newAssignmentSubject.trim() || "المادة المقررة",
+      section: sec,
+    };
+
+    const updated = [...scheduleAssignments, newAsg];
+    onUpdateSchedule(updated);
+
+    try {
+      await fetch("/api/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignments: updated }),
+      });
+    } catch {}
+
+    setNewAssignmentSubject("");
+    setNewAssignmentSection("");
+  };
+
+  // Delete individual assignment from teacher
+  const handleDeleteTeacherAssignment = async (assignmentId: string) => {
+    const updated = scheduleAssignments.filter((a) => a.id !== assignmentId);
+    onUpdateSchedule(updated);
+
+    try {
+      await fetch("/api/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignments: updated }),
+      });
+    } catch {}
   };
 
   // Open Edit Teacher Modal
@@ -926,7 +1037,10 @@ export default function StudentInquiry({
               <div>
                 <select
                   value={selectedGrade}
-                  onChange={(e) => setSelectedGrade(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedGrade(e.target.value);
+                    setSelectedSection("all");
+                  }}
                   className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
                 >
                   <option value="all">جميع الصفوف الدراسية</option>
@@ -943,8 +1057,10 @@ export default function StudentInquiry({
                   onChange={(e) => setSelectedSection(e.target.value)}
                   className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
                 >
-                  <option value="all">جميع الشعب والصفوف</option>
-                  {uniqueSections.map((s) => (
+                  <option value="all">
+                    {selectedGrade === "all" ? "جميع الشعب والصفوف" : `جميع شعب ${selectedGrade}`}
+                  </option>
+                  {availableSections.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
@@ -1950,12 +2066,17 @@ export default function StudentInquiry({
 
           </div>
 
-          {/* Current Teachers Roster Table */}
+          {/* Current Teachers & Weekly Schedule Assignments Table */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-              <h3 className="text-base font-extrabold text-slate-900">
-                سجل معلمي المدرسة المعتمدين ({teachers.length} معلماً)
-              </h3>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  سجل المعلمين وتوزيع المواد والشعب المدرسية ({teachers.length} معلماً)
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  عرض المواد والشعب المسندة لكل معلم على حدة، مع إمكانية التعديل، الحذف، والتدقيق الذكي.
+                </p>
+              </div>
 
               <div className="relative w-full sm:w-64">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
@@ -1963,7 +2084,7 @@ export default function StudentInquiry({
                   type="text"
                   value={teachersSearchTerm}
                   onChange={(e) => setTeachersSearchTerm(e.target.value)}
-                  placeholder="ابحث بالاسم أو المادة..."
+                  placeholder="ابحث بالاسم أو المادة أو الشعبة..."
                   className="w-full pr-8 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all"
                 />
               </div>
@@ -1971,7 +2092,7 @@ export default function StudentInquiry({
 
             {teachers.length === 0 ? (
               <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-500">
-                لم يتم إدخال معلمين بعد. يمكنك رفع ملف إكسل أو إضافة معلم يدوياً.
+                لم يتم إدخال معلمين بعد. يمكنك رفع ملف إكسل أو إضافة معلم يدوياً مع مواده وشعبه.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1980,71 +2101,163 @@ export default function StudentInquiry({
                     <tr className="bg-slate-50 text-slate-600 font-bold">
                       <th className="p-3 rounded-r-xl">م</th>
                       <th className="p-3">اسم المعلم</th>
-                      <th className="p-3">المادة / التخصص</th>
+                      <th className="p-3">المادة / التخصص الأساسي</th>
+                      <th className="p-3">المواد والشعب المسندة بالجدول</th>
                       <th className="p-3">رقم الجوال</th>
-                      <th className="p-3 rounded-l-xl text-center">إجراء</th>
+                      <th className="p-3 rounded-l-xl text-center">إجراءات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {teachers
-                      .filter(
-                        (t) =>
-                          !teachersSearchTerm ||
-                          t.name.toLowerCase().includes(teachersSearchTerm.toLowerCase()) ||
-                          t.subject?.toLowerCase().includes(teachersSearchTerm.toLowerCase())
-                      )
-                      .map((t, idx) => (
-                        <tr key={t.id || idx} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
-                          <td className="p-3 font-extrabold text-slate-900">{t.name}</td>
-                          <td className="p-3">
-                            <span className="bg-slate-100 px-2 py-0.5 rounded-md font-bold text-slate-700">
-                              {t.subject || t.specialty || "—"}
-                            </span>
-                          </td>
-                          <td className="p-3 font-mono" dir="ltr">
-                            {t.phone ? (
-                              <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px] inline-flex items-center gap-1">
-                                <Phone className="w-3 h-3 text-emerald-600" />
-                                {t.phone}
+                      .filter((t) => {
+                        if (!teachersSearchTerm) return true;
+                        const term = teachersSearchTerm.toLowerCase();
+                        const matchName = t.name.toLowerCase().includes(term);
+                        const matchSubject = t.subject?.toLowerCase().includes(term);
+                        // Also match against assigned subjects or sections
+                        const tAssignments = scheduleAssignments.filter(
+                          (a) =>
+                            a.teacherName === t.name ||
+                            matchTeacherInRoster(a.teacherName, [t]) !== undefined
+                        );
+                        const matchAsg = tAssignments.some(
+                          (a) =>
+                            a.subject.toLowerCase().includes(term) ||
+                            a.section.toLowerCase().includes(term)
+                        );
+                        return matchName || matchSubject || matchAsg;
+                      })
+                      .map((t, idx) => {
+                        // Find all schedule assignments for this teacher (excluding non-academic duties like منتظر, نشاط, انتظار)
+                        const teacherAssignments = scheduleAssignments
+                          .filter(
+                            (a) =>
+                              (a.teacherName === t.name ||
+                              matchTeacherInRoster(a.teacherName, [t]) !== undefined) &&
+                              !isNonAcademicDuty(a.subject) &&
+                              !isNonAcademicDuty(a.section)
+                          );
+
+                        // Group unique subjects and sections for quick visual glance
+                        const uniqueSubjects = Array.from(
+                          new Set(
+                            teacherAssignments
+                              .map((a) => a.subject?.trim())
+                              .filter((s) => s && !isNonAcademicDuty(s))
+                          )
+                        );
+                        const uniqueSections = Array.from(
+                          new Set(
+                            teacherAssignments
+                              .map((a) => a.section?.trim())
+                              .filter((sec) => sec && !isNonAcademicDuty(sec))
+                          )
+                        );
+
+                        return (
+                          <tr key={t.id || idx} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
+                            <td className="p-3">
+                              <div className="font-extrabold text-slate-900">{t.name}</div>
+                              {teacherAssignments.length > 0 && (
+                                <div className="text-[10px] text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
+                                  <CheckCheck className="w-3 h-3" />
+                                  مسند له ({teacherAssignments.length}) ارتباط
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <span className="bg-slate-100 px-2 py-0.5 rounded-md font-bold text-slate-700 inline-block">
+                                {t.subject || t.specialty || "—"}
                               </span>
-                            ) : (
-                              <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md text-[10px] font-bold border border-amber-200">
-                                غير مسجل
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditTeacherModal(t)}
-                                className="text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 p-1.5 rounded-lg transition-colors cursor-pointer"
-                                title="تعديل بيانات ورقم المعلم"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!confirm(`هل أنت متأكد من رغبتك في حذف المعلم (${t.name})؟`)) return;
-                                  const updated = teachers.filter((_, i) => i !== idx);
-                                  onUpdateTeachers(updated);
-                                  fetch("/api/teachers", {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ teachers: updated }),
-                                  });
-                                }}
-                                className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
-                                title="حذف المعلم"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="p-3 max-w-xs">
+                              {teacherAssignments.length === 0 ? (
+                                <span className="text-[11px] text-slate-400 italic">
+                                  لم تُسند مواد أو شعب بعد
+                                </span>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {/* Subjects */}
+                                  <div className="flex flex-wrap gap-1 items-center">
+                                    <span className="text-[10px] font-bold text-slate-400">المواد:</span>
+                                    {uniqueSubjects.map((s, sIdx) => (
+                                      <span
+                                        key={sIdx}
+                                        className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-md border border-blue-100 text-[10px] font-bold"
+                                      >
+                                        {s}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {/* Sections */}
+                                  <div className="flex flex-wrap gap-1 items-center">
+                                    <span className="text-[10px] font-bold text-slate-400">الشعب:</span>
+                                    {uniqueSections.map((sec, secIdx) => (
+                                      <span
+                                        key={secIdx}
+                                        className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-md border border-emerald-100 text-[10px] font-bold"
+                                      >
+                                        {sec}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3 font-mono" dir="ltr">
+                              {t.phone ? (
+                                <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px] inline-flex items-center gap-1">
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  {t.phone}
+                                </span>
+                              ) : (
+                                <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md text-[10px] font-bold border border-amber-200">
+                                  غير مسجل
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setManagingScheduleTeacher(t)}
+                                  className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors cursor-pointer text-xs font-bold flex items-center gap-1 border border-blue-200 shadow-2xs"
+                                  title="إدارة وتعديل المواد والشعب المسندة لهذا المعلم"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5" />
+                                  <span>المواد والشعب</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditTeacherModal(t)}
+                                  className="text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                                  title="تعديل بيانات ورقم المعلم"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!confirm(`هل أنت متأكد من رغبتك في حذف المعلم (${t.name})؟`)) return;
+                                    const updated = teachers.filter((_, i) => i !== idx);
+                                    onUpdateTeachers(updated);
+                                    fetch("/api/teachers", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ teachers: updated }),
+                                    });
+                                  }}
+                                  className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                                  title="حذف المعلم"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -2220,13 +2433,21 @@ export default function StudentInquiry({
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: ADD MANUAL TEACHER */}
+      {/* MODAL: ADD MANUAL TEACHER WITH SUBJECTS & SECTIONS */}
       {/* ========================================================================= */}
       {showAddTeacherModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-extrabold text-slate-900">إضافة معلم جديد</h3>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">إضافة معلم جديد</h3>
+                  <p className="text-[11px] text-slate-400">إضافة معلم مع إمكانية إسناد المواد والشعب الدراسية له فوراً</p>
+                </div>
+              </div>
               <button
                 onClick={() => setShowAddTeacherModal(false)}
                 className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -2237,7 +2458,7 @@ export default function StudentInquiry({
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">اسم المعلم الثلاثي:</label>
+                <label className="block font-bold text-slate-700 mb-1">اسم المعلم الثلاثي أو الرباعي: <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   value={newTeacherData.name}
@@ -2247,31 +2468,63 @@ export default function StudentInquiry({
                 />
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">المادة / مجال التدريس:</label>
-                <input
-                  type="text"
-                  value={newTeacherData.subject}
-                  onChange={(e) => setNewTeacherData({ ...newTeacherData, subject: e.target.value })}
-                  placeholder="مثال: رياضيات، لغة عربية، فيزياء..."
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">التخصص الأساسي:</label>
+                  <input
+                    type="text"
+                    value={newTeacherData.subject}
+                    onChange={(e) => setNewTeacherData({ ...newTeacherData, subject: e.target.value })}
+                    placeholder="مثال: رياضيات / فيزياء..."
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">رقم الجوال (واتساب): <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={newTeacherData.phone}
+                    onChange={(e) => setNewTeacherData({ ...newTeacherData, phone: e.target.value })}
+                    placeholder="05XXXXXXXX"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono"
+                    dir="ltr"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">رقم الجوال (واتساب):</label>
-                <input
-                  type="text"
-                  value={newTeacherData.phone}
-                  onChange={(e) => setNewTeacherData({ ...newTeacherData, phone: e.target.value })}
-                  placeholder="05XXXXXXXX"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono"
-                  dir="ltr"
-                />
+              {/* Assignments to assign right away */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                  <span>المواد والشعب المسندة للمعلم (اختياري - يمكنك إضافتها الآن أو لاحقاً):</span>
+                </div>
+                
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">المواد التي يدرسها (افصل بفاصلة):</label>
+                  <input
+                    type="text"
+                    value={newTeacherData.assignedSubjects}
+                    onChange={(e) => setNewTeacherData({ ...newTeacherData, assignedSubjects: e.target.value })}
+                    placeholder="مثال: الفيزياء 2، الكيمياء 1"
+                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">الشعب التي يدرسها (افصل بفاصلة):</label>
+                  <input
+                    type="text"
+                    value={newTeacherData.assignedSections}
+                    onChange={(e) => setNewTeacherData({ ...newTeacherData, assignedSections: e.target.value })}
+                    placeholder="مثال: شعبة 1، شعبة 2، شعبة 5"
+                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 text-xs"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="pt-3 flex items-center justify-end gap-2">
+            <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setShowAddTeacherModal(false)}
@@ -2282,9 +2535,9 @@ export default function StudentInquiry({
               <button
                 type="button"
                 onClick={handleAddManualTeacher}
-                className="py-2.5 px-5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+                className="py-2.5 px-5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
               >
-                حفظ المعلم
+                حفظ وإسناد المعلم
               </button>
             </div>
           </div>
@@ -2365,6 +2618,163 @@ export default function StudentInquiry({
                 حفظ التعديلات
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: MANAGE TEACHER SUBJECTS & SECTIONS IN TIMETABLE */}
+      {/* ========================================================================= */}
+      {managingScheduleTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl border border-slate-200">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold border border-blue-100">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    إدارة مواد وشعب المعلم: {managingScheduleTeacher.name}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    التخصص الأساسي: {managingScheduleTeacher.subject || managingScheduleTeacher.specialty || "عام"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setManagingScheduleTeacher(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Smart Validation Banner */}
+            <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-2xl flex items-start gap-2.5 text-xs text-blue-900">
+              <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block font-bold">النظام الذكي لمطابقة المواد والشعب:</strong>
+                <span>
+                  يقوم النظام بالربط التلقائي الدقيق بين حصص المعلم وبيانات الطلاب بناءً على المواد والشعب المسجلة أدناه.
+                </span>
+              </div>
+            </div>
+
+            {/* Existing Assigned Subjects & Sections */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                <span>المواد والشعب المسندة حالياً:</span>
+                <span className="text-[11px] font-mono text-slate-400">
+                  ({scheduleAssignments.filter((a) => (a.teacherName === managingScheduleTeacher.name || matchTeacherInRoster(a.teacherName, [managingScheduleTeacher]) !== undefined) && !isNonAcademicDuty(a.subject) && !isNonAcademicDuty(a.section)).length} مادة وشعبة)
+                </span>
+              </h4>
+
+              {(() => {
+                const currentTeacherAssignments = scheduleAssignments.filter(
+                  (a) =>
+                    (a.teacherName === managingScheduleTeacher.name ||
+                    matchTeacherInRoster(a.teacherName, [managingScheduleTeacher]) !== undefined) &&
+                    !isNonAcademicDuty(a.subject) &&
+                    !isNonAcademicDuty(a.section)
+                );
+
+                if (currentTeacherAssignments.length === 0) {
+                  return (
+                    <div className="p-6 text-center bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-500">
+                      لا توجد مواد أو شعب مسندة لهذا المعلم بعد. يمكنك إضافة مادة وشعبة بالأسفل.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden max-h-60 overflow-y-auto">
+                    {currentTeacherAssignments.map((asg) => (
+                      <div
+                        key={asg.id}
+                        className="p-3 bg-white hover:bg-slate-50 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-[10px]">
+                            {asg.section.replace(/شعبة|فصل/g, "").trim() || "1"}
+                          </span>
+                          <div>
+                            <div className="font-extrabold text-slate-900">{asg.subject}</div>
+                            <div className="text-[11px] text-slate-500 font-bold">{asg.section}</div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTeacherAssignment(asg.id)}
+                          className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          title="حذف هذا الارتباط"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Add New Assignment Form */}
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 text-xs">
+              <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5 text-slate-900" />
+                <span>إسناد مادة وشعبة جديدة للمعلم:</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">اسم المادة الدراسية:</label>
+                  <input
+                    type="text"
+                    value={newAssignmentSubject}
+                    onChange={(e) => setNewAssignmentSubject(e.target.value)}
+                    placeholder="مثال: فيزياء 2، كفايات 1"
+                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">رقم الشعبة / الفصل:</label>
+                  <input
+                    type="text"
+                    value={newAssignmentSection}
+                    onChange={(e) => setNewAssignmentSection(e.target.value)}
+                    placeholder="مثال: شعبة 5 أو 5"
+                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleAddTeacherAssignment(managingScheduleTeacher.name)}
+                  className="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إضافة المادة والشعبة للمعلم</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-2 flex items-center justify-end border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setManagingScheduleTeacher(null)}
+                className="py-2.5 px-6 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+
           </div>
         </div>
       )}
