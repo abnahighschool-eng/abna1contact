@@ -77,7 +77,7 @@ export default function Sidebar({
     },
     {
       id: "teachers_schedule" as MainSectionType,
-      label: "الجدول المدرسي وكشف المعلمين",
+      label: "الجدول والمعلمون",
       shortLabel: "الجدول والمعلمون",
       icon: CalendarDays,
       description: "إدارة الحصص، كشوف المعلمين، وتوزيع المواد والشعب المدرسية",
@@ -170,7 +170,7 @@ export default function Sidebar({
         id="main-app-sidebar"
         className={`
           hidden md:block relative shrink-0 select-none transition-all duration-300 ease-in-out no-print
-          ${isCollapsed ? "w-16 sm:w-20" : "w-64 lg:w-72 xl:w-80"}
+          ${isCollapsed ? "w-16 sm:w-20" : "w-72 xl:w-80"}
         `}
       >
         {/* Box container styling */}
@@ -230,10 +230,10 @@ export default function Sidebar({
                   key={item.id}
                   id={`sidebar-nav-btn-${item.id}`}
                   onClick={() => onSelectSection(item.id)}
-                  title={isCollapsed ? item.label : undefined}
+                  title={item.label}
                   className={`
-                    w-full flex items-center rounded-xl font-bold transition-all duration-150 cursor-pointer text-right relative group
-                    ${isCollapsed ? "justify-center p-2.5" : "justify-between px-3.5 py-3.5"}
+                    w-full flex items-center rounded-xl font-bold transition-all duration-150 cursor-pointer text-right relative group overflow-hidden
+                    ${isCollapsed ? "justify-center p-2.5" : "justify-between px-3.5 py-3"}
                     ${
                       isActive
                         ? "bg-slate-900 text-white shadow-sm ring-1 ring-slate-900"
@@ -246,7 +246,7 @@ export default function Sidebar({
                     <span className="absolute right-0 top-2 bottom-2 w-1.5 bg-emerald-400 rounded-l-full" />
                   )}
 
-                  <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3"}`}>
+                  <div className={`flex items-center min-w-0 ${isCollapsed ? "justify-center" : "gap-2.5 flex-1"}`}>
                     <div
                       className={`
                         w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors relative
@@ -268,14 +268,14 @@ export default function Sidebar({
                     </div>
 
                     {!isCollapsed && (
-                      <div className="text-right min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold whitespace-nowrap leading-relaxed block">
+                      <div className="text-right min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold truncate leading-relaxed block" title={item.label}>
                             {item.label}
                           </span>
                           {item.statusDot && (
                             <span
-                              className={`w-2.5 h-2.5 rounded-full ${item.statusDot} animate-pulse shrink-0`}
+                              className={`w-2 h-2 rounded-full ${item.statusDot} animate-pulse shrink-0`}
                               title={isWhatsAppConnected ? "واتساب متصل" : "واتساب غير متصل"}
                             />
                           )}
@@ -284,9 +284,9 @@ export default function Sidebar({
                     )}
                   </div>
 
-                  {/* Badges & Arrow */}
+                  {/* Badges & Arrow - strictly aligned on the left edge in RTL */}
                   {!isCollapsed && (
-                    <div className="flex items-center gap-1.5 shrink-0 mr-1">
+                    <div className="flex items-center gap-2 shrink-0 ms-2">
                       {item.badge && (
                         <span
                           className={`text-[11px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
