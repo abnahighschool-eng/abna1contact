@@ -255,6 +255,9 @@ export async function syncServerStateToFirestore(state: {
   teachersList?: any[];
   scheduleAssignments?: any[];
   inquiryRequests?: any[];
+  healthProfiles?: any;
+  supportCases?: any[];
+  healthAuditLogs?: any[];
 }): Promise<void> {
   if (isServerQuotaLimited()) return;
 

@@ -13,6 +13,7 @@ import {
   loadServerStateFromFirestore,
 } from "./src/serverFirebase";
 import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
+import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -446,6 +447,9 @@ const ATTENDANCE_FILE = path.join(process.cwd(), "attendance_store.json");
 const TEACHERS_FILE = path.join(process.cwd(), "teachers_store.json");
 const SCHEDULE_FILE = path.join(process.cwd(), "schedule_store.json");
 const INQUIRIES_FILE = path.join(process.cwd(), "inquiries_store.json");
+const HEALTH_PROFILES_FILE = path.join(process.cwd(), "health_profiles_store.json");
+const SUPPORT_CASES_FILE = path.join(process.cwd(), "support_cases_store.json");
+const HEALTH_AUDIT_FILE = path.join(process.cwd(), "health_audit_store.json");
 
 // Default initial school settings
 let appSettings = {
@@ -468,6 +472,9 @@ let attendanceRecordsStore: Record<string, Record<string, any>> = {};
 let teachersList: any[] = [...DEFAULT_SAMPLE_TEACHERS];
 let scheduleAssignments: any[] = [...DEFAULT_SAMPLE_SCHEDULE];
 let inquiryRequestsStore: any[] = [];
+let healthProfilesStore: Record<string, any> = {};
+let supportCasesStore: any[] = [];
+let healthAuditLogsStore: any[] = [];
 
 let systemUsersList: any[] = [
   {
@@ -538,6 +545,36 @@ if (fs.existsSync(INQUIRIES_FILE)) {
     if (Array.isArray(parsed)) inquiryRequestsStore = parsed;
   } catch (e) {
     console.error("Error reading inquiries_store.json", e);
+  }
+}
+
+if (fs.existsSync(HEALTH_PROFILES_FILE)) {
+  try {
+    const raw = fs.readFileSync(HEALTH_PROFILES_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") healthProfilesStore = parsed;
+  } catch (e) {
+    console.error("Error reading health_profiles_store.json", e);
+  }
+}
+
+if (fs.existsSync(SUPPORT_CASES_FILE)) {
+  try {
+    const raw = fs.readFileSync(SUPPORT_CASES_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) supportCasesStore = parsed;
+  } catch (e) {
+    console.error("Error reading support_cases_store.json", e);
+  }
+}
+
+if (fs.existsSync(HEALTH_AUDIT_FILE)) {
+  try {
+    const raw = fs.readFileSync(HEALTH_AUDIT_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) healthAuditLogsStore = parsed;
+  } catch (e) {
+    console.error("Error reading health_audit_store.json", e);
   }
 }
 
@@ -682,6 +719,33 @@ function saveInquiryRequests() {
     syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
   } catch (e) {
     console.error("Error saving inquiries_store.json", e);
+  }
+}
+
+function saveHealthProfiles() {
+  try {
+    fs.writeFileSync(HEALTH_PROFILES_FILE, JSON.stringify(healthProfilesStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ healthProfiles: healthProfilesStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving health_profiles_store.json", e);
+  }
+}
+
+function saveSupportCases() {
+  try {
+    fs.writeFileSync(SUPPORT_CASES_FILE, JSON.stringify(supportCasesStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ supportCases: supportCasesStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving support_cases_store.json", e);
+  }
+}
+
+function saveHealthAuditLogs() {
+  try {
+    fs.writeFileSync(HEALTH_AUDIT_FILE, JSON.stringify(healthAuditLogsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ healthAuditLogs: healthAuditLogsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving health_audit_store.json", e);
   }
 }
 
@@ -1062,6 +1126,240 @@ app.post("/api/inquiries/public/submit", (req, res) => {
     console.error("Error submitting inquiry evaluations:", err);
     res.status(500).json({ error: err.message || "حدث خطأ أثناء حفظ التقييم" });
   }
+});
+
+// =======================================================
+// STUDENT HEALTH & SUPPORT TRACKER ENDPOINTS
+// =======================================================
+
+// 1. Get all student support profiles
+app.get("/api/health-tracker/profiles", (req, res) => {
+  res.json({
+    success: true,
+    profiles: healthProfilesStore,
+    total: Object.keys(healthProfilesStore).length,
+  });
+});
+
+// 2. Get profile by token (For parent portal)
+app.get("/api/health-tracker/token/:token", (req, res) => {
+  const { token } = req.params;
+  if (!token) {
+    return res.status(400).json({ error: "الرمز غير صالح" });
+  }
+
+  // Find profile by activationToken
+  let profile = Object.values(healthProfilesStore).find((p: any) => p.activationToken === token);
+
+  // If not found in healthProfilesStore, look in activeStudentsList
+  if (!profile) {
+    let studentId = "";
+    if (token.startsWith("ht_")) {
+      studentId = token.replace("ht_", "");
+    }
+    const student = activeStudentsList.find((s: any) => s.id === studentId || s.id === token || s.nationalId === token);
+
+    if (student) {
+      const indicators = calculateStudentIndicators({});
+      profile = {
+        studentId: student.id,
+        studentName: student.name || "طالب غير مسمى",
+        nationalId: student.nationalId || student.id,
+        grade: student.grade || "المرحلة الثانوية",
+        className: student.className || "1",
+        guardianName: student.guardianName || student.fatherName || "ولي الأمر",
+        guardianPhone: student.phone || "",
+        activationToken: token,
+        isActivated: false,
+        completionPercentage: 0,
+        status: "not_started",
+        basicInfoConfirmed: false,
+        hasChronicCondition: "unknown",
+        conditionTypes: [],
+        schoolImpacts: [],
+        takesRegularMedication: "unknown",
+        hasAllergies: "unknown",
+        emotionalObservations: {
+          isolation: "unknown",
+          anxiety: "unknown",
+          irritability: "unknown",
+          sleepDisturbance: "unknown",
+          appetiteChange: "unknown",
+          concentrationDifficulty: "unknown",
+          lowMotivation: "unknown",
+          lossOfInterest: "unknown",
+          fatigueComplaints: "unknown",
+        },
+        behaviorDifficulties: {
+          followingInstructions: "unknown",
+          emotionalRegulation: "unknown",
+          peerInteraction: "unknown",
+          waitingTurn: "unknown",
+          focus: "unknown",
+          completingTasks: "unknown",
+          activityTransitions: "unknown",
+          expressingNeeds: "unknown",
+          handlingCriticism: "unknown",
+          handlingChange: "unknown",
+        },
+        learningDifficulties: [],
+        helpfulLearningStrategies: [],
+        hasFamilyCircumstances: "unknown",
+        hasConfidentialNote: "no",
+        peerRelationshipQuality: "unknown",
+        negativeExperiences: [],
+        supportPreferences: [],
+        privacyConsentAccepted: false,
+        source: "guardian",
+        timeline: [],
+        indicators,
+        overallPriority: "low",
+      };
+      healthProfilesStore[student.id] = profile;
+      saveHealthProfiles();
+    }
+  }
+
+  if (!profile) {
+    return res.status(404).json({ error: "عفواً، رابط الاستمارة هذا غير صالح أو لم يتم العثور على سجل الطالب." });
+  }
+
+  res.json({
+    success: true,
+    profile,
+  });
+});
+
+// 3. Verify & lock guardian phone number for token
+app.post("/api/health-tracker/token/verify-phone", (req, res) => {
+  const { token, phone } = req.body || {};
+  if (!token || !phone) {
+    return res.status(400).json({ error: "يرجى تزويد رمز الاستمارة ورقم الجوال" });
+  }
+
+  const cleanPhone = String(phone).replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+
+  let profile = Object.values(healthProfilesStore).find((p: any) => p.activationToken === token);
+  if (!profile) {
+    return res.status(404).json({ error: "رابط الاستمارة غير موجود" });
+  }
+
+  // If already activated, only allow the SAME phone that activated it first
+  if (profile.isActivated && profile.activatedPhone) {
+    const cleanStored = String(profile.activatedPhone).replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+    
+    // Normalize last 9 digits for international/local formats (e.g. 05XXXXXXXX vs 9665XXXXXXXX)
+    const normInput = cleanPhone.slice(-9);
+    const normStored = cleanStored.slice(-9);
+
+    if (normInput !== normStored) {
+      return res.status(403).json({
+        error: "عفواً، هذا الرابط مخصص ومقترن برقم جوال ولي الأمر الذي قام بتفعيله لأول مرة. لا يمكن التحديث أو التعديل إلا من نفس رقم الجوال المعتمد حفظاً لخصوصية الطالب.",
+        isPhoneMismatch: true,
+      });
+    }
+  } else {
+    // First-time activation: lock phone
+    profile.isActivated = true;
+    profile.activatedPhone = cleanPhone;
+    profile.activatedAt = new Date().toISOString();
+    healthProfilesStore[profile.studentId] = profile;
+    saveHealthProfiles();
+  }
+
+  res.json({
+    success: true,
+    message: "تم التحقق من رقم الجوال والترخيص بالوصول",
+    profile,
+  });
+});
+
+// 4. Save/Submit Student Support Profile
+app.post("/api/health-tracker/submit", (req, res) => {
+  const { profile } = req.body || {};
+  if (!profile || !profile.studentId) {
+    return res.status(400).json({ error: "بيانات الاستمارة غير مكتملة" });
+  }
+
+  const existing = healthProfilesStore[profile.studentId];
+  if (existing?.isActivated && existing?.activatedPhone) {
+    const cleanExisting = String(existing.activatedPhone).replace(/[^0-9]/g, "").slice(-9);
+    const cleanIncoming = String(profile.activatedPhone || profile.guardianPhone || "").replace(/[^0-9]/g, "").slice(-9);
+
+    if (cleanIncoming && cleanIncoming !== cleanExisting) {
+      return res.status(403).json({
+        error: "لا يمكن حفظ التعديلات إلا من نفس رقم جوال ولي الأمر المرخص له.",
+      });
+    }
+  }
+
+  // Calculate indicators & overall priority via Rules Engine
+  const calculatedIndicators = calculateStudentIndicators(profile);
+  const overallPriority = calculateOverallPriority(calculatedIndicators);
+
+  const updatedProfile = {
+    ...profile,
+    indicators: calculatedIndicators,
+    overallPriority,
+    lastUpdatedAt: new Date().toISOString(),
+  };
+
+  healthProfilesStore[profile.studentId] = updatedProfile;
+  saveHealthProfiles();
+
+  res.json({
+    success: true,
+    message: "تم حفظ وتحديث استمارة الدعم بنجاح",
+    profile: updatedProfile,
+  });
+});
+
+// 5. Case Management Endpoints
+app.get("/api/health-tracker/cases", (req, res) => {
+  res.json({
+    success: true,
+    cases: supportCasesStore,
+  });
+});
+
+app.post("/api/health-tracker/cases", (req, res) => {
+  const { supportCase } = req.body || {};
+  if (!supportCase || !supportCase.id) {
+    return res.status(400).json({ error: "بيانات الحالة غير مكتملة" });
+  }
+
+  const index = supportCasesStore.findIndex((c: any) => c.id === supportCase.id);
+  if (index >= 0) {
+    supportCasesStore[index] = { ...supportCasesStore[index], ...supportCase, updatedAt: new Date().toISOString() };
+  } else {
+    supportCasesStore.unshift({ ...supportCase, updatedAt: new Date().toISOString() });
+  }
+
+  saveSupportCases();
+  res.json({ success: true, case: supportCase });
+});
+
+// 6. Audit Log Endpoints
+app.get("/api/health-tracker/audit-logs", (req, res) => {
+  res.json({
+    success: true,
+    logs: healthAuditLogsStore.slice(0, 500),
+  });
+});
+
+app.post("/api/health-tracker/audit-logs", (req, res) => {
+  const { log } = req.body || {};
+  if (log) {
+    const entry = {
+      id: log.id || `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      ...log,
+    };
+    healthAuditLogsStore.unshift(entry);
+    if (healthAuditLogsStore.length > 2000) healthAuditLogsStore = healthAuditLogsStore.slice(0, 2000);
+    saveHealthAuditLogs();
+  }
+  res.json({ success: true });
 });
 
 // Dedicated Year-Long Academic Attendance Storage Endpoints
@@ -1950,6 +2248,21 @@ async function startServer() {
         }
         if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
           individualLogs.push(...cloudState.individualLogs);
+        }
+        if (cloudState.healthProfiles && Object.keys(cloudState.healthProfiles).length > 0) {
+          if (Object.keys(healthProfilesStore).length === 0) {
+            healthProfilesStore = cloudState.healthProfiles;
+          }
+        }
+        if (Array.isArray(cloudState.supportCases) && cloudState.supportCases.length > 0) {
+          if (supportCasesStore.length === 0) {
+            supportCasesStore = cloudState.supportCases;
+          }
+        }
+        if (Array.isArray(cloudState.healthAuditLogs) && cloudState.healthAuditLogs.length > 0) {
+          if (healthAuditLogsStore.length === 0) {
+            healthAuditLogsStore = cloudState.healthAuditLogs;
+          }
         }
         console.log("[Firebase] System state successfully synchronized from Firestore.");
       }

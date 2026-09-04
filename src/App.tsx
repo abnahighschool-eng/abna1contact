@@ -38,6 +38,9 @@ import UserManagement from "./components/UserManagement";
 import StudentInquiry from "./components/StudentInquiry";
 import TeachersScheduleManager from "./components/TeachersScheduleManager";
 import TeacherEvaluationPortal from "./components/TeacherEvaluationPortal";
+import StudentHealthTracker from "./components/StudentHealthTracker";
+import ParentStudentSupportPortal from "./components/ParentStudentSupportPortal";
+import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types/studentSupport";
 import { Student, WhatsAppConfig, SchoolSignatories, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
 import { 
   loadInitialAppData, 
@@ -195,6 +198,42 @@ export default function App() {
     return [];
   });
 
+  // Direct Parent Student Support Portal URL parameter (?health_token=<token> or ?support_token=<token> or ?token=<token>)
+  const [parentHealthToken, setParentHealthToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("health_token") || params.get("support_token") || params.get("token");
+    }
+    return null;
+  });
+
+  const [supportProfiles, setSupportProfiles] = useState<Record<string, StudentSupportProfile>>(() => {
+    const saved = localStorage.getItem("abna_support_profiles");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return {};
+  });
+
+  const [supportCases, setSupportCases] = useState<SupportCase[]>(() => {
+    const saved = localStorage.getItem("abna_support_cases");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [];
+  });
+
+  const [healthAuditLogs, setHealthAuditLogs] = useState<HealthAuditLog[]>([]);
+
   // Debounced cloud sync timer ref for template edits
   const templateSyncTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -324,6 +363,37 @@ export default function App() {
           setInquiryRequests(data.inquiries);
           localStorage.setItem("abna_inquiry_requests", JSON.stringify(data.inquiries));
         }
+      }
+
+      // Fetch Health Tracker data
+      try {
+        const hRes = await fetch("/api/health-tracker/profiles");
+        if (hRes.ok) {
+          const hData = await hRes.json();
+          if (hData.success && hData.profiles) {
+            setSupportProfiles(prev => ({ ...prev, ...hData.profiles }));
+            localStorage.setItem("abna_support_profiles", JSON.stringify(hData.profiles));
+          }
+        }
+
+        const cRes = await fetch("/api/health-tracker/cases");
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          if (cData.success && Array.isArray(cData.cases)) {
+            setSupportCases(cData.cases);
+            localStorage.setItem("abna_support_cases", JSON.stringify(cData.cases));
+          }
+        }
+
+        const aRes = await fetch("/api/health-tracker/audit-logs");
+        if (aRes.ok) {
+          const aData = await aRes.json();
+          if (aData.success && Array.isArray(aData.logs)) {
+            setHealthAuditLogs(aData.logs);
+          }
+        }
+      } catch (err) {
+        console.error("Could not fetch health tracker state", err);
       }
     } catch (e) {
       console.error("Could not fetch remote app-state", e);
@@ -493,6 +563,93 @@ export default function App() {
     saveInquiriesDataToCloud(newInquiries).catch(() => {});
   };
 
+  const handleSaveSupportProfile = async (profile: StudentSupportProfile): Promise<boolean> => {
+    try {
+      setSupportProfiles((prev) => {
+        const next = { ...prev, [profile.studentId]: profile };
+        localStorage.setItem("abna_support_profiles", JSON.stringify(next));
+        return next;
+      });
+
+      const res = await fetch("/api/health-tracker/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile }),
+      });
+      const data = await res.json();
+      return data.success === true;
+    } catch (e) {
+      console.error("Error saving support profile", e);
+      return false;
+    }
+  };
+
+  const handleSaveSupportCase = async (supportCase: SupportCase): Promise<boolean> => {
+    try {
+      setSupportCases((prev) => {
+        const idx = prev.findIndex((c) => c.id === supportCase.id);
+        const next = idx >= 0 ? [...prev] : [supportCase, ...prev];
+        if (idx >= 0) next[idx] = supportCase;
+        localStorage.setItem("abna_support_cases", JSON.stringify(next));
+        return next;
+      });
+
+      const res = await fetch("/api/health-tracker/cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supportCase }),
+      });
+      const data = await res.json();
+      return data.success === true;
+    } catch (e) {
+      console.error("Error saving support case", e);
+      return false;
+    }
+  };
+
+  const handleLogHealthAudit = async (
+    action: "view" | "edit" | "print", 
+    dataType: HealthAuditLog["dataType"], 
+    reason: string,
+    studentId?: string,
+    studentName?: string
+  ) => {
+    const newLog: HealthAuditLog = {
+      id: `audit_${Date.now()}`,
+      userId: currentUser?.id || "unknown",
+      userName: currentUser?.name || "مستخدم",
+      userRole: currentUser?.role || "admin",
+      studentId,
+      studentName,
+      action,
+      dataType,
+      reason,
+      timestamp: new Date().toISOString(),
+    };
+
+    setHealthAuditLogs((prev) => [newLog, ...prev.slice(0, 500)]);
+
+    fetch("/api/health-tracker/audit-logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ log: newLog }),
+    }).catch(() => {});
+  };
+
+  const handleSendWhatsAppDirect = async (phone: string, message: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/send-individual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, message }),
+      });
+      const data = await res.json();
+      return { success: data.success === true, error: data.error };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  };
+
   const isWhatsAppConnected = (config as any).isConnected === true && (config.realStatus === "connected" || config.simulatedStatus === "connected");
 
   // Direct Teacher Evaluation Portal (Accessed directly via WhatsApp link)
@@ -502,6 +659,20 @@ export default function App() {
         inquiryId={evaluationInquiryId}
         onClose={() => {
           setEvaluationInquiryId(null);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+      />
+    );
+  }
+
+  // Direct Parent Student Support Portal (Accessed directly via WhatsApp token link)
+  if (parentHealthToken) {
+    return (
+      <ParentStudentSupportPortal
+        token={parentHealthToken}
+        onSaveProfile={handleSaveSupportProfile}
+        onExit={() => {
+          setParentHealthToken(null);
           window.history.replaceState({}, document.title, window.location.pathname);
         }}
       />
@@ -803,6 +974,7 @@ export default function App() {
               onNavigateToAttendance={() => setMainSection("attendance")}
               onNavigateToTeachersSchedule={() => setMainSection("teachers_schedule")}
               onNavigateToInquiry={() => setMainSection("inquiry")}
+              onNavigateToHealthTracker={() => setMainSection("health_tracker")}
               onOpenSignatoriesConfig={() => setShowSignatoriesConfig(true)}
             />
           )}
@@ -978,7 +1150,22 @@ export default function App() {
             />
           )}
 
-          {/* 5. Main Section: Admin & User Management */}
+          {/* 5. Main Section: Student Health & Support Tracker (المتابعة الصحية للطالب) */}
+          {mainSection === "health_tracker" && (
+            <StudentHealthTracker
+              students={students}
+              supportProfiles={supportProfiles}
+              onSaveProfile={handleSaveSupportProfile}
+              cases={supportCases}
+              onSaveCase={handleSaveSupportCase}
+              auditLogs={healthAuditLogs}
+              onLogAudit={handleLogHealthAudit}
+              onSendWhatsAppDirect={handleSendWhatsAppDirect}
+              schoolName={signatories.schoolName || "ثانوية الأبناء الأولى"}
+            />
+          )}
+
+          {/* 6. Main Section: Admin & User Management */}
           {mainSection === "admin" && currentUser.role === "admin" && (
             <UserManagement
               users={users}

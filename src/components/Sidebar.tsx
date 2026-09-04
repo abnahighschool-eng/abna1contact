@@ -13,11 +13,12 @@ import {
   Menu,
   X,
   UserCheck,
-  CalendarDays
+  CalendarDays,
+  HeartPulse
 } from "lucide-react";
 import { AppUser } from "../types";
 
-export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "admin";
+export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "health_tracker" | "admin";
 
 interface SidebarProps {
   currentSection: MainSectionType;
@@ -108,6 +109,15 @@ export default function Sidebar({
       shortLabel: "الاستعلام",
       icon: UserCheck,
       description: "إرسال طلبات تقييم واستعلام المعلمين عن الطلاب",
+      badge: null,
+      statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
+    },
+    {
+      id: "health_tracker" as MainSectionType,
+      label: "المتابعة الصحية للطالب",
+      shortLabel: "المتابعة الصحية",
+      icon: HeartPulse,
+      description: "ملف دعم ورعاية الطالب، الاستمارة الذكية لولي الأمر، ومتابعة الحالات",
       badge: null,
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
     },

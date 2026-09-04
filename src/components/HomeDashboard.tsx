@@ -18,7 +18,8 @@ import {
   Zap,
   Users,
   CalendarDays,
-  UserCheck
+  UserCheck,
+  HeartPulse
 } from "lucide-react";
 import { Student, SchoolSignatories, WhatsAppConfig } from "../types";
 
@@ -31,6 +32,7 @@ interface HomeDashboardProps {
   onNavigateToAttendance: () => void;
   onNavigateToTeachersSchedule?: () => void;
   onNavigateToInquiry?: () => void;
+  onNavigateToHealthTracker?: () => void;
   onOpenSignatoriesConfig: () => void;
 }
 
@@ -43,6 +45,7 @@ export default function HomeDashboard({
   onNavigateToAttendance,
   onNavigateToTeachersSchedule,
   onNavigateToInquiry,
+  onNavigateToHealthTracker,
   onOpenSignatoriesConfig,
 }: HomeDashboardProps) {
   const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;
@@ -323,6 +326,40 @@ export default function HomeDashboard({
                 className="mt-4 w-full py-2.5 px-4 rounded-xl bg-emerald-900 text-white hover:bg-emerald-800 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <span>فتح قسم الاستعلام عن طالب</span>
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Section 5: المتابعة الصحية للطالب */}
+          {onNavigateToHealthTracker && (
+            <div className="border border-rose-200/80 rounded-2xl p-5 hover:border-rose-300 transition-all bg-rose-50/30 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-700 text-white flex items-center justify-center">
+                      <HeartPulse className="w-5 h-5 text-rose-200" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">المتابعة الصحية للطالب</h3>
+                      <p className="text-xs text-slate-500">استمارة الدعم الشامل وروابط أولياء الأمور</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-100 text-rose-800">
+                    رعاية ومتابعة
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed mt-2">
+                  إرسال استمارات الدعم الصحي والتعليمي والنفسي لأولياء الأمور عبر واتساب مع حماية كاملة برقم الجوال ومحرك مؤشرات ذكي.
+                </p>
+              </div>
+
+              <button
+                onClick={onNavigateToHealthTracker}
+                className="mt-4 w-full py-2.5 px-4 rounded-xl bg-rose-700 text-white hover:bg-rose-800 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>فتح المتابعة الصحية للطالب</span>
                 <ArrowLeft className="w-3.5 h-3.5" />
               </button>
             </div>
