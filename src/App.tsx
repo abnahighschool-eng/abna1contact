@@ -636,17 +636,26 @@ export default function App() {
     }).catch(() => {});
   };
 
-  const handleSendWhatsAppDirect = async (phone: string, message: string): Promise<{ success: boolean; error?: string }> => {
+  const handleSendWhatsAppDirect = async (
+    phone: string, 
+    message: string,
+    studentName?: string,
+    grade?: string,
+    className?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await fetch("/api/send-individual", {
+      const res = await fetch("/api/whatsapp/send-single", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, message }),
+        body: JSON.stringify({ phone, message, studentName, grade, className }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data.error || "تعذر إرسال الرسالة عبر خادم الواتساب" };
+      }
       return { success: data.success === true, error: data.error };
     } catch (e: any) {
-      return { success: false, error: e.message };
+      return { success: false, error: e.message || "خطأ في الاتصال بالخادم" };
     }
   };
 
@@ -1162,6 +1171,11 @@ export default function App() {
               onLogAudit={handleLogHealthAudit}
               onSendWhatsAppDirect={handleSendWhatsAppDirect}
               schoolName={signatories.schoolName || "ثانوية الأبناء الأولى"}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onNavigateToWhatsApp={() => {
+                setMainSection("messages");
+                setActiveTab("connection");
+              }}
             />
           )}
 

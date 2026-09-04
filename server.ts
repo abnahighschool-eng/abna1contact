@@ -1994,7 +1994,7 @@ app.post("/api/whatsapp/campaign/:id/resume", (req, res) => {
 });
 
 // Single Message Send Endpoint
-app.post(["/api/whatsapp/send-single", "/api/whatsapp/send"], async (req, res) => {
+app.post(["/api/whatsapp/send-single", "/api/whatsapp/send", "/api/send-individual"], async (req, res) => {
   const { phone, message, studentName, grade, className } = req.body;
   if (!phone || !message) {
     return res.status(400).json({ error: "يرجى تحديد رقم الجوال ونص الرسالة" });
