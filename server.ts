@@ -519,7 +519,13 @@ if (fs.existsSync(SCHEDULE_FILE)) {
   try {
     const raw = fs.readFileSync(SCHEDULE_FILE, "utf-8");
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) scheduleAssignments = parsed;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      scheduleAssignments = parsed.filter((a: any) => {
+        if (a?.id && String(a.id).includes("_34_")) return false;
+        const sec = (a?.section || "").trim();
+        return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+      });
+    }
   } catch (e) {
     console.error("Error reading schedule_store.json", e);
   }
@@ -780,7 +786,11 @@ app.get("/api/schedule", (req, res) => {
 app.post("/api/schedule", (req, res) => {
   const { assignments } = req.body || {};
   if (Array.isArray(assignments)) {
-    scheduleAssignments = assignments;
+    scheduleAssignments = assignments.filter((a: any) => {
+      if (a?.id && String(a.id).includes("_34_")) return false;
+      const sec = (a?.section || "").trim();
+      return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+    });
     saveScheduleAssignments();
   }
   res.json({ success: true, count: scheduleAssignments.length, assignments: scheduleAssignments });

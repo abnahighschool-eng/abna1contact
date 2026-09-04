@@ -36,6 +36,7 @@ import AttendanceSystem from "./components/AttendanceSystem";
 import LoginScreen from "./components/LoginScreen";
 import UserManagement from "./components/UserManagement";
 import StudentInquiry from "./components/StudentInquiry";
+import TeachersScheduleManager from "./components/TeachersScheduleManager";
 import TeacherEvaluationPortal from "./components/TeacherEvaluationPortal";
 import { Student, WhatsAppConfig, SchoolSignatories, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
 import { 
@@ -166,7 +167,14 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Filter out any stale quota items from Column AI (such as section 12 or 18)
+          return parsed.filter((a: ScheduleAssignment) => {
+            if (a.id && a.id.includes("_34_")) return false;
+            const sec = (a.section || "").trim();
+            return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+          });
+        }
       } catch (e) {
         console.error(e);
       }
@@ -266,8 +274,13 @@ export default function App() {
         localStorage.setItem("abna_teachers_roster", JSON.stringify(cloudData.teachers));
       }
       if (Array.isArray(cloudData.scheduleAssignments) && cloudData.scheduleAssignments.length > 0) {
-        setScheduleAssignments(cloudData.scheduleAssignments);
-        localStorage.setItem("abna_school_schedule", JSON.stringify(cloudData.scheduleAssignments));
+        const cleanCloudSchedule = cloudData.scheduleAssignments.filter((a: ScheduleAssignment) => {
+          if (a.id && a.id.includes("_34_")) return false;
+          const sec = (a.section || "").trim();
+          return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+        });
+        setScheduleAssignments(cleanCloudSchedule);
+        localStorage.setItem("abna_school_schedule", JSON.stringify(cleanCloudSchedule));
       }
       if (Array.isArray(cloudData.inquiryRequests) && cloudData.inquiryRequests.length > 0) {
         setInquiryRequests(cloudData.inquiryRequests);
@@ -299,8 +312,13 @@ export default function App() {
           localStorage.setItem("abna_teachers_roster", JSON.stringify(data.teachers));
         }
         if (Array.isArray(data.schedule) && data.schedule.length > 0 && (!cloudData.scheduleAssignments || cloudData.scheduleAssignments.length === 0)) {
-          setScheduleAssignments(data.schedule);
-          localStorage.setItem("abna_school_schedule", JSON.stringify(data.schedule));
+          const cleanServerSchedule = data.schedule.filter((a: ScheduleAssignment) => {
+            if (a.id && a.id.includes("_34_")) return false;
+            const sec = (a.section || "").trim();
+            return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+          });
+          setScheduleAssignments(cleanServerSchedule);
+          localStorage.setItem("abna_school_schedule", JSON.stringify(cleanServerSchedule));
         }
         if (Array.isArray(data.inquiries) && data.inquiries.length > 0) {
           setInquiryRequests(data.inquiries);
@@ -760,6 +778,7 @@ export default function App() {
           currentSection={mainSection}
           onSelectSection={(sec) => setMainSection(sec)}
           studentsCount={students.length}
+          teachersCount={teachers.length}
           isWhatsAppConnected={isWhatsAppConnected}
           currentUser={currentUser}
           schoolName={signatories.schoolName}
@@ -774,6 +793,7 @@ export default function App() {
           {mainSection === "home" && (
             <HomeDashboard
               students={students}
+              teachersCount={teachers.length}
               signatories={signatories}
               config={config}
               onNavigateToMessages={(tab) => {
@@ -781,7 +801,27 @@ export default function App() {
                 if (tab) setActiveTab(tab);
               }}
               onNavigateToAttendance={() => setMainSection("attendance")}
+              onNavigateToTeachersSchedule={() => setMainSection("teachers_schedule")}
+              onNavigateToInquiry={() => setMainSection("inquiry")}
               onOpenSignatoriesConfig={() => setShowSignatoriesConfig(true)}
+            />
+          )}
+
+          {/* 2. Main Section: Teachers Registry & School Schedule (Placed under Home) */}
+          {mainSection === "teachers_schedule" && (
+            <TeachersScheduleManager
+              teachers={teachers}
+              scheduleAssignments={scheduleAssignments}
+              students={students}
+              onUpdateTeachers={handleUpdateTeachers}
+              onUpdateSchedule={handleUpdateSchedule}
+              schoolSignatories={signatories}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onNavigateToInquiry={() => setMainSection("inquiry")}
+              onNavigateToMessages={() => {
+                setMainSection("messages");
+                setActiveTab("connection");
+              }}
             />
           )}
 
@@ -934,6 +974,7 @@ export default function App() {
                 setMainSection("messages");
                 setActiveTab("connection");
               }}
+              onNavigateToTeachersSchedule={() => setMainSection("teachers_schedule")}
             />
           )}
 

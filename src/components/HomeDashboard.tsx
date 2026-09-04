@@ -16,25 +16,33 @@ import {
   Building,
   ShieldCheck,
   Zap,
-  Users
+  Users,
+  CalendarDays,
+  UserCheck
 } from "lucide-react";
 import { Student, SchoolSignatories, WhatsAppConfig } from "../types";
 
 interface HomeDashboardProps {
   students: Student[];
+  teachersCount?: number;
   signatories: SchoolSignatories;
   config: WhatsAppConfig;
   onNavigateToMessages: (subTab?: "connection" | "upload" | "send" | "individual" | "reports") => void;
   onNavigateToAttendance: () => void;
+  onNavigateToTeachersSchedule?: () => void;
+  onNavigateToInquiry?: () => void;
   onOpenSignatoriesConfig: () => void;
 }
 
 export default function HomeDashboard({
   students,
+  teachersCount = 0,
   signatories,
   config,
   onNavigateToMessages,
   onNavigateToAttendance,
+  onNavigateToTeachersSchedule,
+  onNavigateToInquiry,
   onOpenSignatoriesConfig,
 }: HomeDashboardProps) {
   const isWhatsAppConnected = config.simulatedStatus === "connected" || (config as any).isConnected === true;
@@ -251,6 +259,74 @@ export default function HomeDashboard({
               <ArrowLeft className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* Section 3: الجدول المدرسي وكشف المعلمين */}
+          {onNavigateToTeachersSchedule && (
+            <div className="border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-all bg-purple-50/40 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-purple-900 text-white flex items-center justify-center">
+                      <CalendarDays className="w-5 h-5 text-purple-300" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">الجدول المدرسي وكشف المعلمين</h3>
+                      <p className="text-xs text-slate-500">إدارة الحصص، كشوف المعلمين، وتوزيع الشعب</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-800">
+                    {teachersCount > 0 ? `${teachersCount} معلماً` : "جدول الحصص"}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed mt-2">
+                  منظومة متكاملة لربط كشوف المعلمين بالجدول المدرسي وتوزيع المواد والأنصبة مع المعاينة التفاعلية والطباعة الرسمية المعتمدة.
+                </p>
+              </div>
+
+              <button
+                onClick={onNavigateToTeachersSchedule}
+                className="mt-4 w-full py-2.5 px-4 rounded-xl bg-purple-900 text-white hover:bg-purple-800 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>فتح الجدول المدرسي وكشف المعلمين</span>
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Section 4: الاستعلام عن طالب */}
+          {onNavigateToInquiry && (
+            <div className="border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-all bg-emerald-50/40 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-900 text-white flex items-center justify-center">
+                      <UserCheck className="w-5 h-5 text-emerald-300" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">الاستعلام عن طالب</h3>
+                      <p className="text-xs text-slate-500">استعلام المعلمين عن درجات وسلوك الطلاب</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                    استعلام تفاعلي
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed mt-2">
+                  إرسال روابط تقييم واستعلام آلية لمعلمي الطالب عبر واتساب مع جمع الردود وإصدار التقارير التجميعية الشاملة.
+                </p>
+              </div>
+
+              <button
+                onClick={onNavigateToInquiry}
+                className="mt-4 w-full py-2.5 px-4 rounded-xl bg-emerald-900 text-white hover:bg-emerald-800 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>فتح قسم الاستعلام عن طالب</span>
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
         </div>
       </div>

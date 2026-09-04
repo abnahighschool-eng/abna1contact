@@ -12,16 +12,18 @@ import {
   Users,
   Menu,
   X,
-  UserCheck
+  UserCheck,
+  CalendarDays
 } from "lucide-react";
 import { AppUser } from "../types";
 
-export type MainSectionType = "home" | "messages" | "attendance" | "inquiry" | "admin";
+export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "admin";
 
 interface SidebarProps {
   currentSection: MainSectionType;
   onSelectSection: (section: MainSectionType) => void;
   studentsCount: number;
+  teachersCount?: number;
   isWhatsAppConnected: boolean;
   currentUser?: AppUser | null;
   schoolName?: string;
@@ -33,6 +35,7 @@ export default function Sidebar({
   currentSection,
   onSelectSection,
   studentsCount,
+  teachersCount = 0,
   isWhatsAppConnected,
   currentUser,
   schoolName = "ثانوية الأبناء الأولى",
@@ -43,6 +46,7 @@ export default function Sidebar({
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   const isCollapsed = externalIsCollapsed !== undefined ? externalIsCollapsed : internalCollapsed;
+
   const toggleCollapse = () => {
     if (externalOnToggleCollapse) {
       externalOnToggleCollapse();
@@ -70,6 +74,15 @@ export default function Sidebar({
       icon: Home,
       description: "لوحة التحكم العامة",
       badge: null,
+    },
+    {
+      id: "teachers_schedule" as MainSectionType,
+      label: "الجدول المدرسي وكشف المعلمين",
+      shortLabel: "الجدول والمعلمون",
+      icon: CalendarDays,
+      description: "إدارة الحصص، كشوف المعلمين، وتوزيع المواد والشعب المدرسية",
+      badge: teachersCount > 0 ? `${teachersCount} معلماً` : null,
+      badgeColor: "bg-purple-50 text-purple-700 border border-purple-200",
     },
     {
       id: "messages" as MainSectionType,
@@ -116,8 +129,8 @@ export default function Sidebar({
   return (
     <>
       {/* 1. Mobile Quick Navigation Bar (< md viewports) */}
-      <div className="md:hidden w-full bg-white border border-slate-200/90 rounded-2xl p-1.5 shadow-xs sticky top-16 z-20 no-print">
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-1">
+      <div className="md:hidden w-full bg-white border border-slate-200/90 rounded-2xl p-1.5 shadow-xs sticky top-16 z-20 no-print overflow-x-auto">
+        <div className="flex items-center gap-1 min-w-max">
           {menuItems.map((item) => {
             const isActive = currentSection === item.id;
             const Icon = item.icon;
@@ -127,7 +140,7 @@ export default function Sidebar({
                 key={item.id}
                 onClick={() => onSelectSection(item.id)}
                 className={`
-                  py-2.5 px-2 rounded-xl font-bold transition-all text-xs flex flex-col sm:flex-row items-center justify-center gap-1.5 cursor-pointer relative min-h-[44px]
+                  py-2 px-3 rounded-xl font-bold transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer relative min-h-[42px] whitespace-nowrap
                   ${
                     isActive
                       ? "bg-slate-900 text-white shadow-xs"
@@ -137,9 +150,14 @@ export default function Sidebar({
                 id={`mobile-nav-${item.id}`}
               >
                 <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-emerald-400" : "text-slate-500"}`} />
-                <span className="truncate">{item.shortLabel}</span>
+                <span>{item.shortLabel}</span>
+                {item.badge && !isActive && (
+                  <span className="text-[10px] bg-slate-200/80 text-slate-700 px-1.5 py-0.2 rounded-full font-mono">
+                    {item.badge}
+                  </span>
+                )}
                 {item.statusDot && (
-                  <span className={`w-1.5 h-1.5 rounded-full ${item.statusDot} absolute top-1.5 left-1.5`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${item.statusDot} absolute top-1 left-1`} />
                 )}
               </button>
             );
