@@ -40,61 +40,17 @@ const SCHEDULE_DOC_ID = "schedule_data";
 const INQUIRIES_DOC_ID = "inquiries_data";
 const APP_STATE_COLLECTION = "abna_system_data";
 
-// In-memory & persisted cache quota backoff management
-const QUOTA_STORAGE_KEY = "firestore_quota_exceeded_timestamp";
-const QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours cooldown for daily free tier write quota reset
-
+// In-memory quota management
 let isFirestoreQuotaExceeded = false;
 let quotaExceededTimestamp = 0;
-
-// Initialize from localStorage if available in browser environment
-try {
-  if (typeof window !== "undefined" && window.localStorage) {
-    const savedTimestamp = localStorage.getItem(QUOTA_STORAGE_KEY);
-    if (savedTimestamp) {
-      const parsed = parseInt(savedTimestamp, 10);
-      if (!isNaN(parsed) && Date.now() - parsed < QUOTA_COOLDOWN_MS) {
-        isFirestoreQuotaExceeded = true;
-        quotaExceededTimestamp = parsed;
-        disableNetwork(db).catch(() => {});
-      }
-    }
-  }
-} catch (e) {
-  // ignore storage errors
-}
 
 // Cache of last saved hashes to prevent duplicate writes
 const lastSavedPayloadHashes: Record<string, string> = {};
 
 export function isQuotaLimited(): boolean {
-  if (!isFirestoreQuotaExceeded) {
-    try {
-      if (typeof window !== "undefined" && window.localStorage) {
-        const saved = localStorage.getItem(QUOTA_STORAGE_KEY);
-        if (saved) {
-          const parsed = parseInt(saved, 10);
-          if (!isNaN(parsed) && Date.now() - parsed < QUOTA_COOLDOWN_MS) {
-            isFirestoreQuotaExceeded = true;
-            quotaExceededTimestamp = parsed;
-            disableNetwork(db).catch(() => {});
-            return true;
-          }
-        }
-      }
-    } catch {}
-    return false;
-  }
-
-  if (Date.now() - quotaExceededTimestamp > QUOTA_COOLDOWN_MS) {
-    // Reset probe after cooldown period
+  if (!isFirestoreQuotaExceeded) return false;
+  if (Date.now() - quotaExceededTimestamp > 60 * 60 * 1000) {
     isFirestoreQuotaExceeded = false;
-    try {
-      if (typeof window !== "undefined" && window.localStorage) {
-        localStorage.removeItem(QUOTA_STORAGE_KEY);
-      }
-      enableNetwork(db).catch(() => {});
-    } catch {}
     return false;
   }
   return true;
@@ -135,14 +91,7 @@ function handleQuotaError(err: any, operationName: string) {
   if (isQuota) {
     isFirestoreQuotaExceeded = true;
     quotaExceededTimestamp = Date.now();
-    try {
-      if (typeof window !== "undefined" && window.localStorage) {
-        localStorage.setItem(QUOTA_STORAGE_KEY, String(quotaExceededTimestamp));
-      }
-    } catch {}
-    // Disable Firestore network stream immediately to prevent continuous retry backoff loops
-    disableNetwork(db).catch(() => {});
-    console.info(`[Storage Status] Cloud Firestore write sync paused (Daily quota limit reached). All application data is safely preserved on the server & local disk.`);
+    console.info(`[Storage Status] Cloud Firestore write sync paused temporarily for ${operationName}.`);
   } else {
     console.warn(`[Cloud Sync Notice] ${operationName}:`, errMsg);
   }
@@ -571,6 +520,111 @@ export async function saveInquiriesDataToCloud(inquiryRequests: TeacherInquiryRe
     return true;
   } catch (error) {
     handleQuotaError(error, "saveInquiriesDataToCloud");
+    return false;
+  }
+}
+
+/**
+ * Clear specific or all collections in Cloud Firestore
+ */
+export async function clearCloudData(scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "reports"): Promise<boolean> {
+  try {
+    const timestamp = new Date().toISOString();
+
+    if (scope === "all") {
+      await Promise.all([
+        setDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID), { students: [], totalCount: 0, lastUpdated: timestamp }),
+        setDoc(doc(db, APP_STATE_COLLECTION, TEACHERS_DOC_ID), { teachers: [], totalTeachers: 0, lastUpdated: timestamp }),
+        setDoc(doc(db, APP_STATE_COLLECTION, SCHEDULE_DOC_ID), { scheduleAssignments: [], totalAssignments: 0, lastUpdated: timestamp }),
+        setDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID), { attendanceRecords: {}, lastUpdated: timestamp }),
+        setDoc(doc(db, APP_STATE_COLLECTION, INQUIRIES_DOC_ID), { inquiryRequests: [], totalInquiries: 0, lastUpdated: timestamp }),
+        setDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID), { studentReports: [], totalReports: 0, lastUpdated: timestamp }),
+      ]);
+      return true;
+    }
+
+    if (scope === "students") {
+      await setDoc(doc(db, APP_STATE_COLLECTION, STUDENTS_DOC_ID), { students: [], totalCount: 0, lastUpdated: timestamp });
+      delete lastSavedPayloadHashes[STUDENTS_DOC_ID];
+      return true;
+    }
+
+    if (scope === "teachers") {
+      await setDoc(doc(db, APP_STATE_COLLECTION, TEACHERS_DOC_ID), { teachers: [], totalTeachers: 0, lastUpdated: timestamp });
+      delete lastSavedPayloadHashes[TEACHERS_DOC_ID];
+      return true;
+    }
+
+    if (scope === "schedule") {
+      await setDoc(doc(db, APP_STATE_COLLECTION, SCHEDULE_DOC_ID), { scheduleAssignments: [], totalAssignments: 0, lastUpdated: timestamp });
+      delete lastSavedPayloadHashes[SCHEDULE_DOC_ID];
+      return true;
+    }
+
+    if (scope === "attendance") {
+      await setDoc(doc(db, APP_STATE_COLLECTION, ATTENDANCE_DOC_ID), { attendanceRecords: {}, lastUpdated: timestamp });
+      delete lastSavedPayloadHashes[ATTENDANCE_DOC_ID];
+      return true;
+    }
+
+    if (scope === "inquiries") {
+      await setDoc(doc(db, APP_STATE_COLLECTION, INQUIRIES_DOC_ID), { inquiryRequests: [], totalInquiries: 0, lastUpdated: timestamp });
+      delete lastSavedPayloadHashes[INQUIRIES_DOC_ID];
+      return true;
+    }
+
+    if (scope === "reports") {
+      await setDoc(doc(db, APP_STATE_COLLECTION, REPORTS_DOC_ID), { studentReports: [], totalReports: 0, lastUpdated: timestamp });
+      delete lastSavedPayloadHashes[REPORTS_DOC_ID];
+      return true;
+    }
+
+    return false;
+  } catch (err) {
+    console.error("clearCloudData error:", err);
+    return false;
+  }
+}
+
+/**
+ * Force synchronization of all state to Cloud Firestore immediately
+ */
+export async function forceSyncAllToCloud(state: StoredAppState): Promise<boolean> {
+  try {
+    const promises: Promise<any>[] = [];
+
+    if (state.schoolSignatories) {
+      promises.push(saveSchoolDataToCloud(state.schoolSignatories, (state as any).savedTemplate));
+    }
+    if (state.students && state.students.length > 0) {
+      delete lastSavedPayloadHashes[STUDENTS_DOC_ID];
+      promises.push(saveStudentsDataToCloud(state.students));
+    }
+    if (state.teachers && state.teachers.length > 0) {
+      delete lastSavedPayloadHashes[TEACHERS_DOC_ID];
+      promises.push(saveTeachersDataToCloud(state.teachers));
+    }
+    if (state.scheduleAssignments && state.scheduleAssignments.length > 0) {
+      delete lastSavedPayloadHashes[SCHEDULE_DOC_ID];
+      promises.push(saveScheduleDataToCloud(state.scheduleAssignments));
+    }
+    if (state.attendanceRecords && Object.keys(state.attendanceRecords).length > 0) {
+      delete lastSavedPayloadHashes[ATTENDANCE_DOC_ID];
+      promises.push(saveAttendanceDataToCloud(state.attendanceRecords));
+    }
+    if (state.inquiryRequests && state.inquiryRequests.length > 0) {
+      delete lastSavedPayloadHashes[INQUIRIES_DOC_ID];
+      promises.push(saveInquiriesDataToCloud(state.inquiryRequests));
+    }
+    if (state.users && state.users.length > 0) {
+      delete lastSavedPayloadHashes[USERS_DOC_ID];
+      promises.push(saveUsersDataToCloud(state.users));
+    }
+
+    await Promise.all(promises);
+    return true;
+  } catch (err) {
+    console.error("forceSyncAllToCloud error:", err);
     return false;
   }
 }

@@ -1,0 +1,2050 @@
+[
+  {
+    "section": "شعبة 4",
+    "id": "asg_3_2_4mw7",
+    "subject": "الفيزياء 2",
+    "day": "الأحد",
+    "period": 1,
+    "teacherName": "احمد عايض"
+  },
+  {
+    "period": 2,
+    "section": "شعبة 5",
+    "teacherName": "احمد عايض",
+    "id": "asg_3_3_gm83",
+    "subject": "الفيزياء 2",
+    "day": "الأحد"
+  },
+  {
+    "section": "شعبة 4",
+    "teacherName": "احمد عايض",
+    "day": "الاثنين",
+    "subject": "الفيزياء 2",
+    "id": "asg_3_9_q47n",
+    "period": 1
+  },
+  {
+    "section": "شعبة 5",
+    "day": "الاثنين",
+    "id": "asg_3_10_smm3",
+    "subject": "الفيزياء 2",
+    "teacherName": "احمد عايض",
+    "period": 2
+  },
+  {
+    "teacherName": "احمد عايض",
+    "section": "شعبة 5",
+    "day": "الثلاثاء",
+    "subject": "الفيزياء 2",
+    "id": "asg_3_16_ff91",
+    "period": 1
+  },
+  {
+    "id": "asg_3_17_mxh2",
+    "teacherName": "احمد عايض",
+    "period": 2,
+    "section": "شعبة 4",
+    "day": "الثلاثاء",
+    "subject": "الفيزياء 2"
+  },
+  {
+    "period": 1,
+    "subject": "الفيزياء 2",
+    "id": "asg_3_22_cqev",
+    "teacherName": "احمد عايض",
+    "section": "شعبة 4",
+    "day": "الأربعاء"
+  },
+  {
+    "period": 2,
+    "day": "الأربعاء",
+    "section": "شعبة 5",
+    "id": "asg_3_23_1wdr",
+    "teacherName": "احمد عايض",
+    "subject": "الفيزياء 2"
+  },
+  {
+    "teacherName": "انس عيد",
+    "section": "شعبة 2",
+    "day": "الأحد",
+    "period": 5,
+    "subject": "الكفايات اللغوية 1",
+    "id": "asg_4_6_40xm"
+  },
+  {
+    "section": "شعبة 1",
+    "teacherName": "انس عيد",
+    "id": "asg_4_7_4g54",
+    "subject": "الكفايات اللغوية 1",
+    "period": 6,
+    "day": "الأحد"
+  },
+  {
+    "day": "الأحد",
+    "period": 7,
+    "teacherName": "انس عيد",
+    "subject": "الكفايات اللغوية 1",
+    "id": "asg_4_8_12c6",
+    "section": "شعبة 3"
+  },
+  {
+    "period": 2,
+    "teacherName": "انس عيد",
+    "day": "الاثنين",
+    "section": "شعبة 2",
+    "id": "asg_4_10_g8lf",
+    "subject": "الكفايات اللغوية 1"
+  },
+  {
+    "period": 3,
+    "section": "شعبة 3",
+    "teacherName": "انس عيد",
+    "subject": "الكفايات اللغوية 1",
+    "day": "الاثنين",
+    "id": "asg_4_11_jbl3"
+  },
+  {
+    "id": "asg_4_13_aqjh",
+    "section": "شعبة 1",
+    "day": "الاثنين",
+    "period": 5,
+    "teacherName": "انس عيد",
+    "subject": "الكفايات اللغوية 1"
+  },
+  {
+    "day": "الثلاثاء",
+    "id": "asg_4_16_9xnc",
+    "subject": "الكفايات اللغوية 1",
+    "section": "شعبة 1",
+    "teacherName": "انس عيد",
+    "period": 1
+  },
+  {
+    "section": "شعبة 8",
+    "period": 3,
+    "teacherName": "انس عيد",
+    "day": "الثلاثاء",
+    "subject": "البحث ومصادر المعلومات",
+    "id": "asg_4_18_bhu6"
+  },
+  {
+    "subject": "الكفايات اللغوية 1",
+    "day": "الثلاثاء",
+    "period": 6,
+    "id": "asg_4_21_s9ih",
+    "teacherName": "انس عيد",
+    "section": "شعبة 2"
+  },
+  {
+    "day": "الأربعاء",
+    "period": 3,
+    "section": "شعبة 1",
+    "id": "asg_4_24_ex3x",
+    "teacherName": "انس عيد",
+    "subject": "الكفايات اللغوية 1"
+  },
+  {
+    "teacherName": "انس عيد",
+    "period": 5,
+    "day": "الأربعاء",
+    "section": "شعبة 8",
+    "id": "asg_4_26_ia8a",
+    "subject": "البحث ومصادر المعلومات"
+  },
+  {
+    "id": "asg_4_27_jjys",
+    "section": "شعبة 3",
+    "day": "الأربعاء",
+    "subject": "الكفايات اللغوية 1",
+    "teacherName": "انس عيد",
+    "period": 6
+  },
+  {
+    "period": 2,
+    "section": "شعبة 2",
+    "day": "الخميس",
+    "subject": "الكفايات اللغوية 1",
+    "teacherName": "انس عيد",
+    "id": "asg_4_29_fedw"
+  },
+  {
+    "period": 3,
+    "id": "asg_4_30_ky1c",
+    "section": "شعبة 3",
+    "day": "الخميس",
+    "subject": "الكفايات اللغوية 1",
+    "teacherName": "انس عيد"
+  },
+  {
+    "period": 3,
+    "subject": "البحث ومصادر المعلومات",
+    "day": "الأحد",
+    "teacherName": "جاسر ناجي",
+    "id": "asg_5_4_45p8",
+    "section": "شعبة 7"
+  },
+  {
+    "period": 5,
+    "subject": "الكفايات اللغوية 2",
+    "id": "asg_5_6_c3qd",
+    "day": "الأحد",
+    "section": "شعبة 5",
+    "teacherName": "جاسر ناجي"
+  },
+  {
+    "period": 6,
+    "section": "شعبة 4",
+    "id": "asg_5_7_4sw8",
+    "subject": "الكفايات اللغوية 2",
+    "day": "الأحد",
+    "teacherName": "جاسر ناجي"
+  },
+  {
+    "day": "الأحد",
+    "subject": "الكفايات اللغوية 2",
+    "id": "asg_5_8_kkdy",
+    "teacherName": "جاسر ناجي",
+    "section": "شعبة 6",
+    "period": 7
+  },
+  {
+    "subject": "الكفايات اللغوية 2",
+    "id": "asg_5_9_whxa",
+    "section": "شعبة 5",
+    "period": 1,
+    "day": "الاثنين",
+    "teacherName": "جاسر ناجي"
+  },
+  {
+    "subject": "الكفايات اللغوية 2",
+    "day": "الاثنين",
+    "id": "asg_5_10_poxc",
+    "teacherName": "جاسر ناجي",
+    "period": 2,
+    "section": "شعبة 6"
+  },
+  {
+    "section": "شعبة 4",
+    "teacherName": "جاسر ناجي",
+    "subject": "الكفايات اللغوية 2",
+    "period": 3,
+    "id": "asg_5_11_xtb2",
+    "day": "الاثنين"
+  },
+  {
+    "teacherName": "جاسر ناجي",
+    "period": 4,
+    "subject": "البحث ومصادر المعلومات",
+    "id": "asg_5_12_velx",
+    "day": "الاثنين",
+    "section": "شعبة 7"
+  },
+  {
+    "subject": "الكفايات اللغوية 2",
+    "section": "شعبة 4",
+    "period": 5,
+    "id": "asg_5_20_0bsk",
+    "day": "الثلاثاء",
+    "teacherName": "جاسر ناجي"
+  },
+  {
+    "period": 6,
+    "section": "شعبة 5",
+    "teacherName": "جاسر ناجي",
+    "subject": "الكفايات اللغوية 2",
+    "day": "الثلاثاء",
+    "id": "asg_5_21_iww4"
+  },
+  {
+    "period": 5,
+    "subject": "الكفايات اللغوية 2",
+    "teacherName": "جاسر ناجي",
+    "id": "asg_5_26_3i4a",
+    "section": "شعبة 6",
+    "day": "الأربعاء"
+  },
+  {
+    "period": 6,
+    "id": "asg_5_27_if2r",
+    "subject": "الكفايات اللغوية 2",
+    "day": "الأربعاء",
+    "teacherName": "جاسر ناجي",
+    "section": "شعبة 5"
+  },
+  {
+    "section": "شعبة 4",
+    "period": 1,
+    "subject": "الكفايات اللغوية 2",
+    "teacherName": "جاسر ناجي",
+    "day": "الخميس",
+    "id": "asg_5_28_rejz"
+  },
+  {
+    "subject": "الكفايات اللغوية 2",
+    "teacherName": "جاسر ناجي",
+    "section": "شعبة 6",
+    "period": 2,
+    "id": "asg_5_29_g1ua",
+    "day": "الخميس"
+  },
+  {
+    "period": 1,
+    "section": "شعبة 3",
+    "teacherName": "صالح الحويطي",
+    "id": "asg_6_2_niw1",
+    "day": "الأحد",
+    "subject": "التربية الصحية والبدنية"
+  },
+  {
+    "section": "شعبة 1",
+    "teacherName": "صالح الحويطي",
+    "id": "asg_6_3_qss4",
+    "day": "الأحد",
+    "subject": "التربية الصحية والبدنية",
+    "period": 2
+  },
+  {
+    "subject": "التربية الصحية والبدنية 3",
+    "teacherName": "صالح الحويطي",
+    "day": "الأحد",
+    "period": 4,
+    "section": "شعبة 8",
+    "id": "asg_6_5_ajg5"
+  },
+  {
+    "period": 2,
+    "day": "الاثنين",
+    "id": "asg_6_10_8hgd",
+    "subject": "التربية الصحية والبدنية 3",
+    "teacherName": "صالح الحويطي",
+    "section": "شعبة 8"
+  },
+  {
+    "period": 6,
+    "section": "شعبة 7",
+    "subject": "التربية الصحية والبدنية 3",
+    "teacherName": "صالح الحويطي",
+    "day": "الاثنين",
+    "id": "asg_6_14_dx23"
+  },
+  {
+    "subject": "التربية الصحية والبدنية",
+    "day": "الاثنين",
+    "id": "asg_6_15_6g6t",
+    "section": "شعبة 2",
+    "teacherName": "صالح الحويطي",
+    "period": 7
+  },
+  {
+    "subject": "التربية الصحية والبدنية",
+    "section": "شعبة 3",
+    "teacherName": "صالح الحويطي",
+    "id": "asg_6_19_2ed7",
+    "period": 4,
+    "day": "الثلاثاء"
+  },
+  {
+    "period": 1,
+    "id": "asg_6_22_60tn",
+    "section": "شعبة 2",
+    "day": "الأربعاء",
+    "teacherName": "صالح الحويطي",
+    "subject": "التربية الصحية والبدنية"
+  },
+  {
+    "teacherName": "صالح الحويطي",
+    "subject": "التربية الصحية والبدنية 3",
+    "day": "الأربعاء",
+    "section": "شعبة 7",
+    "period": 2,
+    "id": "asg_6_23_anpu"
+  },
+  {
+    "day": "الخميس",
+    "id": "asg_6_30_k6rn",
+    "subject": "التربية الصحية والبدنية 3",
+    "period": 3,
+    "teacherName": "صالح الحويطي",
+    "section": "شعبة 8"
+  },
+  {
+    "period": 5,
+    "day": "الخميس",
+    "teacherName": "صالح الحويطي",
+    "id": "asg_6_32_duvk",
+    "section": "شعبة 1",
+    "subject": "التربية الصحية والبدنية"
+  },
+  {
+    "id": "asg_6_33_ffit",
+    "subject": "التربية الصحية والبدنية 3",
+    "day": "الخميس",
+    "period": 6,
+    "teacherName": "صالح الحويطي",
+    "section": "شعبة 7"
+  },
+  {
+    "day": "الأحد",
+    "id": "asg_7_2_gpa3",
+    "section": "شعبة 8",
+    "subject": "الفيزياء 3",
+    "teacherName": "صالح الحسيني",
+    "period": 1
+  },
+  {
+    "period": 3,
+    "day": "الأحد",
+    "id": "asg_7_4_is73",
+    "teacherName": "صالح الحسيني",
+    "section": "شعبة 6",
+    "subject": "الفيزياء 2"
+  },
+  {
+    "period": 4,
+    "section": "شعبة 7",
+    "subject": "الفيزياء 3",
+    "day": "الأحد",
+    "id": "asg_7_5_cgx5",
+    "teacherName": "صالح الحسيني"
+  },
+  {
+    "day": "الاثنين",
+    "period": 3,
+    "subject": "الفيزياء 2",
+    "teacherName": "صالح الحسيني",
+    "id": "asg_7_11_ry65",
+    "section": "شعبة 6"
+  },
+  {
+    "section": "شعبة 7",
+    "period": 5,
+    "day": "الاثنين",
+    "subject": "الفيزياء 3",
+    "teacherName": "صالح الحسيني",
+    "id": "asg_7_13_zvk3"
+  },
+  {
+    "subject": "الفيزياء 3",
+    "id": "asg_7_15_m3ar",
+    "period": 7,
+    "teacherName": "صالح الحسيني",
+    "section": "شعبة 8",
+    "day": "الاثنين"
+  },
+  {
+    "teacherName": "صالح الحسيني",
+    "id": "asg_7_16_a9ec",
+    "period": 1,
+    "section": "شعبة 7",
+    "day": "الثلاثاء",
+    "subject": "الفيزياء 3"
+  },
+  {
+    "subject": "الفيزياء 3",
+    "id": "asg_7_20_rt34",
+    "day": "الثلاثاء",
+    "section": "شعبة 8",
+    "period": 5,
+    "teacherName": "صالح الحسيني"
+  },
+  {
+    "subject": "الفيزياء 2",
+    "teacherName": "صالح الحسيني",
+    "id": "asg_7_21_il6f",
+    "section": "شعبة 6",
+    "period": 6,
+    "day": "الثلاثاء"
+  },
+  {
+    "teacherName": "صالح الحسيني",
+    "section": "شعبة 8",
+    "period": 3,
+    "day": "الأربعاء",
+    "subject": "الفيزياء 3",
+    "id": "asg_7_24_vgon"
+  },
+  {
+    "subject": "الفيزياء 3",
+    "day": "الأربعاء",
+    "teacherName": "صالح الحسيني",
+    "id": "asg_7_26_e8pc",
+    "section": "شعبة 7",
+    "period": 5
+  },
+  {
+    "section": "شعبة 6",
+    "teacherName": "صالح الحسيني",
+    "subject": "الفيزياء 2",
+    "period": 6,
+    "id": "asg_7_27_tqu8",
+    "day": "الأربعاء"
+  },
+  {
+    "period": 1,
+    "subject": "الفيزياء 3",
+    "teacherName": "صالح الحسيني",
+    "id": "asg_7_28_qngj",
+    "day": "الخميس",
+    "section": "شعبة 8"
+  },
+  {
+    "section": "شعبة 7",
+    "teacherName": "صالح الحسيني",
+    "day": "الخميس",
+    "subject": "الفيزياء 3",
+    "period": 2,
+    "id": "asg_7_29_f9d7"
+  },
+  {
+    "id": "asg_8_2_sydh",
+    "day": "الأحد",
+    "subject": "التصميم الرقمي",
+    "teacherName": "طارق العتيبي",
+    "section": "شعبة 7",
+    "period": 1
+  },
+  {
+    "day": "الأحد",
+    "section": "شعبة 8",
+    "id": "asg_8_3_ml79",
+    "teacherName": "طارق العتيبي",
+    "subject": "التصميم الرقمي",
+    "period": 2
+  },
+  {
+    "period": 3,
+    "day": "الاثنين",
+    "section": "شعبة 7",
+    "teacherName": "طارق العتيبي",
+    "subject": "التقنية الرقمية 3",
+    "id": "asg_8_11_w5nk"
+  },
+  {
+    "subject": "التصميم الرقمي",
+    "id": "asg_8_14_lrbo",
+    "day": "الاثنين",
+    "teacherName": "طارق العتيبي",
+    "period": 6,
+    "section": "شعبة 8"
+  },
+  {
+    "day": "الاثنين",
+    "section": "شعبة 7",
+    "id": "asg_8_15_fv8b",
+    "period": 7,
+    "teacherName": "طارق العتيبي",
+    "subject": "التصميم الرقمي"
+  },
+  {
+    "teacherName": "طارق العتيبي",
+    "day": "الثلاثاء",
+    "section": "شعبة 8",
+    "id": "asg_8_17_brqq",
+    "subject": "التصميم الرقمي",
+    "period": 2
+  },
+  {
+    "section": "شعبة 7",
+    "teacherName": "طارق العتيبي",
+    "subject": "التصميم الرقمي",
+    "id": "asg_8_19_036z",
+    "period": 4,
+    "day": "الثلاثاء"
+  },
+  {
+    "subject": "التقنية الرقمية 3",
+    "day": "الثلاثاء",
+    "section": "شعبة 7",
+    "period": 5,
+    "id": "asg_8_20_qsbx",
+    "teacherName": "طارق العتيبي"
+  },
+  {
+    "period": 2,
+    "section": "شعبة 8",
+    "day": "الأربعاء",
+    "subject": "التقنية الرقمية 3",
+    "id": "asg_8_23_jkid",
+    "teacherName": "طارق العتيبي"
+  },
+  {
+    "day": "الأربعاء",
+    "id": "asg_8_25_w7s2",
+    "teacherName": "طارق العتيبي",
+    "period": 4,
+    "subject": "التصميم الرقمي",
+    "section": "شعبة 7"
+  },
+  {
+    "section": "شعبة 8",
+    "teacherName": "طارق العتيبي",
+    "id": "asg_8_27_rkim",
+    "subject": "التصميم الرقمي",
+    "day": "الأربعاء",
+    "period": 6
+  },
+  {
+    "period": 3,
+    "subject": "التصميم الرقمي",
+    "day": "الخميس",
+    "teacherName": "طارق العتيبي",
+    "id": "asg_8_30_que1",
+    "section": "شعبة 7"
+  },
+  {
+    "subject": "التقنية الرقمية 3",
+    "day": "الخميس",
+    "section": "شعبة 8",
+    "period": 5,
+    "id": "asg_8_32_iasa",
+    "teacherName": "طارق العتيبي"
+  },
+  {
+    "section": "شعبة 8",
+    "id": "asg_8_33_g7sd",
+    "teacherName": "طارق العتيبي",
+    "day": "الخميس",
+    "subject": "التصميم الرقمي",
+    "period": 6
+  },
+  {
+    "period": 5,
+    "subject": "الكيمياء 3",
+    "teacherName": "عادل عبدي",
+    "id": "asg_9_6_pwgp",
+    "section": "شعبة 8",
+    "day": "الأحد"
+  },
+  {
+    "day": "الأحد",
+    "period": 6,
+    "subject": "الكيمياء 3",
+    "id": "asg_9_7_9ej6",
+    "teacherName": "عادل عبدي",
+    "section": "شعبة 7"
+  },
+  {
+    "period": 7,
+    "subject": "الكيمياء 1",
+    "id": "asg_9_8_k7i8",
+    "day": "الأحد",
+    "section": "شعبة 2",
+    "teacherName": "عادل عبدي"
+  },
+  {
+    "teacherName": "عادل عبدي",
+    "section": "شعبة 8",
+    "period": 1,
+    "day": "الاثنين",
+    "id": "asg_9_9_2z0v",
+    "subject": "الكيمياء 3"
+  },
+  {
+    "day": "الاثنين",
+    "id": "asg_9_12_i420",
+    "teacherName": "عادل عبدي",
+    "subject": "الكيمياء 1",
+    "period": 4,
+    "section": "شعبة 1"
+  },
+  {
+    "period": 6,
+    "subject": "الكيمياء 1",
+    "teacherName": "عادل عبدي",
+    "id": "asg_9_14_bbul",
+    "day": "الاثنين",
+    "section": "شعبة 3"
+  },
+  {
+    "id": "asg_9_17_0b65",
+    "section": "شعبة 7",
+    "teacherName": "عادل عبدي",
+    "day": "الثلاثاء",
+    "subject": "الكيمياء 3",
+    "period": 2
+  },
+  {
+    "section": "شعبة 1",
+    "id": "asg_9_18_zjfv",
+    "subject": "الكيمياء 1",
+    "day": "الثلاثاء",
+    "period": 3,
+    "teacherName": "عادل عبدي"
+  },
+  {
+    "teacherName": "عادل عبدي",
+    "section": "شعبة 2",
+    "id": "asg_9_19_1grv",
+    "day": "الثلاثاء",
+    "subject": "الكيمياء 1",
+    "period": 4
+  },
+  {
+    "teacherName": "عادل عبدي",
+    "section": "شعبة 8",
+    "id": "asg_9_21_hllq",
+    "period": 6,
+    "day": "الثلاثاء",
+    "subject": "الكيمياء 3"
+  },
+  {
+    "section": "شعبة 3",
+    "id": "asg_9_22_juny",
+    "period": 1,
+    "subject": "الكيمياء 1",
+    "day": "الأربعاء",
+    "teacherName": "عادل عبدي"
+  },
+  {
+    "period": 3,
+    "subject": "الكيمياء 3",
+    "teacherName": "عادل عبدي",
+    "id": "asg_9_24_n2na",
+    "section": "شعبة 7",
+    "day": "الأربعاء"
+  },
+  {
+    "period": 3,
+    "teacherName": "عادل عبدي",
+    "subject": "الكيمياء 1",
+    "day": "الخميس",
+    "section": "شعبة 2",
+    "id": "asg_9_30_8zw8"
+  },
+  {
+    "section": "شعبة 3",
+    "day": "الخميس",
+    "id": "asg_9_31_2udt",
+    "subject": "الكيمياء 1",
+    "teacherName": "عادل عبدي",
+    "period": 4
+  },
+  {
+    "period": 6,
+    "day": "الخميس",
+    "subject": "الكيمياء 1",
+    "id": "asg_9_33_zv2l",
+    "teacherName": "عادل عبدي",
+    "section": "شعبة 1"
+  },
+  {
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_5_am8x",
+    "teacherName": "عبدالرحمن هلال",
+    "day": "الأحد",
+    "section": "شعبة 6",
+    "period": 4
+  },
+  {
+    "section": "شعبة 4",
+    "teacherName": "عبدالرحمن هلال",
+    "day": "الأحد",
+    "subject": "اللغة الانجليزية 2",
+    "period": 5,
+    "id": "asg_10_6_36z4"
+  },
+  {
+    "section": "شعبة 5",
+    "id": "asg_10_8_8145",
+    "day": "الأحد",
+    "subject": "اللغة الانجليزية 2",
+    "teacherName": "عبدالرحمن هلال",
+    "period": 7
+  },
+  {
+    "day": "الاثنين",
+    "id": "asg_10_9_93rf",
+    "period": 1,
+    "subject": "اللغة الانجليزية 2",
+    "teacherName": "عبدالرحمن هلال",
+    "section": "شعبة 6"
+  },
+  {
+    "period": 4,
+    "subject": "اللغة الانجليزية 2",
+    "day": "الاثنين",
+    "teacherName": "عبدالرحمن هلال",
+    "id": "asg_10_12_qzij",
+    "section": "شعبة 5"
+  },
+  {
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_13_gfaj",
+    "section": "شعبة 4",
+    "teacherName": "عبدالرحمن هلال",
+    "day": "الاثنين",
+    "period": 5
+  },
+  {
+    "day": "الثلاثاء",
+    "period": 1,
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_16_h1wi",
+    "teacherName": "عبدالرحمن هلال",
+    "section": "شعبة 4"
+  },
+  {
+    "section": "شعبة 6",
+    "teacherName": "عبدالرحمن هلال",
+    "id": "asg_10_17_47m0",
+    "subject": "اللغة الانجليزية 2",
+    "day": "الثلاثاء",
+    "period": 2
+  },
+  {
+    "teacherName": "عبدالرحمن هلال",
+    "period": 3,
+    "section": "شعبة 5",
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_18_tve4",
+    "day": "الثلاثاء"
+  },
+  {
+    "section": "شعبة 4",
+    "day": "الأربعاء",
+    "period": 3,
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_24_hjk5",
+    "teacherName": "عبدالرحمن هلال"
+  },
+  {
+    "teacherName": "عبدالرحمن هلال",
+    "subject": "اللغة الانجليزية 2",
+    "period": 4,
+    "id": "asg_10_25_b1cv",
+    "section": "شعبة 6",
+    "day": "الأربعاء"
+  },
+  {
+    "teacherName": "عبدالرحمن هلال",
+    "period": 5,
+    "day": "الأربعاء",
+    "section": "شعبة 5",
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_26_wozx"
+  },
+  {
+    "period": 3,
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_30_brf7",
+    "teacherName": "عبدالرحمن هلال",
+    "section": "شعبة 5",
+    "day": "الخميس"
+  },
+  {
+    "day": "الخميس",
+    "id": "asg_10_32_0hbp",
+    "subject": "اللغة الانجليزية 2",
+    "teacherName": "عبدالرحمن هلال",
+    "period": 5,
+    "section": "شعبة 6"
+  },
+  {
+    "section": "شعبة 4",
+    "period": 6,
+    "subject": "اللغة الانجليزية 2",
+    "id": "asg_10_33_55ir",
+    "day": "الخميس",
+    "teacherName": "عبدالرحمن هلال"
+  },
+  {
+    "period": 1,
+    "day": "الأحد",
+    "subject": "التقنية الرقمية 1",
+    "id": "asg_11_2_8rvk",
+    "section": "شعبة 1",
+    "teacherName": "عبدالعزيز كعبي"
+  },
+  {
+    "day": "الأحد",
+    "period": 4,
+    "subject": "التقنية الرقمية 1",
+    "id": "asg_11_5_889z",
+    "teacherName": "عبدالعزيز كعبي",
+    "section": "شعبة 3"
+  },
+  {
+    "teacherName": "عبدالعزيز كعبي",
+    "period": 6,
+    "section": "شعبة 5",
+    "id": "asg_11_7_gcie",
+    "subject": "النشاط 2",
+    "day": "الأحد"
+  },
+  {
+    "section": "شعبة 2",
+    "day": "الاثنين",
+    "subject": "التقنية الرقمية 1",
+    "period": 1,
+    "teacherName": "عبدالعزيز كعبي",
+    "id": "asg_11_9_hf97"
+  },
+  {
+    "subject": "التقنية الرقمية 1",
+    "day": "الاثنين",
+    "id": "asg_11_10_7w73",
+    "teacherName": "عبدالعزيز كعبي",
+    "section": "شعبة 3",
+    "period": 2
+  },
+  {
+    "id": "asg_11_16_94bn",
+    "subject": "التقنية الرقمية 1",
+    "teacherName": "عبدالعزيز كعبي",
+    "day": "الثلاثاء",
+    "period": 1,
+    "section": "شعبة 2"
+  },
+  {
+    "day": "الثلاثاء",
+    "section": "شعبة 1",
+    "id": "asg_11_19_svvr",
+    "period": 4,
+    "teacherName": "عبدالعزيز كعبي",
+    "subject": "التقنية الرقمية 1"
+  },
+  {
+    "period": 5,
+    "day": "الأربعاء",
+    "id": "asg_11_26_xv2g",
+    "teacherName": "عبدالعزيز كعبي",
+    "subject": "التقنية الرقمية 1",
+    "section": "شعبة 2"
+  },
+  {
+    "subject": "النشاط  3",
+    "day": "الأربعاء",
+    "teacherName": "عبدالعزيز كعبي",
+    "section": "شعبة 7",
+    "id": "asg_11_27_7x4x",
+    "period": 6
+  },
+  {
+    "section": "شعبة 3",
+    "day": "الخميس",
+    "period": 1,
+    "subject": "التقنية الرقمية 1",
+    "id": "asg_11_28_s90h",
+    "teacherName": "عبدالعزيز كعبي"
+  },
+  {
+    "teacherName": "عبدالعزيز كعبي",
+    "period": 4,
+    "section": "شعبة 1",
+    "id": "asg_11_31_z1gj",
+    "subject": "التقنية الرقمية 1",
+    "day": "الخميس"
+  },
+  {
+    "section": "شعبة 5",
+    "teacherName": "عبدالعزيز كعبي",
+    "day": "الخميس",
+    "subject": "النشاط 2",
+    "period": 6,
+    "id": "asg_11_33_8gqr"
+  },
+  {
+    "day": "الأحد",
+    "section": "شعبة 2",
+    "id": "asg_12_3_0ctq",
+    "teacherName": "فهد عقيل",
+    "subject": "الأحياء",
+    "period": 2
+  },
+  {
+    "teacherName": "فهد عقيل",
+    "day": "الأحد",
+    "period": 6,
+    "id": "asg_12_7_m0yi",
+    "subject": "علوم الأرض والفضاء 3",
+    "section": "شعبة 8"
+  },
+  {
+    "day": "الأحد",
+    "subject": "علوم الأرض والفضاء 3",
+    "id": "asg_12_8_q501",
+    "teacherName": "فهد عقيل",
+    "section": "شعبة 7",
+    "period": 7
+  },
+  {
+    "id": "asg_12_9_jz35",
+    "period": 1,
+    "subject": "الأحياء",
+    "teacherName": "فهد عقيل",
+    "day": "الاثنين",
+    "section": "شعبة 3"
+  },
+  {
+    "period": 5,
+    "day": "الاثنين",
+    "id": "asg_12_13_6l25",
+    "section": "شعبة 8",
+    "teacherName": "فهد عقيل",
+    "subject": "علوم الأرض والفضاء 3"
+  },
+  {
+    "subject": "الأحياء",
+    "id": "asg_12_14_jraq",
+    "period": 6,
+    "section": "شعبة 2",
+    "day": "الاثنين",
+    "teacherName": "فهد عقيل"
+  },
+  {
+    "day": "الثلاثاء",
+    "id": "asg_12_17_zcpm",
+    "teacherName": "فهد عقيل",
+    "period": 2,
+    "subject": "الأحياء",
+    "section": "شعبة 2"
+  },
+  {
+    "period": 3,
+    "day": "الثلاثاء",
+    "subject": "علوم الأرض والفضاء 3",
+    "teacherName": "فهد عقيل",
+    "id": "asg_12_18_u59u",
+    "section": "شعبة 7"
+  },
+  {
+    "id": "asg_12_21_993b",
+    "day": "الثلاثاء",
+    "subject": "الأحياء",
+    "section": "شعبة 3",
+    "teacherName": "فهد عقيل",
+    "period": 6
+  },
+  {
+    "period": 4,
+    "day": "الأربعاء",
+    "subject": "علوم الأرض والفضاء 3",
+    "id": "asg_12_25_sp4w",
+    "teacherName": "فهد عقيل",
+    "section": "شعبة 8"
+  },
+  {
+    "id": "asg_12_26_ieac",
+    "period": 5,
+    "section": "شعبة 3",
+    "day": "الأربعاء",
+    "teacherName": "فهد عقيل",
+    "subject": "الأحياء"
+  },
+  {
+    "period": 1,
+    "id": "asg_12_28_x8z1",
+    "section": "شعبة 7",
+    "teacherName": "فهد عقيل",
+    "day": "الخميس",
+    "subject": "علوم الأرض والفضاء 3"
+  },
+  {
+    "id": "asg_13_3_2pyc",
+    "period": 2,
+    "subject": "القران الكريم وتفسيره",
+    "day": "الأحد",
+    "teacherName": "فيصل مطلق",
+    "section": "شعبة 3"
+  },
+  {
+    "period": 3,
+    "section": "شعبة 2",
+    "id": "asg_13_4_f20n",
+    "teacherName": "فيصل مطلق",
+    "subject": "القران الكريم وتفسيره",
+    "day": "الأحد"
+  },
+  {
+    "period": 5,
+    "section": "شعبة 1",
+    "id": "asg_13_6_wj8x",
+    "teacherName": "فيصل مطلق",
+    "subject": "القران الكريم وتفسيره",
+    "day": "الأحد"
+  },
+  {
+    "teacherName": "فيصل مطلق",
+    "section": "شعبة 2",
+    "subject": "القران الكريم وتفسيره",
+    "period": 3,
+    "day": "الاثنين",
+    "id": "asg_13_11_jd2z"
+  },
+  {
+    "teacherName": "فيصل مطلق",
+    "section": "شعبة 1",
+    "day": "الاثنين",
+    "period": 6,
+    "subject": "القران الكريم وتفسيره",
+    "id": "asg_13_14_7l7z"
+  },
+  {
+    "period": 7,
+    "day": "الاثنين",
+    "subject": "القران الكريم وتفسيره",
+    "id": "asg_13_15_1khk",
+    "teacherName": "فيصل مطلق",
+    "section": "شعبة 3"
+  },
+  {
+    "id": "asg_13_16_9t80",
+    "section": "شعبة 3",
+    "period": 1,
+    "day": "الثلاثاء",
+    "teacherName": "فيصل مطلق",
+    "subject": "القران الكريم وتفسيره"
+  },
+  {
+    "teacherName": "فيصل مطلق",
+    "day": "الأربعاء",
+    "section": "شعبة 1",
+    "id": "asg_13_23_4k04",
+    "period": 2,
+    "subject": "القران الكريم وتفسيره"
+  },
+  {
+    "section": "شعبة 3",
+    "day": "الأربعاء",
+    "period": 4,
+    "teacherName": "فيصل مطلق",
+    "subject": "القران الكريم وتفسيره",
+    "id": "asg_13_25_gqh0"
+  },
+  {
+    "teacherName": "فيصل مطلق",
+    "period": 6,
+    "day": "الأربعاء",
+    "section": "شعبة 2",
+    "id": "asg_13_27_87aj",
+    "subject": "القران الكريم وتفسيره"
+  },
+  {
+    "subject": "القران الكريم وتفسيره",
+    "day": "الخميس",
+    "teacherName": "فيصل مطلق",
+    "id": "asg_13_29_ycnh",
+    "section": "شعبة 1",
+    "period": 2
+  },
+  {
+    "period": 6,
+    "teacherName": "فيصل مطلق",
+    "section": "شعبة 2",
+    "id": "asg_13_33_jrlr",
+    "subject": "القران الكريم وتفسيره",
+    "day": "الخميس"
+  },
+  {
+    "day": "الأحد",
+    "teacherName": "محمد غزواني",
+    "period": 1,
+    "id": "asg_14_2_70gd",
+    "subject": "اللغة الانجليزية 1",
+    "section": "شعبة 2"
+  },
+  {
+    "teacherName": "محمد غزواني",
+    "id": "asg_14_4_xodt",
+    "subject": "اللغة الانجليزية 1",
+    "day": "الأحد",
+    "section": "شعبة 1",
+    "period": 3
+  },
+  {
+    "day": "الأحد",
+    "id": "asg_14_6_2mik",
+    "section": "شعبة 7",
+    "period": 5,
+    "subject": "اللغة الانجليزية 3",
+    "teacherName": "محمد غزواني"
+  },
+  {
+    "teacherName": "محمد غزواني",
+    "section": "شعبة 3",
+    "day": "الأحد",
+    "subject": "اللغة الانجليزية 1",
+    "period": 6,
+    "id": "asg_14_7_6tet"
+  },
+  {
+    "section": "شعبة 8",
+    "day": "الأحد",
+    "subject": "اللغة الانجليزية 3",
+    "period": 7,
+    "teacherName": "محمد غزواني",
+    "id": "asg_14_8_kxy7"
+  },
+  {
+    "subject": "اللغة الانجليزية 1",
+    "id": "asg_14_9_2sth",
+    "day": "الاثنين",
+    "section": "شعبة 1",
+    "period": 1,
+    "teacherName": "محمد غزواني"
+  },
+  {
+    "section": "شعبة 7",
+    "teacherName": "محمد غزواني",
+    "subject": "اللغة الانجليزية 3",
+    "id": "asg_14_10_6piu",
+    "period": 2,
+    "day": "الاثنين"
+  },
+  {
+    "period": 3,
+    "section": "شعبة 8",
+    "day": "الاثنين",
+    "teacherName": "محمد غزواني",
+    "id": "asg_14_11_lu36",
+    "subject": "اللغة الانجليزية 3"
+  },
+  {
+    "day": "الاثنين",
+    "period": 4,
+    "section": "شعبة 3",
+    "id": "asg_14_12_jdd6",
+    "subject": "اللغة الانجليزية 1",
+    "teacherName": "محمد غزواني"
+  },
+  {
+    "period": 5,
+    "subject": "اللغة الانجليزية 1",
+    "teacherName": "محمد غزواني",
+    "day": "الاثنين",
+    "id": "asg_14_13_91sx",
+    "section": "شعبة 2"
+  },
+  {
+    "teacherName": "محمد غزواني",
+    "section": "شعبة 3",
+    "id": "asg_14_17_u6df",
+    "subject": "اللغة الانجليزية 1",
+    "day": "الثلاثاء",
+    "period": 2
+  },
+  {
+    "section": "شعبة 2",
+    "teacherName": "محمد غزواني",
+    "subject": "اللغة الانجليزية 1",
+    "id": "asg_14_18_8m4a",
+    "day": "الثلاثاء",
+    "period": 3
+  },
+  {
+    "period": 4,
+    "section": "شعبة 8",
+    "id": "asg_14_19_pcgk",
+    "teacherName": "محمد غزواني",
+    "subject": "اللغة الانجليزية 3",
+    "day": "الثلاثاء"
+  },
+  {
+    "id": "asg_14_20_962s",
+    "teacherName": "محمد غزواني",
+    "section": "شعبة 1",
+    "day": "الثلاثاء",
+    "period": 5,
+    "subject": "اللغة الانجليزية 1"
+  },
+  {
+    "section": "شعبة 7",
+    "day": "الأربعاء",
+    "teacherName": "محمد غزواني",
+    "id": "asg_14_22_14p8",
+    "subject": "اللغة الانجليزية 3",
+    "period": 1
+  },
+  {
+    "teacherName": "محمد غزواني",
+    "day": "الأربعاء",
+    "period": 2,
+    "section": "شعبة 2",
+    "id": "asg_14_23_y6vs",
+    "subject": "اللغة الانجليزية 1"
+  },
+  {
+    "day": "الأربعاء",
+    "teacherName": "محمد غزواني",
+    "id": "asg_14_24_5fsm",
+    "subject": "اللغة الانجليزية 1",
+    "section": "شعبة 3",
+    "period": 3
+  },
+  {
+    "period": 4,
+    "subject": "اللغة الانجليزية 1",
+    "id": "asg_14_25_jb4n",
+    "day": "الأربعاء",
+    "section": "شعبة 1",
+    "teacherName": "محمد غزواني"
+  },
+  {
+    "section": "شعبة 1",
+    "day": "الخميس",
+    "teacherName": "محمد غزواني",
+    "subject": "اللغة الانجليزية 1",
+    "id": "asg_14_28_ifl0",
+    "period": 1
+  },
+  {
+    "period": 2,
+    "teacherName": "محمد غزواني",
+    "subject": "اللغة الانجليزية 3",
+    "day": "الخميس",
+    "id": "asg_14_29_27y3",
+    "section": "شعبة 8"
+  },
+  {
+    "teacherName": "محمد غزواني",
+    "section": "شعبة 7",
+    "day": "الخميس",
+    "id": "asg_14_31_w7q2",
+    "period": 4,
+    "subject": "اللغة الانجليزية 3"
+  },
+  {
+    "period": 5,
+    "subject": "اللغة الانجليزية 1",
+    "id": "asg_14_32_nl3c",
+    "day": "الخميس",
+    "teacherName": "محمد غزواني",
+    "section": "شعبة 2"
+  },
+  {
+    "subject": "اللغة الانجليزية 1",
+    "id": "asg_14_33_4fe3",
+    "period": 6,
+    "section": "شعبة 3",
+    "day": "الخميس",
+    "teacherName": "محمد غزواني"
+  },
+  {
+    "subject": "الأحياء 2",
+    "section": "شعبة 5",
+    "id": "asg_15_2_ph6d",
+    "period": 1,
+    "day": "الأحد",
+    "teacherName": "محمد العمري"
+  },
+  {
+    "day": "الأحد",
+    "id": "asg_15_3_a9r8",
+    "subject": "الأحياء 2",
+    "period": 2,
+    "section": "شعبة 4",
+    "teacherName": "محمد العمري"
+  },
+  {
+    "day": "الأحد",
+    "id": "asg_15_7_64mh",
+    "teacherName": "محمد العمري",
+    "period": 6,
+    "subject": "الأحياء 2",
+    "section": "شعبة 6"
+  },
+  {
+    "section": "شعبة 5",
+    "day": "الاثنين",
+    "period": 3,
+    "subject": "الأحياء 2",
+    "id": "asg_15_11_r631",
+    "teacherName": "محمد العمري"
+  },
+  {
+    "period": 6,
+    "subject": "الأحياء 2",
+    "day": "الاثنين",
+    "id": "asg_15_14_q1ce",
+    "teacherName": "محمد العمري",
+    "section": "شعبة 4"
+  },
+  {
+    "id": "asg_15_15_6ugy",
+    "day": "الاثنين",
+    "period": 7,
+    "section": "شعبة 1",
+    "teacherName": "محمد العمري",
+    "subject": "الأحياء"
+  },
+  {
+    "period": 2,
+    "id": "asg_15_17_vc0k",
+    "section": "شعبة 1",
+    "teacherName": "محمد العمري",
+    "day": "الثلاثاء",
+    "subject": "الأحياء"
+  },
+  {
+    "day": "الثلاثاء",
+    "period": 3,
+    "section": "شعبة 6",
+    "id": "asg_15_18_12p6",
+    "teacherName": "محمد العمري",
+    "subject": "الأحياء 2"
+  },
+  {
+    "subject": "الأحياء 2",
+    "teacherName": "محمد العمري",
+    "id": "asg_15_19_mn1v",
+    "section": "شعبة 5",
+    "period": 4,
+    "day": "الثلاثاء"
+  },
+  {
+    "subject": "الأحياء",
+    "day": "الأربعاء",
+    "teacherName": "محمد العمري",
+    "id": "asg_15_22_87lp",
+    "section": "شعبة 1",
+    "period": 1
+  },
+  {
+    "day": "الأربعاء",
+    "teacherName": "محمد العمري",
+    "id": "asg_15_23_wcmz",
+    "period": 2,
+    "subject": "الأحياء 2",
+    "section": "شعبة 6"
+  },
+  {
+    "period": 6,
+    "day": "الأربعاء",
+    "section": "شعبة 4",
+    "teacherName": "محمد العمري",
+    "id": "asg_15_27_r6ot",
+    "subject": "الأحياء 2"
+  },
+  {
+    "subject": "الأحياء 2",
+    "teacherName": "محمد العمري",
+    "id": "asg_15_28_scuu",
+    "section": "شعبة 5",
+    "period": 1,
+    "day": "الخميس"
+  },
+  {
+    "subject": "الأحياء 2",
+    "day": "الخميس",
+    "teacherName": "محمد العمري",
+    "section": "شعبة 4",
+    "period": 2,
+    "id": "asg_15_29_dqyk"
+  },
+  {
+    "day": "الخميس",
+    "period": 4,
+    "subject": "الأحياء 2",
+    "id": "asg_15_31_4wt3",
+    "section": "شعبة 6",
+    "teacherName": "محمد العمري"
+  },
+  {
+    "section": "شعبة 1",
+    "day": "الأحد",
+    "subject": "الرياضيات 1",
+    "period": 4,
+    "id": "asg_16_5_yudk",
+    "teacherName": "محمد الجعيد"
+  },
+  {
+    "day": "الأحد",
+    "subject": "الرياضيات 1",
+    "id": "asg_16_6_vo7o",
+    "teacherName": "محمد الجعيد",
+    "section": "شعبة 3",
+    "period": 5
+  },
+  {
+    "teacherName": "محمد الجعيد",
+    "day": "الأحد",
+    "period": 6,
+    "subject": "الرياضيات 1",
+    "id": "asg_16_7_1yl8",
+    "section": "شعبة 2"
+  },
+  {
+    "teacherName": "محمد الجعيد",
+    "period": 7,
+    "section": "شعبة 4",
+    "id": "asg_16_8_enrl",
+    "day": "الأحد",
+    "subject": "الرياضيات 2"
+  },
+  {
+    "section": "شعبة 4",
+    "subject": "الرياضيات 2",
+    "period": 2,
+    "teacherName": "محمد الجعيد",
+    "id": "asg_16_10_gw17",
+    "day": "الاثنين"
+  },
+  {
+    "day": "الاثنين",
+    "id": "asg_16_11_bahc",
+    "period": 3,
+    "subject": "الرياضيات 1",
+    "teacherName": "محمد الجعيد",
+    "section": "شعبة 1"
+  },
+  {
+    "id": "asg_16_12_y82k",
+    "section": "شعبة 2",
+    "period": 4,
+    "day": "الاثنين",
+    "subject": "الرياضيات 1",
+    "teacherName": "محمد الجعيد"
+  },
+  {
+    "period": 5,
+    "day": "الاثنين",
+    "section": "شعبة 3",
+    "teacherName": "محمد الجعيد",
+    "id": "asg_16_13_ottk",
+    "subject": "الرياضيات 1"
+  },
+  {
+    "subject": "الرياضيات 1",
+    "period": 3,
+    "teacherName": "محمد الجعيد",
+    "id": "asg_16_18_tolw",
+    "section": "شعبة 3",
+    "day": "الثلاثاء"
+  },
+  {
+    "teacherName": "محمد الجعيد",
+    "period": 4,
+    "day": "الثلاثاء",
+    "subject": "الرياضيات 2",
+    "id": "asg_16_19_ldt3",
+    "section": "شعبة 4"
+  },
+  {
+    "subject": "الرياضيات 1",
+    "id": "asg_16_20_lfbe",
+    "period": 5,
+    "teacherName": "محمد الجعيد",
+    "day": "الثلاثاء",
+    "section": "شعبة 2"
+  },
+  {
+    "subject": "الرياضيات 1",
+    "id": "asg_16_21_kv5a",
+    "day": "الثلاثاء",
+    "section": "شعبة 1",
+    "period": 6,
+    "teacherName": "محمد الجعيد"
+  },
+  {
+    "id": "asg_16_23_p2dk",
+    "subject": "الرياضيات 1",
+    "teacherName": "محمد الجعيد",
+    "day": "الأربعاء",
+    "section": "شعبة 3",
+    "period": 2
+  },
+  {
+    "section": "شعبة 2",
+    "day": "الأربعاء",
+    "teacherName": "محمد الجعيد",
+    "id": "asg_16_24_a3b5",
+    "subject": "الرياضيات 1",
+    "period": 3
+  },
+  {
+    "period": 5,
+    "day": "الأربعاء",
+    "subject": "الرياضيات 2",
+    "id": "asg_16_26_8grx",
+    "teacherName": "محمد الجعيد",
+    "section": "شعبة 4"
+  },
+  {
+    "day": "الأربعاء",
+    "id": "asg_16_27_ds9y",
+    "teacherName": "محمد الجعيد",
+    "period": 6,
+    "subject": "الرياضيات 1",
+    "section": "شعبة 1"
+  },
+  {
+    "day": "الخميس",
+    "id": "asg_16_28_r3y7",
+    "section": "شعبة 2",
+    "period": 1,
+    "subject": "الرياضيات 1",
+    "teacherName": "محمد الجعيد"
+  },
+  {
+    "day": "الخميس",
+    "section": "شعبة 3",
+    "period": 2,
+    "id": "asg_16_29_vh2j",
+    "subject": "الرياضيات 1",
+    "teacherName": "محمد الجعيد"
+  },
+  {
+    "teacherName": "محمد الجعيد",
+    "section": "شعبة 1",
+    "day": "الخميس",
+    "id": "asg_16_30_g0ew",
+    "subject": "الرياضيات 1",
+    "period": 3
+  },
+  {
+    "teacherName": "محمد الجعيد",
+    "subject": "الرياضيات 2",
+    "id": "asg_16_31_zwsg",
+    "day": "الخميس",
+    "section": "شعبة 4",
+    "period": 4
+  },
+  {
+    "day": "الأحد",
+    "subject": "التاريخ",
+    "teacherName": "ممدوح منصوري",
+    "id": "asg_17_3_70cn",
+    "section": "شعبة 6",
+    "period": 2
+  },
+  {
+    "teacherName": "ممدوح منصوري",
+    "id": "asg_17_4_695e",
+    "period": 3,
+    "subject": "النشاط  3",
+    "day": "الأحد",
+    "section": "شعبة 8"
+  },
+  {
+    "subject": "التاريخ",
+    "day": "الأحد",
+    "section": "شعبة 4",
+    "teacherName": "ممدوح منصوري",
+    "period": 4,
+    "id": "asg_17_5_mkdw"
+  },
+  {
+    "teacherName": "ممدوح منصوري",
+    "period": 4,
+    "id": "asg_17_12_gw01",
+    "section": "شعبة 4",
+    "day": "الاثنين",
+    "subject": "التاريخ"
+  },
+  {
+    "teacherName": "ممدوح منصوري",
+    "id": "asg_17_13_jxp4",
+    "period": 5,
+    "section": "شعبة 5",
+    "day": "الاثنين",
+    "subject": "التاريخ"
+  },
+  {
+    "id": "asg_17_15_6yas",
+    "teacherName": "ممدوح منصوري",
+    "section": "شعبة 6",
+    "day": "الاثنين",
+    "period": 7,
+    "subject": "التاريخ"
+  },
+  {
+    "period": 5,
+    "subject": "التاريخ",
+    "teacherName": "ممدوح منصوري",
+    "id": "asg_17_20_yc43",
+    "section": "شعبة 6",
+    "day": "الثلاثاء"
+  },
+  {
+    "subject": "التاريخ",
+    "id": "asg_17_21_gbd2",
+    "day": "الثلاثاء",
+    "period": 6,
+    "section": "شعبة 4",
+    "teacherName": "ممدوح منصوري"
+  },
+  {
+    "subject": "التاريخ",
+    "day": "الأربعاء",
+    "id": "asg_17_22_g7s5",
+    "period": 1,
+    "section": "شعبة 5",
+    "teacherName": "ممدوح منصوري"
+  },
+  {
+    "period": 2,
+    "day": "الأربعاء",
+    "id": "asg_17_23_tpwj",
+    "teacherName": "ممدوح منصوري",
+    "section": "شعبة 4",
+    "subject": "النشاط 2"
+  },
+  {
+    "period": 4,
+    "id": "asg_17_31_n0lr",
+    "subject": "التاريخ",
+    "teacherName": "ممدوح منصوري",
+    "day": "الخميس",
+    "section": "شعبة 5"
+  },
+  {
+    "id": "asg_17_32_ga9r",
+    "period": 5,
+    "section": "شعبة 4",
+    "day": "الخميس",
+    "teacherName": "ممدوح منصوري",
+    "subject": "النشاط 2"
+  },
+  {
+    "section": "شعبة 3",
+    "day": "الأحد",
+    "teacherName": "موسى العمري",
+    "id": "asg_18_4_bgg4",
+    "subject": "التفكير الناقد",
+    "period": 3
+  },
+  {
+    "teacherName": "موسى العمري",
+    "id": "asg_18_5_ji5i",
+    "period": 4,
+    "subject": "التفكير الناقد",
+    "day": "الأحد",
+    "section": "شعبة 2"
+  },
+  {
+    "section": "شعبة 1",
+    "teacherName": "موسى العمري",
+    "period": 7,
+    "day": "الأحد",
+    "subject": "التفكير الناقد",
+    "id": "asg_18_8_2ndy"
+  },
+  {
+    "day": "الاثنين",
+    "subject": "التفكير الناقد",
+    "teacherName": "موسى العمري",
+    "id": "asg_18_10_i0d6",
+    "period": 2,
+    "section": "شعبة 1"
+  },
+  {
+    "subject": "النشاط 2",
+    "day": "الاثنين",
+    "id": "asg_18_13_dt6v",
+    "section": "شعبة 6",
+    "period": 5,
+    "teacherName": "موسى العمري"
+  },
+  {
+    "period": 5,
+    "subject": "التفكير الناقد",
+    "id": "asg_18_20_ocd2",
+    "day": "الثلاثاء",
+    "teacherName": "موسى العمري",
+    "section": "شعبة 3"
+  },
+  {
+    "section": "شعبة 2",
+    "day": "الأربعاء",
+    "teacherName": "موسى العمري",
+    "id": "asg_18_25_euf5",
+    "subject": "التفكير الناقد",
+    "period": 4
+  },
+  {
+    "day": "الأربعاء",
+    "id": "asg_18_26_psh1",
+    "period": 5,
+    "section": "شعبة 1",
+    "teacherName": "موسى العمري",
+    "subject": "التفكير الناقد"
+  },
+  {
+    "period": 3,
+    "section": "شعبة 6",
+    "id": "asg_18_30_znz3",
+    "day": "الخميس",
+    "teacherName": "موسى العمري",
+    "subject": "النشاط 2"
+  },
+  {
+    "subject": "التفكير الناقد",
+    "day": "الخميس",
+    "section": "شعبة 2",
+    "period": 4,
+    "teacherName": "موسى العمري",
+    "id": "asg_18_31_1sfh"
+  },
+  {
+    "period": 5,
+    "teacherName": "موسى العمري",
+    "subject": "التفكير الناقد",
+    "day": "الخميس",
+    "section": "شعبة 3",
+    "id": "asg_18_32_8zac"
+  },
+  {
+    "period": 1,
+    "id": "asg_19_2_vff8",
+    "section": "شعبة 6",
+    "teacherName": "نايف عيد",
+    "day": "الأحد",
+    "subject": "الرياضيات 2"
+  },
+  {
+    "section": "شعبة 7",
+    "day": "الأحد",
+    "subject": "الرياضيات 3",
+    "teacherName": "نايف عيد",
+    "period": 2,
+    "id": "asg_19_3_gpql"
+  },
+  {
+    "id": "asg_19_4_tuds",
+    "section": "شعبة 5",
+    "day": "الأحد",
+    "subject": "الرياضيات 2",
+    "period": 3,
+    "teacherName": "نايف عيد"
+  },
+  {
+    "teacherName": "نايف عيد",
+    "day": "الاثنين",
+    "period": 1,
+    "subject": "الرياضيات 3",
+    "id": "asg_19_9_ij8d",
+    "section": "شعبة 7"
+  },
+  {
+    "teacherName": "نايف عيد",
+    "subject": "الرياضيات 3",
+    "day": "الاثنين",
+    "section": "شعبة 8",
+    "period": 4,
+    "id": "asg_19_12_qpdw"
+  },
+  {
+    "section": "شعبة 6",
+    "period": 6,
+    "teacherName": "نايف عيد",
+    "id": "asg_19_14_2flc",
+    "subject": "الرياضيات 2",
+    "day": "الاثنين"
+  },
+  {
+    "period": 7,
+    "teacherName": "نايف عيد",
+    "section": "شعبة 5",
+    "day": "الاثنين",
+    "subject": "الرياضيات 2",
+    "id": "asg_19_15_n1g4"
+  },
+  {
+    "subject": "الرياضيات 3",
+    "day": "الثلاثاء",
+    "period": 1,
+    "teacherName": "نايف عيد",
+    "section": "شعبة 8",
+    "id": "asg_19_16_rnp4"
+  },
+  {
+    "teacherName": "نايف عيد",
+    "subject": "الرياضيات 2",
+    "day": "الثلاثاء",
+    "period": 4,
+    "section": "شعبة 6",
+    "id": "asg_19_19_kvrt"
+  },
+  {
+    "section": "شعبة 5",
+    "teacherName": "نايف عيد",
+    "id": "asg_19_20_8czl",
+    "subject": "الرياضيات 2",
+    "day": "الثلاثاء",
+    "period": 5
+  },
+  {
+    "period": 6,
+    "day": "الثلاثاء",
+    "section": "شعبة 7",
+    "id": "asg_19_21_ugn3",
+    "teacherName": "نايف عيد",
+    "subject": "الرياضيات 3"
+  },
+  {
+    "teacherName": "نايف عيد",
+    "period": 1,
+    "day": "الأربعاء",
+    "id": "asg_19_22_nv61",
+    "subject": "الرياضيات 3",
+    "section": "شعبة 8"
+  },
+  {
+    "subject": "الرياضيات 2",
+    "period": 3,
+    "id": "asg_19_24_u5st",
+    "section": "شعبة 6",
+    "teacherName": "نايف عيد",
+    "day": "الأربعاء"
+  },
+  {
+    "period": 4,
+    "teacherName": "نايف عيد",
+    "subject": "الرياضيات 2",
+    "day": "الأربعاء",
+    "id": "asg_19_25_acxe",
+    "section": "شعبة 5"
+  },
+  {
+    "teacherName": "نايف عيد",
+    "day": "الخميس",
+    "section": "شعبة 6",
+    "id": "asg_19_28_hu69",
+    "period": 1,
+    "subject": "الرياضيات 2"
+  },
+  {
+    "section": "شعبة 5",
+    "day": "الخميس",
+    "period": 2,
+    "id": "asg_19_29_ndc1",
+    "subject": "الرياضيات 2",
+    "teacherName": "نايف عيد"
+  },
+  {
+    "subject": "الرياضيات 3",
+    "day": "الخميس",
+    "section": "شعبة 8",
+    "teacherName": "نايف عيد",
+    "period": 4,
+    "id": "asg_19_31_wpt9"
+  },
+  {
+    "day": "الخميس",
+    "id": "asg_19_32_ozl9",
+    "section": "شعبة 7",
+    "teacherName": "نايف عيد",
+    "subject": "الرياضيات 3",
+    "period": 5
+  },
+  {
+    "id": "asg_20_4_mx37",
+    "subject": "الكيمياء 2",
+    "day": "الأحد",
+    "section": "شعبة 4",
+    "teacherName": "وليد الشهري",
+    "period": 3
+  },
+  {
+    "teacherName": "وليد الشهري",
+    "period": 4,
+    "subject": "الكيمياء 2",
+    "id": "asg_20_5_x68u",
+    "section": "شعبة 5",
+    "day": "الأحد"
+  },
+  {
+    "section": "شعبة 6",
+    "period": 5,
+    "id": "asg_20_6_gadu",
+    "subject": "الكيمياء 2",
+    "teacherName": "وليد الشهري",
+    "day": "الأحد"
+  },
+  {
+    "day": "الاثنين",
+    "section": "شعبة 6",
+    "teacherName": "وليد الشهري",
+    "period": 4,
+    "id": "asg_20_12_yvxo",
+    "subject": "الكيمياء 2"
+  },
+  {
+    "id": "asg_20_14_519p",
+    "section": "شعبة 5",
+    "teacherName": "وليد الشهري",
+    "day": "الاثنين",
+    "subject": "الكيمياء 2",
+    "period": 6
+  },
+  {
+    "day": "الاثنين",
+    "period": 7,
+    "teacherName": "وليد الشهري",
+    "section": "شعبة 4",
+    "id": "asg_20_15_u4ud",
+    "subject": "الكيمياء 2"
+  },
+  {
+    "id": "asg_20_16_62l3",
+    "section": "شعبة 6",
+    "day": "الثلاثاء",
+    "teacherName": "وليد الشهري",
+    "period": 1,
+    "subject": "الكيمياء 2"
+  },
+  {
+    "id": "asg_20_17_q5bg",
+    "section": "شعبة 5",
+    "period": 2,
+    "day": "الثلاثاء",
+    "teacherName": "وليد الشهري",
+    "subject": "الكيمياء 2"
+  },
+  {
+    "section": "شعبة 4",
+    "day": "الثلاثاء",
+    "id": "asg_20_18_ytb2",
+    "teacherName": "وليد الشهري",
+    "period": 3,
+    "subject": "الكيمياء 2"
+  },
+  {
+    "period": 1,
+    "section": "شعبة 6",
+    "day": "الأربعاء",
+    "subject": "الكيمياء 2",
+    "id": "asg_20_22_yd71",
+    "teacherName": "وليد الشهري"
+  },
+  {
+    "period": 3,
+    "day": "الأربعاء",
+    "teacherName": "وليد الشهري",
+    "subject": "الكيمياء 2",
+    "id": "asg_20_24_saue",
+    "section": "شعبة 5"
+  },
+  {
+    "teacherName": "وليد الشهري",
+    "period": 4,
+    "day": "الأربعاء",
+    "section": "شعبة 4",
+    "id": "asg_20_25_mfpi",
+    "subject": "الكيمياء 2"
+  },
+  {
+    "subject": "الكيمياء 2",
+    "day": "الخميس",
+    "period": 3,
+    "teacherName": "وليد الشهري",
+    "section": "شعبة 4",
+    "id": "asg_20_30_o7sl"
+  },
+  {
+    "teacherName": "وليد الشهري",
+    "id": "asg_20_32_wpe3",
+    "period": 5,
+    "section": "شعبة 5",
+    "day": "الخميس",
+    "subject": "الكيمياء 2"
+  },
+  {
+    "teacherName": "وليد الشهري",
+    "section": "شعبة 6",
+    "period": 6,
+    "id": "asg_20_33_ohew",
+    "day": "الخميس",
+    "subject": "الكيمياء 2"
+  }
+]

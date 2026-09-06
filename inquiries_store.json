@@ -1,0 +1,32 @@
+[
+  {
+    "sentAt": "2026-09-04T13:46:11.961Z",
+    "schoolName": "ثانوية الأبناء الأولى",
+    "whatsappStatus": "success",
+    "whatsappError": "",
+    "status": "pending",
+    "teacherName": "فيصل مطلق",
+    "isVerified": false,
+    "id": "inq_1788529571305_att28",
+    "grade": "",
+    "students": [
+      {
+        "className": "1",
+        "grade": "الأول ثانوي",
+        "name": "ابراهيم بن سلمان بن محمد بن سلمان السحيمي البلوي",
+        "id": "1"
+      },
+      {
+        "grade": "الأول ثانوي",
+        "id": "2",
+        "className": "1",
+        "name": "احمد بن علاء بن احمد بن صالح ابو ذراع البلوي"
+      }
+    ],
+    "section": "شعبة 1",
+    "accessCode": "615424",
+    "teacherPhone": "966560599870",
+    "subject": "القران الكريم وتفسيره",
+    "teacherId": "tch_1788477572071_13_xveo"
+  }
+]

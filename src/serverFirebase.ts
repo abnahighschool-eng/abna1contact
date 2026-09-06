@@ -17,39 +17,18 @@ const APP_STATE_COLLECTION = "abna_system_data";
 const WHATSAPP_SESSION_DOC = "whatsapp_baileys_session";
 const SERVER_DATA_DOC = "server_system_state";
 const QUOTA_FILE = path.join(process.cwd(), ".firestore_quota.json");
-const SERVER_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours cooldown for daily free tier write quota reset
+const SERVER_QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour cooldown instead of 24h
+const MIN_SESSION_BACKUP_INTERVAL_MS = 60 * 1000; // 1 minute interval
 
 let isServerQuotaExceeded = false;
 let serverQuotaExceededTimestamp = 0;
-
-// Load persisted server quota state from disk on startup
-try {
-  if (fs.existsSync(QUOTA_FILE)) {
-    const raw = fs.readFileSync(QUOTA_FILE, "utf-8");
-    const data = JSON.parse(raw);
-    if (data?.timestamp && Date.now() - data.timestamp < SERVER_QUOTA_COOLDOWN_MS) {
-      isServerQuotaExceeded = true;
-      serverQuotaExceededTimestamp = data.timestamp;
-      disableNetwork(firestoreDb).catch(() => {});
-      console.info("[Server Storage] Initialized in local-disk mode (Firestore daily free quota limit cached).");
-    }
-  }
-} catch (e) {
-  // ignore quota file read errors
-}
-
-let lastSessionBackupHash = "";
 let lastSessionBackupTime = 0;
-const MIN_SESSION_BACKUP_INTERVAL_MS = 10 * 60 * 1000; // At most once every 10 minutes
+let lastSessionBackupHash = "";
 
 function isServerQuotaLimited(): boolean {
   if (!isServerQuotaExceeded) return false;
   if (Date.now() - serverQuotaExceededTimestamp > SERVER_QUOTA_COOLDOWN_MS) {
     isServerQuotaExceeded = false;
-    try {
-      if (fs.existsSync(QUOTA_FILE)) fs.unlinkSync(QUOTA_FILE);
-    } catch {}
-    enableNetwork(firestoreDb).catch(() => {});
     return false;
   }
   return true;
@@ -62,26 +41,13 @@ function handleServerQuotaError(err: any, opName: string) {
     errMsg.includes("RESOURCE_EXHAUSTED") ||
     errMsg.includes("Quota limit exceeded") ||
     errMsg.includes("Quota exceeded") ||
-    errMsg.includes("Free daily write units") ||
-    errMsg.includes("Free daily read units") ||
-    errMsg.includes("maximum backoff delay") ||
     errMsg.includes("Code: 8") ||
     errMsg.includes("429");
 
   if (isQuota) {
     isServerQuotaExceeded = true;
     serverQuotaExceededTimestamp = Date.now();
-    try {
-      fs.writeFileSync(QUOTA_FILE, JSON.stringify({ timestamp: serverQuotaExceededTimestamp }), "utf-8");
-    } catch {}
-
-    if (serverSyncTimeout) {
-      clearTimeout(serverSyncTimeout);
-      serverSyncTimeout = null;
-    }
-    // Shut down write stream immediately to avoid continuous backoff retry loops
-    disableNetwork(firestoreDb).catch(() => {});
-    console.info(`[Server Storage] Firestore cloud writes throttled (Daily quota reached). Server is storing all data reliably on local disk.`);
+    console.info(`[Server Storage] Firestore quota notice for ${opName}: paused temporarily.`);
   } else {
     console.warn(`[Firebase Notice] ${opName}:`, errMsg);
   }
@@ -241,7 +207,29 @@ let serverSyncTimeout: NodeJS.Timeout | null = null;
 let lastSyncedServerHash = "";
 
 /**
- * Sync server state (settings, students, templates, campaigns, logs, config) to Firestore (Debounced & throttled)
+ * Flush server state immediately to Firestore (no debounce)
+ */
+export async function forceFlushServerStateToFirestore(additionalState?: Record<string, any>): Promise<boolean> {
+  try {
+    if (additionalState) {
+      Object.assign(pendingServerState, additionalState);
+    }
+    const payload = sanitizePayload({
+      ...pendingServerState,
+      lastUpdated: new Date().toISOString(),
+    });
+    await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
+    lastSyncedServerHash = JSON.stringify(payload);
+    pendingServerState = {};
+    return true;
+  } catch (err: any) {
+    handleServerQuotaError(err, "forceFlushServerStateToFirestore");
+    return false;
+  }
+}
+
+/**
+ * Sync server state to Firestore (Debounced)
  */
 export async function syncServerStateToFirestore(state: {
   appSettings?: any;
@@ -258,17 +246,14 @@ export async function syncServerStateToFirestore(state: {
   healthProfiles?: any;
   supportCases?: any[];
   healthAuditLogs?: any[];
+  needsSurveyProfiles?: any;
 }): Promise<void> {
-  if (isServerQuotaLimited()) return;
-
   // Merge state into pending payload
   Object.assign(pendingServerState, state);
 
   if (serverSyncTimeout) clearTimeout(serverSyncTimeout);
 
   serverSyncTimeout = setTimeout(async () => {
-    if (isServerQuotaLimited()) return;
-
     try {
       const payload = sanitizePayload({
         ...pendingServerState,
@@ -284,22 +269,236 @@ export async function syncServerStateToFirestore(state: {
     } catch (err: any) {
       handleServerQuotaError(err, "syncServerStateToFirestore");
     }
-  }, 10000); // 10 seconds debounce to bundle updates into 1 write
+  }, 1500); // 1.5 seconds debounce for responsive syncing
+}
+
+/**
+ * Delete specific or all data from Firestore
+ */
+export async function deleteServerStateInFirestore(scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "health" | "logs"): Promise<boolean> {
+  try {
+    const timestamp = new Date().toISOString();
+    
+    if (scope === "all") {
+      // Reset server_system_state with blank records and update individual collections
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        activeStudentsList: [],
+        teachersList: [],
+        scheduleAssignments: [],
+        attendanceRecords: {},
+        inquiryRequests: [],
+        healthProfiles: {},
+        supportCases: [],
+        healthAuditLogs: [],
+        needsSurveyProfiles: {},
+        campaigns: {},
+        individualLogs: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+
+      await Promise.all([
+        setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "students_data"), { students: [], totalCount: 0, lastUpdated: timestamp }),
+        setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "teachers_data"), { teachers: [], totalTeachers: 0, lastUpdated: timestamp }),
+        setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "schedule_data"), { scheduleAssignments: [], totalAssignments: 0, lastUpdated: timestamp }),
+        setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "attendance_records"), { attendanceRecords: {}, lastUpdated: timestamp }),
+        setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "inquiries_data"), { inquiryRequests: [], totalInquiries: 0, lastUpdated: timestamp }),
+        setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "reports_archive"), { studentReports: [], totalReports: 0, lastUpdated: timestamp }),
+      ]);
+      return true;
+    }
+
+    if (scope === "students") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        activeStudentsList: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "students_data"), {
+        students: [],
+        totalCount: 0,
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    if (scope === "attendance") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        attendanceRecords: {},
+        lastUpdated: timestamp,
+      }, { merge: true });
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "attendance_records"), {
+        attendanceRecords: {},
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    if (scope === "teachers") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        teachersList: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "teachers_data"), {
+        teachers: [],
+        totalTeachers: 0,
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    if (scope === "schedule") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        scheduleAssignments: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "schedule_data"), {
+        scheduleAssignments: [],
+        totalAssignments: 0,
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    if (scope === "inquiries") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        inquiryRequests: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "inquiries_data"), {
+        inquiryRequests: [],
+        totalInquiries: 0,
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    if (scope === "health") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        healthProfiles: {},
+        supportCases: [],
+        healthAuditLogs: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    if (scope === "logs") {
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        campaigns: {},
+        individualLogs: [],
+        lastUpdated: timestamp,
+      }, { merge: true });
+      return true;
+    }
+
+    return false;
+  } catch (err: any) {
+    handleServerQuotaError(err, "deleteServerStateInFirestore");
+    return false;
+  }
 }
 
 /**
  * Load server state from Firestore on initial startup
+ * Combines server_system_state and individual documents to ensure zero data loss
  */
 export async function loadServerStateFromFirestore(): Promise<any> {
-  if (isServerQuotaLimited()) return null;
-
   try {
-    const snap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC));
-    if (snap.exists()) {
-      return snap.data();
+    const combinedState: Record<string, any> = {};
+
+    // 1. Fetch server_system_state
+    try {
+      const snap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC));
+      if (snap.exists()) {
+        Object.assign(combinedState, snap.data());
+      }
+    } catch (e) {
+      console.warn("[Firebase] Could not fetch server_system_state:", e);
     }
+
+    // 2. Fetch students_data if activeStudentsList is empty or missing
+    if (!Array.isArray(combinedState.activeStudentsList) || combinedState.activeStudentsList.length === 0) {
+      try {
+        const studentsSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "students_data"));
+        if (studentsSnap.exists()) {
+          const sData = studentsSnap.data();
+          if (Array.isArray(sData.students) && sData.students.length > 0) {
+            combinedState.activeStudentsList = sData.students;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 3. Fetch teachers_data if teachersList is empty or missing
+    if (!Array.isArray(combinedState.teachersList) || combinedState.teachersList.length === 0) {
+      try {
+        const teachersSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "teachers_data"));
+        if (teachersSnap.exists()) {
+          const tData = teachersSnap.data();
+          if (Array.isArray(tData.teachers) && tData.teachers.length > 0) {
+            combinedState.teachersList = tData.teachers;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 4. Fetch schedule_data if scheduleAssignments is empty or missing
+    if (!Array.isArray(combinedState.scheduleAssignments) || combinedState.scheduleAssignments.length === 0) {
+      try {
+        const scheduleSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "schedule_data"));
+        if (scheduleSnap.exists()) {
+          const scData = scheduleSnap.data();
+          if (Array.isArray(scData.scheduleAssignments) && scData.scheduleAssignments.length > 0) {
+            combinedState.scheduleAssignments = scData.scheduleAssignments;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 5. Fetch attendance_records if attendanceRecords is empty or missing
+    if (!combinedState.attendanceRecords || Object.keys(combinedState.attendanceRecords).length === 0) {
+      try {
+        const attSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "attendance_records"));
+        if (attSnap.exists()) {
+          const attData = attSnap.data();
+          if (attData.attendanceRecords && typeof attData.attendanceRecords === "object") {
+            combinedState.attendanceRecords = attData.attendanceRecords;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 6. Fetch inquiries_data if inquiryRequests is empty or missing
+    if (!Array.isArray(combinedState.inquiryRequests) || combinedState.inquiryRequests.length === 0) {
+      try {
+        const inqSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "inquiries_data"));
+        if (inqSnap.exists()) {
+          const inqData = inqSnap.data();
+          if (Array.isArray(inqData.inquiryRequests) && inqData.inquiryRequests.length > 0) {
+            combinedState.inquiryRequests = inqData.inquiryRequests;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 7. Fetch school_settings if appSettings is empty or missing
+    if (!combinedState.appSettings || Object.keys(combinedState.appSettings).length === 0) {
+      try {
+        const schoolSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "school_settings"));
+        if (schoolSnap.exists()) {
+          const scData = schoolSnap.data();
+          if (scData.schoolSignatories) {
+            combinedState.appSettings = scData.schoolSignatories;
+          }
+          if (scData.savedTemplate && !combinedState.activeTemplate) {
+            combinedState.activeTemplate = scData.savedTemplate;
+          }
+        }
+      } catch (e) {}
+    }
+
+    return Object.keys(combinedState).length > 0 ? combinedState : null;
   } catch (err: any) {
     handleServerQuotaError(err, "loadServerStateFromFirestore");
+    return null;
   }
-  return null;
 }

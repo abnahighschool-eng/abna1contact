@@ -14,11 +14,12 @@ import {
   X,
   UserCheck,
   CalendarDays,
-  HeartPulse
+  Database,
+  HeartHandshake,
 } from "lucide-react";
 import { AppUser } from "../types";
 
-export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "health_tracker" | "admin";
+export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "student_needs" | "admin";
 
 interface SidebarProps {
   currentSection: MainSectionType;
@@ -30,6 +31,7 @@ interface SidebarProps {
   schoolName?: string;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  onOpenDatabaseModal?: () => void;
 }
 
 export default function Sidebar({
@@ -42,6 +44,7 @@ export default function Sidebar({
   schoolName = "ثانوية الأبناء الأولى",
   isCollapsed: externalIsCollapsed,
   onToggleCollapse: externalOnToggleCollapse,
+  onOpenDatabaseModal,
 }: SidebarProps) {
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -113,12 +116,13 @@ export default function Sidebar({
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
     },
     {
-      id: "health_tracker" as MainSectionType,
-      label: "المتابعة الصحية للطالب",
-      shortLabel: "المتابعة الصحية",
-      icon: HeartPulse,
-      description: "ملف دعم ورعاية الطالب، الاستمارة الذكية لولي الأمر، ومتابعة الحالات",
-      badge: null,
+      id: "student_needs" as MainSectionType,
+      label: "استبيان احتياجات الطلاب",
+      shortLabel: "احتياجات الطلاب",
+      icon: HeartHandshake,
+      description: "رصد احتياجات الطلاب الصحية والاجتماعية وإرسال الاستبيانات برمز تفعيل آمن",
+      badge: "جديد",
+      badgeColor: "bg-teal-50 text-teal-700 border border-teal-200",
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
     },
   ];
@@ -172,6 +176,18 @@ export default function Sidebar({
               </button>
             );
           })}
+          {/* Database management trigger button in mobile nav */}
+          {onOpenDatabaseModal && (
+            <button
+              onClick={onOpenDatabaseModal}
+              className="py-2 px-3 rounded-xl font-bold transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 min-h-[42px] whitespace-nowrap shrink-0"
+              title="مركز إدارة قاعدة البيانات وحفظ البيانات"
+              id="mobile-nav-database-btn"
+            >
+              <Database className="w-4 h-4 text-emerald-600" />
+              <span>قاعدة البيانات</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -319,6 +335,35 @@ export default function Sidebar({
               );
             })}
           </div>
+
+          {/* Database Management & Sync quick action button */}
+          {onOpenDatabaseModal && (
+            <div className="p-2 border-t border-slate-100 bg-slate-50/50">
+              <button
+                onClick={onOpenDatabaseModal}
+                className={`w-full rounded-xl font-bold text-xs flex items-center transition-all cursor-pointer ${
+                  isCollapsed
+                    ? "p-2.5 justify-center bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    : "p-2.5 gap-2.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/80"
+                }`}
+                title="مركز إدارة قاعدة البيانات السحابية وحفظ البيانات"
+                id="sidebar-database-management-btn"
+              >
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Database className="w-3.5 h-3.5" />
+                </div>
+                {!isCollapsed && (
+                  <div className="text-right flex-1 min-w-0">
+                    <div className="font-extrabold text-slate-900 flex items-center justify-between">
+                      <span>إدارة قاعدة البيانات</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    </div>
+                    <p className="text-[10px] text-emerald-700 font-medium">حفظ ومزامنة وحذف</p>
+                  </div>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* Bottom WhatsApp status badge */}
           <div className={`

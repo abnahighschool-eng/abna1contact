@@ -11,9 +11,12 @@ import {
   deleteBaileysSessionInFirestore,
   syncServerStateToFirestore,
   loadServerStateFromFirestore,
+  forceFlushServerStateToFirestore,
+  deleteServerStateInFirestore,
 } from "./src/serverFirebase";
 import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
 import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine";
+import { analyzeSurveyResponses, generateActivationCode } from "./src/utils/studentNeedsRulesEngine";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -450,6 +453,7 @@ const INQUIRIES_FILE = path.join(process.cwd(), "inquiries_store.json");
 const HEALTH_PROFILES_FILE = path.join(process.cwd(), "health_profiles_store.json");
 const SUPPORT_CASES_FILE = path.join(process.cwd(), "support_cases_store.json");
 const HEALTH_AUDIT_FILE = path.join(process.cwd(), "health_audit_store.json");
+const NEEDS_SURVEY_FILE = path.join(process.cwd(), "needs_survey_store.json");
 
 // Default initial school settings
 let appSettings = {
@@ -475,6 +479,7 @@ let inquiryRequestsStore: any[] = [];
 let healthProfilesStore: Record<string, any> = {};
 let supportCasesStore: any[] = [];
 let healthAuditLogsStore: any[] = [];
+let needsSurveyProfilesStore: Record<string, any> = {};
 
 let systemUsersList: any[] = [
   {
@@ -575,6 +580,16 @@ if (fs.existsSync(HEALTH_AUDIT_FILE)) {
     if (Array.isArray(parsed)) healthAuditLogsStore = parsed;
   } catch (e) {
     console.error("Error reading health_audit_store.json", e);
+  }
+}
+
+if (fs.existsSync(NEEDS_SURVEY_FILE)) {
+  try {
+    const raw = fs.readFileSync(NEEDS_SURVEY_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") needsSurveyProfilesStore = parsed;
+  } catch (e) {
+    console.error("Error reading needs_survey_store.json", e);
   }
 }
 
@@ -747,6 +762,66 @@ function saveHealthAuditLogs() {
   } catch (e) {
     console.error("Error saving health_audit_store.json", e);
   }
+}
+
+function saveNeedsSurveyProfiles() {
+  try {
+    fs.writeFileSync(NEEDS_SURVEY_FILE, JSON.stringify(needsSurveyProfilesStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ needsSurveyProfiles: needsSurveyProfilesStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving needs_survey_store.json", e);
+  }
+}
+
+function getOrInitStudentNeedsProfile(student: any) {
+  if (needsSurveyProfilesStore[student.id]) {
+    return needsSurveyProfilesStore[student.id];
+  }
+  const token = `sn_${student.id}`;
+  const code = generateActivationCode(student.id);
+  const defaultGuidance = {
+    studentName: student.name || "طالب",
+    grade: student.grade || "",
+    className: student.className || "",
+    attentionLevel: "routine",
+    whatStudentNeeds: [
+      "التشجيع الإيجابي وبناء الثقة داخل الحصة",
+      "مراعاة الفروق الفردية وتقدير جهود الطالب في المشاركة",
+    ],
+    whatToAvoid: [
+      "تجنب إحراج الطالب أو مقارنته بالآخرين أمام زملائه",
+      "تجنب مناقشة أي أمور خاصة داخل الصف",
+    ],
+    whatToObserve: [
+      "مستوى الاندماج والتفاعل مع الأنشطة الصفية",
+      "إشعار الموجه الطلابي بلطف عند ملاحظة أي تغير ملحوظ",
+    ],
+    isApprovedByCounselor: false,
+  };
+
+  const profile = {
+    studentId: student.id,
+    studentName: student.name || "طالب",
+    nationalId: student.nationalId || student.id,
+    grade: student.grade || "",
+    className: student.className || "",
+    guardianName: student.guardianName || student.fatherName || "ولي الأمر",
+    guardianPhone: student.phone || "",
+    activationToken: token,
+    activationCode: code,
+    isActivated: false,
+    submissionCount: 0,
+    status: "not_sent",
+    overallPriority: "low",
+    primaryCategories: ["general"],
+    indicatorExplanations: [],
+    smartSummary: "لم يتم استلام استبيان بعد من ولي الأمر لهذا الطالب.",
+    smartRecommendations: ["إرسال رابط الاستبيان لولي الأمر لرصد الاحتياجات."],
+    teacherGuidance: defaultGuidance,
+    actions: [],
+  };
+  needsSurveyProfilesStore[student.id] = profile;
+  return profile;
 }
 
 async function sendDirectWhatsAppMessage(phone: string, message: string): Promise<{ success: boolean; error?: string }> {
@@ -1362,6 +1437,250 @@ app.post("/api/health-tracker/audit-logs", (req, res) => {
   res.json({ success: true });
 });
 
+// ==========================================
+// Student Needs Survey & Smart Support System Endpoints
+// ==========================================
+
+// 1. Get All Needs Survey Profiles
+app.get("/api/student-needs-survey/profiles", (req, res) => {
+  for (const student of activeStudentsList) {
+    if (!needsSurveyProfilesStore[student.id]) {
+      getOrInitStudentNeedsProfile(student);
+    } else {
+      needsSurveyProfilesStore[student.id].studentName = student.name || needsSurveyProfilesStore[student.id].studentName;
+      needsSurveyProfilesStore[student.id].grade = student.grade || needsSurveyProfilesStore[student.id].grade;
+      needsSurveyProfilesStore[student.id].className = student.className || needsSurveyProfilesStore[student.id].className;
+      needsSurveyProfilesStore[student.id].guardianPhone = student.phone || needsSurveyProfilesStore[student.id].guardianPhone;
+      if (!needsSurveyProfilesStore[student.id].activationCode) {
+        needsSurveyProfilesStore[student.id].activationCode = generateActivationCode(student.id);
+      }
+    }
+  }
+  saveNeedsSurveyProfiles();
+
+  res.json({
+    success: true,
+    profiles: needsSurveyProfilesStore,
+    total: Object.keys(needsSurveyProfilesStore).length,
+  });
+});
+
+// 2. Get Profile by Token
+app.get("/api/student-needs-survey/token/:token", (req, res) => {
+  const { token } = req.params;
+  let profile = Object.values(needsSurveyProfilesStore).find((p: any) => p.activationToken === token);
+
+  if (!profile) {
+    let studentId = token.startsWith("sn_") ? token.replace("sn_", "") : token;
+    const student = activeStudentsList.find((s: any) => s.id === studentId);
+    if (student) {
+      profile = getOrInitStudentNeedsProfile(student);
+      saveNeedsSurveyProfiles();
+    }
+  }
+
+  if (!profile) {
+    return res.status(404).json({ error: "لم يتم العثور على رابط الاستبيان" });
+  }
+
+  res.json({
+    success: true,
+    profile,
+  });
+});
+
+// 3. Verify 6-Digit Numeric Activation Code
+app.post("/api/student-needs-survey/token/verify-code", (req, res) => {
+  const { token, code } = req.body || {};
+  if (!token || !code) {
+    return res.status(400).json({ error: "يرجى تزويد رمز الاستمارة ورمز التفعيل" });
+  }
+
+  let profile = Object.values(needsSurveyProfilesStore).find((p: any) => p.activationToken === token);
+  if (!profile) {
+    let studentId = token.startsWith("sn_") ? token.replace("sn_", "") : token;
+    const student = activeStudentsList.find((s: any) => s.id === studentId);
+    if (student) {
+      profile = getOrInitStudentNeedsProfile(student);
+      saveNeedsSurveyProfiles();
+    }
+  }
+
+  if (!profile) {
+    return res.status(404).json({ error: "لم يتم العثور على سجل الطالب" });
+  }
+
+  const cleanInput = String(code).trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+  const cleanStored = String(profile.activationCode).trim().replace(/[^0-9]/g, "");
+
+  if (cleanInput !== cleanStored) {
+    return res.status(403).json({
+      error: "رمز التفعيل غير صحيح. يرجى التأكد من الرمز الرقمي المكون من 6 أرقام المرسل إلى جوالكم.",
+      isCodeMismatch: true,
+    });
+  }
+
+  profile.isActivated = true;
+  profile.activatedAt = profile.activatedAt || new Date().toISOString();
+  saveNeedsSurveyProfiles();
+
+  res.json({
+    success: true,
+    message: "تم التحقق من رمز التفعيل بنجاح",
+    profile,
+  });
+});
+
+// 4. Submit or Update Needs Survey Responses
+app.post("/api/student-needs-survey/submit", (req, res) => {
+  const { token, code, responses } = req.body || {};
+  if (!token || !code || !responses) {
+    return res.status(400).json({ error: "البيانات غير مكتملة" });
+  }
+
+  let profile = Object.values(needsSurveyProfilesStore).find((p: any) => p.activationToken === token);
+  if (!profile) {
+    return res.status(404).json({ error: "لم يتم العثور على سجل الطالب" });
+  }
+
+  const cleanInput = String(code).trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()).replace(/[^0-9]/g, "");
+  const cleanStored = String(profile.activationCode).trim().replace(/[^0-9]/g, "");
+
+  if (cleanInput !== cleanStored) {
+    return res.status(403).json({
+      error: "رمز التفعيل غير صحيح، لا يمكن حفظ الإجابات إلا بنفس الرمز المعتمد.",
+    });
+  }
+
+  const analysis = analyzeSurveyResponses(
+    profile.studentName,
+    profile.grade,
+    profile.className,
+    responses
+  );
+
+  profile.responses = responses;
+  profile.submissionCount = (profile.submissionCount || 0) + 1;
+  profile.lastUpdatedAt = new Date().toISOString();
+  profile.status = profile.status === "closed" ? "under_review" : "new_submission";
+  profile.overallPriority = analysis.overallPriority;
+  profile.primaryCategories = analysis.primaryCategories;
+  profile.indicatorExplanations = analysis.indicatorExplanations;
+  profile.smartSummary = analysis.smartSummary;
+  profile.smartRecommendations = analysis.smartRecommendations;
+  profile.teacherGuidance = {
+    ...analysis.teacherGuidance,
+    isApprovedByCounselor: profile.teacherGuidance?.isApprovedByCounselor || false,
+    customGuidanceNote: profile.teacherGuidance?.customGuidanceNote || "",
+  };
+
+  profile.actions = profile.actions || [];
+  profile.actions.unshift({
+    id: `act_${Date.now()}`,
+    actionDate: new Date().toISOString(),
+    actionType: "review_survey",
+    actionLabel: profile.submissionCount > 1 ? "تحديث استبيان من ولي الأمر" : "استلام استبيان جديد من ولي الأمر",
+    performedBy: "ولي الأمر",
+    notes: `مستوى الأولوية المقدر: ${analysis.overallPriority === "urgent" ? "عاجل" : analysis.overallPriority === "high" ? "مرتفع" : analysis.overallPriority === "medium" ? "متوسط" : "منخفض"}.`,
+  });
+
+  needsSurveyProfilesStore[profile.studentId] = profile;
+  saveNeedsSurveyProfiles();
+
+  res.json({
+    success: true,
+    message: "تم حفظ الاستبيان وتحليله بنجاح",
+    profile,
+  });
+});
+
+// 5. Add Counselor Action to Case
+app.post("/api/student-needs-survey/case-action", (req, res) => {
+  const { studentId, action, newStatus } = req.body || {};
+  if (!studentId || !action) {
+    return res.status(400).json({ error: "بيانات الإجراء غير مكتملة" });
+  }
+
+  const profile = needsSurveyProfilesStore[studentId];
+  if (!profile) {
+    return res.status(404).json({ error: "ملف الطالب غير موجود" });
+  }
+
+  profile.actions = profile.actions || [];
+  profile.actions.unshift({
+    id: `act_${Date.now()}`,
+    actionDate: new Date().toISOString(),
+    actionType: action.actionType || "counselor_note",
+    actionLabel: action.actionLabel || "إجراء إرشادي",
+    performedBy: action.performedBy || "الموجه الطلابي",
+    notes: action.notes || "",
+  });
+
+  if (newStatus) {
+    profile.status = newStatus;
+  }
+
+  needsSurveyProfilesStore[studentId] = profile;
+  saveNeedsSurveyProfiles();
+
+  res.json({ success: true, profile });
+});
+
+// 6. Approve / Update Teacher Guidance
+app.post("/api/student-needs-survey/teacher-guidance/approve", (req, res) => {
+  const { studentId, guidance, approvedBy } = req.body || {};
+  if (!studentId || !guidance) {
+    return res.status(400).json({ error: "البيانات غير مكتملة" });
+  }
+
+  const profile = needsSurveyProfilesStore[studentId];
+  if (!profile) {
+    return res.status(404).json({ error: "الملف غير موجود" });
+  }
+
+  profile.teacherGuidance = {
+    ...profile.teacherGuidance,
+    ...guidance,
+    isApprovedByCounselor: true,
+    approvedAt: new Date().toISOString(),
+    approvedBy: approvedBy || "الموجه الطلابي",
+  };
+
+  profile.actions = profile.actions || [];
+  profile.actions.unshift({
+    id: `act_${Date.now()}`,
+    actionDate: new Date().toISOString(),
+    actionType: "teacher_guidance_issued",
+    actionLabel: "اعتماد بطاقة توجيه المعلمين",
+    performedBy: approvedBy || "الموجه الطلابي",
+    notes: "تم اعتماد ومشاركة التوجيهات التربوية مع معلمي الشعبة مع حجب البيانات الحساسة.",
+  });
+
+  needsSurveyProfilesStore[studentId] = profile;
+  saveNeedsSurveyProfiles();
+
+  res.json({ success: true, profile });
+});
+
+// 7. Batch Update Invites Sent Status
+app.post("/api/student-needs-survey/batch-update-invites", (req, res) => {
+  const { studentIds, status = "sent" } = req.body || {};
+  if (Array.isArray(studentIds)) {
+    const now = new Date().toISOString();
+    for (const sid of studentIds) {
+      if (needsSurveyProfilesStore[sid]) {
+        needsSurveyProfilesStore[sid].lastInviteSentAt = now;
+        needsSurveyProfilesStore[sid].inviteStatus = status;
+        if (needsSurveyProfilesStore[sid].status === "not_sent") {
+          needsSurveyProfilesStore[sid].status = "sent";
+        }
+      }
+    }
+    saveNeedsSurveyProfiles();
+  }
+  res.json({ success: true, count: studentIds?.length || 0 });
+});
+
 // Dedicated Year-Long Academic Attendance Storage Endpoints
 app.get("/api/attendance", (req, res) => {
   res.json({
@@ -1418,6 +1737,169 @@ app.post("/api/app-state/users", (req, res) => {
     saveUsersList();
   }
   res.json({ success: true, count: systemUsersList.length });
+});
+
+// Database & System Records Statistics Endpoint
+app.get("/api/database/stats", (req, res) => {
+  res.json({
+    success: true,
+    studentsCount: activeStudentsList.length,
+    teachersCount: teachersList.length,
+    scheduleCount: scheduleAssignments.length,
+    attendanceDaysCount: Object.keys(attendanceRecordsStore).length,
+    inquiriesCount: inquiryRequestsStore.length,
+    healthProfilesCount: Object.keys(healthProfilesStore).length,
+    supportCasesCount: supportCasesStore.length,
+    needsSurveysCount: Object.keys(needsSurveyProfilesStore).length,
+    campaignsCount: Object.keys(campaigns).length,
+    individualLogsCount: individualLogs.length,
+    usersCount: systemUsersList.length,
+    databaseName: "Firestore",
+    databaseId: "ai-studio-4d5db8bc-d9b7-43bb-9c78-f66acc3d93a3",
+    projectId: "aqueous-epoch-lxfb9",
+    status: "active",
+    lastSyncedAt: new Date().toISOString(),
+  });
+});
+
+// Force Cloud Synchronization Endpoint
+app.post("/api/app-state/sync-now", async (req, res) => {
+  try {
+    const success = await forceFlushServerStateToFirestore({
+      appSettings,
+      activeStudentsList,
+      activeTemplate,
+      systemUsersList,
+      teachersList,
+      scheduleAssignments,
+      inquiryRequests: inquiryRequestsStore,
+      attendanceRecords: attendanceRecordsStore,
+      healthProfiles: healthProfilesStore,
+      supportCases: supportCasesStore,
+      healthAuditLogs: healthAuditLogsStore,
+      needsSurveyProfiles: needsSurveyProfilesStore,
+      campaigns,
+      individualLogs,
+      whatsappConfig,
+    });
+    res.json({
+      success,
+      message: success ? "تمت المزامنة الفورية مع قاعدة البيانات بنجاح" : "تم حفظ البيانات محلياً وسيتم المزامنة تلقائياً",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Granular and Full Data Deletion Endpoint
+app.post("/api/app-state/clear", async (req, res) => {
+  try {
+    const { scope } = req.body || {};
+    if (!scope) {
+      return res.status(400).json({ error: "نطاق الحذف غير محدد (scope required)" });
+    }
+
+    if (scope === "all") {
+      activeStudentsList = [];
+      saveStudentsList();
+
+      teachersList = [];
+      saveTeachersList();
+
+      scheduleAssignments = [];
+      saveScheduleAssignments();
+
+      attendanceRecordsStore = {};
+      saveAttendanceRecords();
+
+      inquiryRequestsStore = [];
+      saveInquiryRequests();
+
+      healthProfilesStore = {};
+      saveHealthProfiles();
+
+      supportCasesStore = [];
+      saveSupportCases();
+
+      healthAuditLogsStore = [];
+      saveHealthAuditLogs();
+
+      Object.keys(campaigns).forEach(k => delete campaigns[k]);
+      saveCampaigns();
+
+      individualLogs.length = 0;
+      saveIndividualLogs();
+
+      await deleteServerStateInFirestore("all");
+
+      return res.json({
+        success: true,
+        message: "تم حذف وإعادة ضبط جميع البيانات بنجاح من الخادم وقاعدة البيانات السحابية",
+        scope: "all",
+      });
+    }
+
+    if (scope === "students") {
+      activeStudentsList = [];
+      saveStudentsList();
+      await deleteServerStateInFirestore("students");
+      return res.json({ success: true, message: "تم حذف كشف الطلاب بنجاح", scope: "students" });
+    }
+
+    if (scope === "attendance") {
+      attendanceRecordsStore = {};
+      saveAttendanceRecords();
+      await deleteServerStateInFirestore("attendance");
+      return res.json({ success: true, message: "تم حذف سجلات الحضور والغياب بنجاح", scope: "attendance" });
+    }
+
+    if (scope === "teachers") {
+      teachersList = [];
+      saveTeachersList();
+      await deleteServerStateInFirestore("teachers");
+      return res.json({ success: true, message: "تم حذف قائمة المعلمين بنجاح", scope: "teachers" });
+    }
+
+    if (scope === "schedule") {
+      scheduleAssignments = [];
+      saveScheduleAssignments();
+      await deleteServerStateInFirestore("schedule");
+      return res.json({ success: true, message: "تم حذف جدول الحصص بنجاح", scope: "schedule" });
+    }
+
+    if (scope === "inquiries") {
+      inquiryRequestsStore = [];
+      saveInquiryRequests();
+      await deleteServerStateInFirestore("inquiries");
+      return res.json({ success: true, message: "تم حذف طلبات واستفسارات التقييم بنجاح", scope: "inquiries" });
+    }
+
+    if (scope === "health") {
+      healthProfilesStore = {};
+      saveHealthProfiles();
+      supportCasesStore = [];
+      saveSupportCases();
+      healthAuditLogsStore = [];
+      saveHealthAuditLogs();
+      await deleteServerStateInFirestore("health");
+      return res.json({ success: true, message: "تم حذف ملفات وسجلات الرعاية الصحية بنجاح", scope: "health" });
+    }
+
+    if (scope === "logs") {
+      Object.keys(campaigns).forEach(k => delete campaigns[k]);
+      saveCampaigns();
+      individualLogs.length = 0;
+      saveIndividualLogs();
+      await deleteServerStateInFirestore("logs");
+      return res.json({ success: true, message: "تم حذف أرشيف الحملات والرسائل بنجاح", scope: "logs" });
+    }
+
+    return res.status(400).json({ error: `نطاق غير معروف: ${scope}` });
+  } catch (err: any) {
+    console.error("Error clearing state:", err);
+    res.status(500).json({ error: err.message || "حدث خطأ أثناء حذف البيانات" });
+  }
 });
 
 // Cache & Temporary Files Cleanup Endpoint
@@ -1994,7 +2476,7 @@ app.post("/api/whatsapp/campaign/:id/resume", (req, res) => {
 });
 
 // Single Message Send Endpoint
-app.post(["/api/whatsapp/send-single", "/api/whatsapp/send", "/api/send-individual"], async (req, res) => {
+app.post(["/api/whatsapp/send-single", "/api/whatsapp/send", "/api/send-individual", "/api/send-whatsapp"], async (req, res) => {
   const { phone, message, studentName, grade, className } = req.body;
   if (!phone || !message) {
     return res.status(400).json({ error: "يرجى تحديد رقم الجوال ونص الرسالة" });
@@ -2230,10 +2712,34 @@ async function startServer() {
           appSettings = { ...appSettings, ...cloudState.appSettings };
         }
         if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
-          if (activeStudentsList.length === 0) activeStudentsList = cloudState.activeStudentsList;
+          if (activeStudentsList.length === 0) {
+            activeStudentsList = cloudState.activeStudentsList;
+            saveStudentsList();
+          }
+        }
+        if (Array.isArray(cloudState.teachersList) && cloudState.teachersList.length > 0) {
+          teachersList = cloudState.teachersList;
+          saveTeachersList();
+        }
+        if (Array.isArray(cloudState.scheduleAssignments) && cloudState.scheduleAssignments.length > 0) {
+          scheduleAssignments = cloudState.scheduleAssignments;
+          saveScheduleAssignments();
+        }
+        if (cloudState.attendanceRecords && typeof cloudState.attendanceRecords === "object" && Object.keys(cloudState.attendanceRecords).length > 0) {
+          attendanceRecordsStore = { ...attendanceRecordsStore, ...cloudState.attendanceRecords };
+          saveAttendanceRecords();
+        }
+        if (Array.isArray(cloudState.inquiryRequests) && cloudState.inquiryRequests.length > 0) {
+          inquiryRequestsStore = cloudState.inquiryRequests;
+          saveInquiryRequests();
+        }
+        if (Array.isArray(cloudState.systemUsersList) && cloudState.systemUsersList.length > 0) {
+          systemUsersList = cloudState.systemUsersList;
+          saveUsersList();
         }
         if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
           activeTemplate = cloudState.activeTemplate;
+          saveTemplate();
         }
         if (cloudState.whatsappConfig) {
           whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
@@ -2262,6 +2768,11 @@ async function startServer() {
         if (Array.isArray(cloudState.healthAuditLogs) && cloudState.healthAuditLogs.length > 0) {
           if (healthAuditLogsStore.length === 0) {
             healthAuditLogsStore = cloudState.healthAuditLogs;
+          }
+        }
+        if (cloudState.needsSurveyProfiles && Object.keys(cloudState.needsSurveyProfiles).length > 0) {
+          if (Object.keys(needsSurveyProfilesStore).length === 0) {
+            needsSurveyProfilesStore = cloudState.needsSurveyProfiles;
           }
         }
         console.log("[Firebase] System state successfully synchronized from Firestore.");

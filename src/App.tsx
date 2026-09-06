@@ -38,8 +38,10 @@ import UserManagement from "./components/UserManagement";
 import StudentInquiry from "./components/StudentInquiry";
 import TeachersScheduleManager from "./components/TeachersScheduleManager";
 import TeacherEvaluationPortal from "./components/TeacherEvaluationPortal";
-import StudentHealthTracker from "./components/StudentHealthTracker";
-import ParentStudentSupportPortal from "./components/ParentStudentSupportPortal";
+import StudentNeedsSurveyMain from "./components/StudentNeedsSurvey/StudentNeedsSurveyMain";
+import ParentNeedsSurveyPortal from "./components/StudentNeedsSurvey/ParentNeedsSurveyPortal";
+import DatabaseManagementModal from "./components/DatabaseManagementModal";
+import { SchoolSignatoriesModal, DEFAULT_MINISTRY_LOGO } from "./components/SchoolSignatoriesModal";
 import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types/studentSupport";
 import { Student, WhatsAppConfig, SchoolSignatories, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
 import { 
@@ -110,15 +112,19 @@ export default function App() {
         return {
           countryName: parsed.countryName || "المملكة العربية السعودية",
           ministryName: parsed.ministryName || "وزارة التعليم",
-          administrationName: parsed.administrationName || "الإدارة العامة للتعليم",
+          administrationName: parsed.administrationName || "الإدارة العامة للتعليم بمنطقة تبوك",
           schoolName: parsed.schoolName || "ثانوية الأبناء الأولى",
           principalName: parsed.principalName || "",
           vicePrincipalName: parsed.vicePrincipalName || "",
           counselorName: parsed.counselorName || "",
           systemManagerName: parsed.systemManagerName || "",
-          logoUrl: parsed.logoUrl || "",
-          logoWidth: parsed.logoWidth || 60,
-          logoHeight: parsed.logoHeight || 60,
+          logoUrl: parsed.logoUrl || DEFAULT_MINISTRY_LOGO,
+          logoWidth: parsed.logoWidth || 76,
+          logoHeight: parsed.logoHeight || 76,
+          showStudentGuidanceLine:
+            parsed.showStudentGuidanceLine !== undefined
+              ? parsed.showStudentGuidanceLine
+              : true,
         };
       } catch (e) {
         console.error(e);
@@ -127,15 +133,16 @@ export default function App() {
     return {
       countryName: "المملكة العربية السعودية",
       ministryName: "وزارة التعليم",
-      administrationName: "الإدارة العامة للتعليم",
+      administrationName: "الإدارة العامة للتعليم بمنطقة تبوك",
       schoolName: "ثانوية الأبناء الأولى",
       principalName: "",
       vicePrincipalName: "",
       counselorName: "",
       systemManagerName: "",
-      logoUrl: "",
-      logoWidth: 60,
-      logoHeight: 60,
+      logoUrl: DEFAULT_MINISTRY_LOGO,
+      logoWidth: 76,
+      logoHeight: 76,
+      showStudentGuidanceLine: true,
     };
   });
   
@@ -198,11 +205,11 @@ export default function App() {
     return [];
   });
 
-  // Direct Parent Student Support Portal URL parameter (?health_token=<token> or ?support_token=<token> or ?token=<token>)
-  const [parentHealthToken, setParentHealthToken] = useState<string | null>(() => {
+  // Direct Parent Student Needs Survey Portal URL parameter (?survey_token=<token> or ?needs_token=<token> or ?token=<token>)
+  const [parentSurveyToken, setParentSurveyToken] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      return params.get("health_token") || params.get("support_token") || params.get("token");
+      return params.get("survey_token") || params.get("needs_token") || params.get("token") || params.get("support_token") || params.get("health_token");
     }
     return null;
   });
@@ -233,6 +240,59 @@ export default function App() {
   });
 
   const [healthAuditLogs, setHealthAuditLogs] = useState<HealthAuditLog[]>([]);
+  const [showDatabaseModal, setShowDatabaseModal] = useState(false);
+
+  // Clear specific or all local state sections
+  const handleClearLocalSection = (scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "health" | "logs") => {
+    if (scope === "all") {
+      setStudents([]);
+      localStorage.removeItem("whatsapp_student_list");
+
+      setTeachers([]);
+      localStorage.removeItem("abna_teachers_roster");
+
+      setScheduleAssignments([]);
+      localStorage.removeItem("abna_school_schedule");
+
+      setInquiryRequests([]);
+      localStorage.removeItem("abna_inquiry_requests");
+
+      setSupportProfiles({});
+      localStorage.removeItem("abna_support_profiles");
+
+      setSupportCases([]);
+      localStorage.removeItem("abna_support_cases");
+
+      setHealthAuditLogs([]);
+
+      localStorage.removeItem("school_attendance_records");
+      localStorage.removeItem("whatsapp_campaigns");
+      localStorage.removeItem("whatsapp_individual_logs");
+    } else if (scope === "students") {
+      setStudents([]);
+      localStorage.removeItem("whatsapp_student_list");
+    } else if (scope === "teachers") {
+      setTeachers([]);
+      localStorage.removeItem("abna_teachers_roster");
+    } else if (scope === "schedule") {
+      setScheduleAssignments([]);
+      localStorage.removeItem("abna_school_schedule");
+    } else if (scope === "inquiries") {
+      setInquiryRequests([]);
+      localStorage.removeItem("abna_inquiry_requests");
+    } else if (scope === "attendance") {
+      localStorage.removeItem("school_attendance_records");
+    } else if (scope === "health") {
+      setSupportProfiles({});
+      localStorage.removeItem("abna_support_profiles");
+      setSupportCases([]);
+      localStorage.removeItem("abna_support_cases");
+      setHealthAuditLogs([]);
+    } else if (scope === "logs") {
+      localStorage.removeItem("whatsapp_campaigns");
+      localStorage.removeItem("whatsapp_individual_logs");
+    }
+  };
 
   // Debounced cloud sync timer ref for template edits
   const templateSyncTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -674,14 +734,13 @@ export default function App() {
     );
   }
 
-  // Direct Parent Student Support Portal (Accessed directly via WhatsApp token link)
-  if (parentHealthToken) {
+  // Direct Parent Student Needs Survey Portal (Accessed directly via WhatsApp token link)
+  if (parentSurveyToken) {
     return (
-      <ParentStudentSupportPortal
-        token={parentHealthToken}
-        onSaveProfile={handleSaveSupportProfile}
+      <ParentNeedsSurveyPortal
+        token={parentSurveyToken}
         onExit={() => {
-          setParentHealthToken(null);
+          setParentSurveyToken(null);
           window.history.replaceState({}, document.title, window.location.pathname);
         }}
       />
@@ -756,20 +815,13 @@ export default function App() {
 
             {/* School & Signatories Configuration Trigger */}
             <button
-              onClick={() => setShowSignatoriesConfig(prev => !prev)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-[11px] font-medium cursor-pointer ${
-                showSignatoriesConfig
-                  ? "bg-slate-800 text-white border-slate-700 shadow-sm"
-                  : (signatories.principalName || signatories.schoolName)
-                    ? "bg-amber-50/90 text-amber-900 border-amber-200 hover:bg-amber-100"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:text-slate-800 hover:bg-slate-100"
-              }`}
-              title="تخصيص بيانات المدرسة، الإدارة وأسماء المعتمدين بالتقارير"
+              onClick={() => setShowSignatoriesConfig(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-amber-200 bg-amber-50/90 hover:bg-amber-100 text-amber-950 transition-all text-xs font-bold cursor-pointer shadow-2xs"
+              title="تخصيص بيانات المدرسة، الشعار والمعتمدين وإعدادات الترويسة لكافة التقارير"
               id="btn-toggle-signatories"
             >
-              <Building className="w-3.5 h-3.5 text-amber-500" />
-              <span>بيانات المدرسة والمعتمدين</span>
-              {showSignatoriesConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              <Building className="w-3.5 h-3.5 text-amber-600" />
+              <span>بيانات المدرسة والمعتمدين والشعار</span>
             </button>
 
             {/* Connection Status Badge */}
@@ -805,6 +857,19 @@ export default function App() {
               </span>
             </div>
 
+            {/* Cloud Database Management Center Trigger */}
+            <button
+              type="button"
+              onClick={() => setShowDatabaseModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-bold transition-all text-xs cursor-pointer shadow-2xs"
+              title="مركز إدارة قاعدة البيانات وحفظ البيانات والحذف الجزئي والشامل"
+              id="header-database-center-btn"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-600" />
+              <span>قاعدة البيانات والحفظ</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            </button>
+
             {/* Top Logout Button for all users including Admin */}
             <button
               onClick={handleLogout}
@@ -820,134 +885,13 @@ export default function App() {
 
         </div>
 
-        {/* EXPANDED EDITABLE SCHOOL, ADMINISTRATION & SIGNATORIES PANEL */}
-        {showSignatoriesConfig && (
-          <div className="bg-slate-50 border-t border-slate-200/90 py-4 px-4 animate-fadeIn no-print" id="subtle-signatories-panel">
-            <div className="max-w-7xl mx-auto flex flex-col gap-3">
-              
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
-                <div className="flex items-center gap-2">
-                  <School className="w-4 h-4 text-emerald-600" />
-                  <span className="text-xs font-bold text-slate-800">
-                    تعديل بيانات المدرسة والإدارة وأسماء المعتمدين (تنعكس فوراً على الترويسة والتقارير المطبوعة):
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {signatoriesSavedToast && (
-                    <span className="text-emerald-600 font-bold text-xs flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      <Check className="w-3 h-3" />
-                      تم الحفظ سحابياً ومحلياً
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setShowSignatoriesConfig(false)}
-                    className="text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded text-xs cursor-pointer"
-                  >
-                    إغلاق ✕
-                  </button>
-                </div>
-              </div>
-
-              {/* Editable Fields Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
-                
-                {/* 1. Country Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الدولة:</span>
-                  <input
-                    type="text"
-                    value={signatories.countryName || "المملكة العربية السعودية"}
-                    onChange={(e) => handleUpdateSignatory("countryName", e.target.value)}
-                    placeholder="المملكة العربية السعودية"
-                    className="w-full text-xs font-bold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-country-name"
-                  />
-                </div>
-
-                {/* 2. Ministry Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الوزارة:</span>
-                  <input
-                    type="text"
-                    value={signatories.ministryName || "وزارة التعليم"}
-                    onChange={(e) => handleUpdateSignatory("ministryName", e.target.value)}
-                    placeholder="وزارة التعليم"
-                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-ministry-name"
-                  />
-                </div>
-
-                {/* 3. Administration Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الإدارة:</span>
-                  <input
-                    type="text"
-                    value={signatories.administrationName || ""}
-                    onChange={(e) => handleUpdateSignatory("administrationName", e.target.value)}
-                    placeholder="الإدارة العامة للتعليم..."
-                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-admin-name"
-                  />
-                </div>
-
-                {/* 4. School Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">المدرسة:</span>
-                  <input
-                    type="text"
-                    value={signatories.schoolName || ""}
-                    onChange={(e) => handleUpdateSignatory("schoolName", e.target.value)}
-                    placeholder="ثانوية الأبناء الأولى"
-                    className="w-full text-xs font-bold text-emerald-950 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-school-name"
-                  />
-                </div>
-
-                {/* 5. Principal Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">المدير:</span>
-                  <input
-                    type="text"
-                    value={signatories.principalName || ""}
-                    onChange={(e) => handleUpdateSignatory("principalName", e.target.value)}
-                    placeholder="اسم مدير المدرسة..."
-                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-principal-name"
-                  />
-                </div>
-
-                {/* 6. Vice Principal Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الوكيل:</span>
-                  <input
-                    type="text"
-                    value={signatories.vicePrincipalName || ""}
-                    onChange={(e) => handleUpdateSignatory("vicePrincipalName", e.target.value)}
-                    placeholder="اسم وكيل شؤون الطلاب..."
-                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-vice-principal-name"
-                  />
-                </div>
-
-                {/* 5. Counselor Name */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                  <span className="text-[10px] font-bold text-slate-400 ml-1.5 shrink-0">الموجه:</span>
-                  <input
-                    type="text"
-                    value={signatories.counselorName || ""}
-                    onChange={(e) => handleUpdateSignatory("counselorName", e.target.value)}
-                    placeholder="اسم الموجه الطلابي..."
-                    className="w-full text-xs font-semibold text-slate-800 bg-transparent border-none focus:outline-none placeholder:text-slate-300"
-                    id="input-counselor-name"
-                  />
-                </div>
-
-              </div>
-
-            </div>
-          </div>
-        )}
-
+        {/* UNIFIED MODAL FOR SCHOOL DATA, LOGO & SIGNATORIES */}
+        <SchoolSignatoriesModal
+          isOpen={showSignatoriesConfig}
+          onClose={() => setShowSignatoriesConfig(false)}
+          signatories={signatories}
+          onSave={handleBulkUpdateSignatories}
+        />
       </header>
 
       {/* Primary Dashboard Container with Sidebar and Content Area */}
@@ -964,6 +908,7 @@ export default function App() {
           schoolName={signatories.schoolName}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
+          onOpenDatabaseModal={() => setShowDatabaseModal(true)}
         />
 
         {/* Dynamic Section Content Viewport */}
@@ -983,7 +928,6 @@ export default function App() {
               onNavigateToAttendance={() => setMainSection("attendance")}
               onNavigateToTeachersSchedule={() => setMainSection("teachers_schedule")}
               onNavigateToInquiry={() => setMainSection("inquiry")}
-              onNavigateToHealthTracker={() => setMainSection("health_tracker")}
               onOpenSignatoriesConfig={() => setShowSignatoriesConfig(true)}
             />
           )}
@@ -1119,6 +1063,7 @@ export default function App() {
                   signatories={signatories}
                   template={template}
                   onUpdateSignatory={handleBulkUpdateSignatories}
+                  onOpenSignatoriesModal={() => setShowSignatoriesConfig(true)}
                   onNavigateToTab={(tab) => setActiveTab(tab)}
                 />
               </div>
@@ -1159,23 +1104,18 @@ export default function App() {
             />
           )}
 
-          {/* 5. Main Section: Student Health & Support Tracker (المتابعة الصحية للطالب) */}
-          {mainSection === "health_tracker" && (
-            <StudentHealthTracker
+          {/* 5. Main Section: Student Needs Survey (استبيان احتياجات الطلاب) */}
+          {mainSection === "student_needs" && (
+            <StudentNeedsSurveyMain
               students={students}
-              supportProfiles={supportProfiles}
-              onSaveProfile={handleSaveSupportProfile}
-              cases={supportCases}
-              onSaveCase={handleSaveSupportCase}
-              auditLogs={healthAuditLogs}
-              onLogAudit={handleLogHealthAudit}
-              onSendWhatsAppDirect={handleSendWhatsAppDirect}
-              schoolName={signatories.schoolName || "ثانوية الأبناء الأولى"}
               isWhatsAppConnected={isWhatsAppConnected}
               onNavigateToWhatsApp={() => {
                 setMainSection("messages");
                 setActiveTab("connection");
               }}
+              schoolSignatories={signatories}
+              onOpenSignatoriesModal={() => setShowSignatoriesConfig(true)}
+              currentUser={currentUser}
             />
           )}
 
@@ -1212,6 +1152,28 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Cloud Database Management Center Modal */}
+      <DatabaseManagementModal
+        isOpen={showDatabaseModal}
+        onClose={() => setShowDatabaseModal(false)}
+        students={students}
+        teachers={teachers}
+        schedule={scheduleAssignments}
+        attendanceRecords={(() => {
+          try {
+            return JSON.parse(localStorage.getItem("school_attendance_records") || "{}");
+          } catch {
+            return {};
+          }
+        })()}
+        inquiries={inquiryRequests}
+        users={users}
+        signatories={signatories}
+        currentUser={currentUser}
+        onRefreshAllData={fetchFullAppState}
+        onClearLocalSection={handleClearLocalSection}
+      />
 
     </div>
   );

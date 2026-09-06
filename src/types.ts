@@ -79,6 +79,7 @@ export interface SchoolSignatories {
   logoUrl?: string;
   logoWidth?: number;
   logoHeight?: number;
+  showStudentGuidanceLine?: boolean;
 }
 
 export interface AttendanceRecord {

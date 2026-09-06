@@ -1,0 +1,15 @@
+[
+  {
+    "masterPin": "0560599870",
+    "status": "active",
+    "lastLogin": "2026-08-31T06:26:17.062Z",
+    "username": "admin",
+    "notes": "حساب الإدارة الأساسي الافتراضي للنظام | تم التحديث: ٣١‏/٨‏/٢٠٢٦",
+    "createdAt": "2026-08-31T05:08:46.034Z",
+    "phone": "",
+    "id": "admin_root_1",
+    "name": "مدير النظام العام",
+    "password": "Ab123456$",
+    "role": "admin"
+  }
+]
