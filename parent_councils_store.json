@@ -1,0 +1,371 @@
+{
+  "applications": {
+    "app_seed_1": {
+      "id": "app_seed_1",
+      "token": "pc_seed_1",
+      "activationCode": "202601",
+      "guardianName": "د. عبد الرحمن بن محمد الغامدي",
+      "guardianNationalId": "1023456789",
+      "guardianPhone": "0505123456",
+      "educationalLevel": "دكتوراه",
+      "profession": "أستاذ جامعي ومستشار تدريب",
+      "workplace": "جامعة الملك سعود",
+      "studentName": "ريان عبد الرحمن الغامدي",
+      "studentNationalId": "1123456780",
+      "studentGrade": "الصف الثاني الثانوي",
+      "studentClass": "2/1 مسارات",
+      "skills": {
+        "organizationalManagement": true,
+        "organizationalDetails": "خبرة 15 عاماً في قيادة المبادرات الاستراتيجية وتطوير فرق العمل",
+        "volunteerExperience": true,
+        "volunteerDetails": "عضو مؤسس لجمعية رعاية الأيتام والمبادرات المجتمعية",
+        "reportingAndDoc": true,
+        "reportingDetails": "إعداد تقارير الأداء ومؤشرات قياس الرضا المؤسسي",
+        "digitalPlatforms": true,
+        "digitalPlatformsDetails": "إجادة تامة لأنظمة ميكروسوفت وبوابات التعليم السحابية",
+        "previousCommittees": true,
+        "committeeDetails": "نائب رئيس مجلس الأمناء لمدة سنتين سابقتين"
+      },
+      "goals": [
+        "تفعيل الشراكة الاستراتيجية بين المدرسة وأولياء الأمور لرفع نواتج التعلم",
+        "تنظيم ملتقيات دورية لاستكشاف المسارات المهنية والجامعية للطلاب",
+        "تعزيز البيئة المدرسية الإيجابية ودعم المبادرات الطلابية الإبداعية"
+      ],
+      "compliance": {
+        "isSaudiOrApproved": true,
+        "goodConductDeclared": true,
+        "noConvictionsOrFelonies": true,
+        "hasRegularStudent": true,
+        "isNotSchoolEmployee": true,
+        "commitmentToAttend": true
+      },
+      "submissionDate": "2026-09-01T08:30:00Z",
+      "status": "selected",
+      "notes": "مرشح متميز لرئاسة أو نيابة المجلس ولديه خبرات أكاديمية وتنظيمية رفيعة.",
+      "evaluation": {
+        "isEligible": false,
+        "disqualificationReasons": [
+          "المادة 3 (بند 1): المتقدم ليس ولي أمر لطالب مسجل بالمدرسة ولا عضواً بالهيئة التعليمية.",
+          "المادة 3 (بند 3): الجمع بين عضوية مجلسين من مجالس أولياء الأمور بالمدارس.",
+          "المادة 3 (بند 5): تم قبول عضويته في مجلس مدرسة أخرى هذا العام ولا يجوز الجمع.",
+          "المادة 3 (بند 6): عدم استيفاء شرط حسن السيرة والسلوك والأحكام القضائية المنصوص عليها.",
+          "عدم التوقيع على التعهد النظامي المعتمد للاستمارة."
+        ],
+        "skillsScore": 0,
+        "goalsScore": 0,
+        "experienceScore": 0,
+        "readinessScore": 0,
+        "overallScore": 0,
+        "recommendation": "disqualified",
+        "summaryReasons": [
+          "استبعاد نظامي بموجب المادة (الثالثة) لضوابط العضوية."
+        ]
+      }
+    },
+    "app_seed_2": {
+      "id": "app_seed_2",
+      "token": "pc_seed_2",
+      "activationCode": "202601",
+      "guardianName": "م. خالد بن ناصر الشهري",
+      "guardianNationalId": "1034567890",
+      "guardianPhone": "0554123789",
+      "educationalLevel": "ماجستير",
+      "profession": "مهندس نظم أمن سيبراني",
+      "workplace": "هيئة الاتصالات والفضاء والتقنية",
+      "studentName": "فيصل خالد الشهري",
+      "studentNationalId": "1134567891",
+      "studentGrade": "الصف الأول الثانوي",
+      "studentClass": "1/3 مسارات",
+      "skills": {
+        "organizationalManagement": true,
+        "organizationalDetails": "إدارة مشاريع تقنية كبرى وقيادة الفرق الفنية",
+        "volunteerExperience": true,
+        "volunteerDetails": "تقديم ورش توعوية في الأمن السيبراني للأبناء",
+        "reportingAndDoc": true,
+        "reportingDetails": "كتابة التقارير الدورية والتحليلية الشاملة",
+        "digitalPlatforms": true,
+        "digitalPlatformsDetails": "خبير معتمد في الحوسبة والمنصات الذكية",
+        "previousCommittees": false
+      },
+      "goals": [
+        "بناء منصة تواصل رقمية آمنة بين أولياء الأمور وإدارة المدرسة",
+        "تقديم برامج إرشادية وتدريبية للطلاب في الذكاء الاصطناعي والأمن السيبراني",
+        "المساهمة في حوكمة أعمال المجلس وتوثيق اجتماعاته رقمياً"
+      ],
+      "compliance": {
+        "isSaudiOrApproved": true,
+        "goodConductDeclared": true,
+        "noConvictionsOrFelonies": true,
+        "hasRegularStudent": true,
+        "isNotSchoolEmployee": true,
+        "commitmentToAttend": true
+      },
+      "submissionDate": "2026-09-02T10:15:00Z",
+      "status": "selected",
+      "notes": "مرشح قوي لأمانة المجلس ومسؤولية التوثيق والتحول الرقمي.",
+      "evaluation": {
+        "isEligible": false,
+        "disqualificationReasons": [
+          "المادة 3 (بند 1): المتقدم ليس ولي أمر لطالب مسجل بالمدرسة ولا عضواً بالهيئة التعليمية.",
+          "المادة 3 (بند 3): الجمع بين عضوية مجلسين من مجالس أولياء الأمور بالمدارس.",
+          "المادة 3 (بند 5): تم قبول عضويته في مجلس مدرسة أخرى هذا العام ولا يجوز الجمع.",
+          "المادة 3 (بند 6): عدم استيفاء شرط حسن السيرة والسلوك والأحكام القضائية المنصوص عليها.",
+          "عدم التوقيع على التعهد النظامي المعتمد للاستمارة."
+        ],
+        "skillsScore": 0,
+        "goalsScore": 0,
+        "experienceScore": 0,
+        "readinessScore": 0,
+        "overallScore": 0,
+        "recommendation": "disqualified",
+        "summaryReasons": [
+          "استبعاد نظامي بموجب المادة (الثالثة) لضوابط العضوية."
+        ]
+      }
+    },
+    "app_seed_3": {
+      "id": "app_seed_3",
+      "token": "pc_seed_3",
+      "activationCode": "202601",
+      "guardianName": "أ. ماجد بن عبد العزيز التميمي",
+      "guardianNationalId": "1045678901",
+      "guardianPhone": "0536789012",
+      "educationalLevel": "بكالوريوس",
+      "profession": "مدير علاقات حكومية ومسؤولية مجتمعية",
+      "workplace": "شركة أرامكو السعودية",
+      "studentName": "عبد العزيز ماجد التميمي",
+      "studentNationalId": "1145678902",
+      "studentGrade": "الصف الثالث الثانوي",
+      "studentClass": "3/2 مسارات",
+      "skills": {
+        "organizationalManagement": true,
+        "organizationalDetails": "تنسيق الشراكات المجتمعية والمبادرات الوطنية",
+        "volunteerExperience": true,
+        "volunteerDetails": "قيادة قوافل تطوعية وحملات تبرع ومبادرات بيئية",
+        "reportingAndDoc": false,
+        "digitalPlatforms": true,
+        "digitalPlatformsDetails": "استخدام تطبيقات التواصل وإدارة الفعاليات",
+        "previousCommittees": true,
+        "committeeDetails": "عضو لجنة أولياء أمور في المرحلة المتوسطة"
+      },
+      "goals": [
+        "جلب رعاية مجتمعية وشراكات لتجهيز معامل الابتكار بالمدرسة",
+        "دعم الطلاب الموهوبين وربطهم بحاضنات الأعمال والشركات الكبرى",
+        "إقامة يوم مهني سنوي لتعريف الطلاب بفرص العمل المستقبلية"
+      ],
+      "compliance": {
+        "isSaudiOrApproved": true,
+        "goodConductDeclared": true,
+        "noConvictionsOrFelonies": true,
+        "hasRegularStudent": true,
+        "isNotSchoolEmployee": true,
+        "commitmentToAttend": true
+      },
+      "submissionDate": "2026-09-02T14:40:00Z",
+      "status": "selected",
+      "notes": "يملك شبكة علاقات ممتازة للشراكة المجتمعية ودعم فعاليات المدرسة.",
+      "evaluation": {
+        "isEligible": false,
+        "disqualificationReasons": [
+          "المادة 3 (بند 1): المتقدم ليس ولي أمر لطالب مسجل بالمدرسة ولا عضواً بالهيئة التعليمية.",
+          "المادة 3 (بند 3): الجمع بين عضوية مجلسين من مجالس أولياء الأمور بالمدارس.",
+          "المادة 3 (بند 5): تم قبول عضويته في مجلس مدرسة أخرى هذا العام ولا يجوز الجمع.",
+          "المادة 3 (بند 6): عدم استيفاء شرط حسن السيرة والسلوك والأحكام القضائية المنصوص عليها.",
+          "عدم التوقيع على التعهد النظامي المعتمد للاستمارة."
+        ],
+        "skillsScore": 0,
+        "goalsScore": 0,
+        "experienceScore": 0,
+        "readinessScore": 0,
+        "overallScore": 0,
+        "recommendation": "disqualified",
+        "summaryReasons": [
+          "استبعاد نظامي بموجب المادة (الثالثة) لضوابط العضوية."
+        ]
+      }
+    },
+    "app_seed_4": {
+      "id": "app_seed_4",
+      "token": "pc_seed_4",
+      "activationCode": "202601",
+      "guardianName": "د. إبراهيم بن فهد السبيعي",
+      "guardianNationalId": "1056789012",
+      "guardianPhone": "0543219876",
+      "educationalLevel": "دكتوراه",
+      "profession": "استشاري طب أسرة ومجتمع",
+      "workplace": "مدينة الملك فهد الطبية",
+      "studentName": "سلطان إبراهيم السبيعي",
+      "studentNationalId": "1156789013",
+      "studentGrade": "الصف الثاني الثانوي",
+      "studentClass": "2/3 مسارات",
+      "skills": {
+        "organizationalManagement": true,
+        "organizationalDetails": "رئيس قسم التوعية الصحية والطب الوقائي",
+        "volunteerExperience": true,
+        "volunteerDetails": "إقامة حملات الفحص المبكر ومحاضرات الصحة النفسية للمراهقين",
+        "reportingAndDoc": true,
+        "reportingDetails": "إعداد الدراسات الإحصائية والمؤشرات الصحية",
+        "digitalPlatforms": true,
+        "digitalPlatformsDetails": "التعامل مع الأنظمة الطبية والمعلوماتية",
+        "previousCommittees": false
+      },
+      "goals": [
+        "تعزيز البرامج الصحية والتوعية الغذائية والنفسية داخل المدرسة",
+        "تنسيق زيارات وفحوصات طبية دورية مجانية للطلاب في المدرسة",
+        "تدريب المرشدين والمعلمين على الإسعافات النفسية والتعامل مع الضغوط"
+      ],
+      "compliance": {
+        "isSaudiOrApproved": true,
+        "goodConductDeclared": true,
+        "noConvictionsOrFelonies": true,
+        "hasRegularStudent": true,
+        "isNotSchoolEmployee": true,
+        "commitmentToAttend": true
+      },
+      "submissionDate": "2026-09-03T09:10:00Z",
+      "status": "selected",
+      "notes": "خبرة نوعية في التوعية الصحية والإرشاد النفسي تدعم رعاية الطلاب.",
+      "evaluation": {
+        "isEligible": false,
+        "disqualificationReasons": [
+          "المادة 3 (بند 1): المتقدم ليس ولي أمر لطالب مسجل بالمدرسة ولا عضواً بالهيئة التعليمية.",
+          "المادة 3 (بند 3): الجمع بين عضوية مجلسين من مجالس أولياء الأمور بالمدارس.",
+          "المادة 3 (بند 5): تم قبول عضويته في مجلس مدرسة أخرى هذا العام ولا يجوز الجمع.",
+          "المادة 3 (بند 6): عدم استيفاء شرط حسن السيرة والسلوك والأحكام القضائية المنصوص عليها.",
+          "عدم التوقيع على التعهد النظامي المعتمد للاستمارة."
+        ],
+        "skillsScore": 0,
+        "goalsScore": 0,
+        "experienceScore": 0,
+        "readinessScore": 0,
+        "overallScore": 0,
+        "recommendation": "disqualified",
+        "summaryReasons": [
+          "استبعاد نظامي بموجب المادة (الثالثة) لضوابط العضوية."
+        ]
+      }
+    },
+    "app_seed_5": {
+      "id": "app_seed_5",
+      "token": "pc_seed_5",
+      "activationCode": "202601",
+      "guardianName": "أ. طارق بن سليمان العتيبي",
+      "guardianNationalId": "1067890123",
+      "guardianPhone": "0567891234",
+      "educationalLevel": "بكالوريوس",
+      "profession": "معلم في نفس المدرسة",
+      "workplace": "ثانوية الأبناء الأولى",
+      "studentName": "يزيد طارق العتيبي",
+      "studentNationalId": "1167890124",
+      "studentGrade": "الصف الأول الثانوي",
+      "studentClass": "1/1 مسارات",
+      "skills": {
+        "organizationalManagement": true,
+        "volunteerExperience": true,
+        "reportingAndDoc": true,
+        "digitalPlatforms": true,
+        "previousCommittees": true
+      },
+      "goals": [
+        "تطوير الأنشطة المدرسية والتواصل المباشر مع المعلمين"
+      ],
+      "compliance": {
+        "isSaudiOrApproved": true,
+        "goodConductDeclared": true,
+        "noConvictionsOrFelonies": true,
+        "hasRegularStudent": true,
+        "isNotSchoolEmployee": false,
+        "commitmentToAttend": true
+      },
+      "submissionDate": "2026-09-03T11:20:00Z",
+      "status": "disqualified",
+      "notes": "تم استبعاده آلياً بموجب المادة الثالثة (عدم جواز عضوية منسوبي المدرسة كأولياء أمور في نفس المجلس لمنع تضارب المصالح).",
+      "evaluation": {
+        "isEligible": false,
+        "disqualificationReasons": [
+          "المادة 3 (بند 1): المتقدم ليس ولي أمر لطالب مسجل بالمدرسة ولا عضواً بالهيئة التعليمية.",
+          "المادة 3 (بند 3): الجمع بين عضوية مجلسين من مجالس أولياء الأمور بالمدارس.",
+          "المادة 3 (بند 5): تم قبول عضويته في مجلس مدرسة أخرى هذا العام ولا يجوز الجمع.",
+          "المادة 3 (بند 6): عدم استيفاء شرط حسن السيرة والسلوك والأحكام القضائية المنصوص عليها.",
+          "عدم التوقيع على التعهد النظامي المعتمد للاستمارة."
+        ],
+        "skillsScore": 0,
+        "goalsScore": 0,
+        "experienceScore": 0,
+        "readinessScore": 0,
+        "overallScore": 0,
+        "recommendation": "disqualified",
+        "summaryReasons": [
+          "استبعاد نظامي بموجب المادة (الثالثة) لضوابط العضوية."
+        ]
+      }
+    },
+    "app_seed_6": {
+      "id": "app_seed_6",
+      "token": "pc_seed_6",
+      "activationCode": "202601",
+      "guardianName": "أ. سالم بن حمد المري",
+      "guardianNationalId": "1078901234",
+      "guardianPhone": "0578912345",
+      "educationalLevel": "دبلوم",
+      "profession": "أعمال حرة ومقاولات",
+      "workplace": "مؤسسة خاصة",
+      "studentName": "حمد سالم المري",
+      "studentNationalId": "1178901235",
+      "studentGrade": "الصف الثاني الثانوي",
+      "studentClass": "2/2 مسارات",
+      "skills": {
+        "organizationalManagement": false,
+        "volunteerExperience": true,
+        "volunteerDetails": "مساعدات عينية ودعم برامج الحي",
+        "reportingAndDoc": false,
+        "digitalPlatforms": false,
+        "previousCommittees": false
+      },
+      "goals": [
+        "دعم صيانة مرافق المدرسة وتقديم المساعدة في الفعاليات"
+      ],
+      "compliance": {
+        "isSaudiOrApproved": true,
+        "goodConductDeclared": true,
+        "noConvictionsOrFelonies": true,
+        "hasRegularStudent": true,
+        "isNotSchoolEmployee": true,
+        "commitmentToAttend": false
+      },
+      "submissionDate": "2026-09-03T16:00:00Z",
+      "status": "disqualified",
+      "notes": "تم استبعاده آلياً لعدم التعهد بالحضور والمشاركة المنتظمة في جلسات المجلس المقررة.",
+      "evaluation": {
+        "isEligible": false,
+        "disqualificationReasons": [
+          "المادة 3 (بند 1): المتقدم ليس ولي أمر لطالب مسجل بالمدرسة ولا عضواً بالهيئة التعليمية.",
+          "المادة 3 (بند 2): عدم التعهد بالالتزام بحضور الاجتماعات والمشاركة الفاعلة.",
+          "المادة 3 (بند 3): الجمع بين عضوية مجلسين من مجالس أولياء الأمور بالمدارس.",
+          "المادة 3 (بند 5): تم قبول عضويته في مجلس مدرسة أخرى هذا العام ولا يجوز الجمع.",
+          "المادة 3 (بند 6): عدم استيفاء شرط حسن السيرة والسلوك والأحكام القضائية المنصوص عليها.",
+          "عدم التوقيع على التعهد النظامي المعتمد للاستمارة."
+        ],
+        "skillsScore": 0,
+        "goalsScore": 0,
+        "experienceScore": 0,
+        "readinessScore": 0,
+        "overallScore": 0,
+        "recommendation": "disqualified",
+        "summaryReasons": [
+          "استبعاد نظامي بموجب المادة (الثالثة) لضوابط العضوية."
+        ]
+      }
+    }
+  },
+  "config": {
+    "academicYear": "1447 - 1448 هـ",
+    "councilTerm": "العام الدراسي 2026 - 2027",
+    "generalActivationCode": "202601",
+    "seatsCount": 7,
+    "reserveSeatsCount": 2,
+    "formationApproved": false,
+    "selectedMemberIds": [],
+    "reserveMemberIds": []
+  }
+}

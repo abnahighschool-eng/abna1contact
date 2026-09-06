@@ -136,7 +136,7 @@ export default function ConsolidatedStudentReportModal({
   const handleCopySummary = () => {
     const summaryText = `*تقرير تجميعي لاستعلامات المعلمين عن الطالب: ${student.name}*
 الصف/الشعبة: ${student.grade || ""} / ${student.className || ""}
-السجل المدني: ${student.nationalId || "—"}
+رقم الطالب: ${student.id || student["رقم الطالب"] || student.nationalId || "—"}
 المدرسة: ${schoolSignatories.schoolName || "ثانوية الأبناء الأولى"}
 
 *تقييمات المعلمين (${completedEvaluationsCount} من ${totalInquiriesCount} معلماً):*
@@ -338,8 +338,8 @@ ${counselorNotes ? `*مرئيات وتوصيات التوجيه الطلابي:*
                   </div>
 
                   <div className="bg-white p-3 rounded-xl border border-slate-200/90 space-y-0.5">
-                    <span className="text-[11px] text-slate-400 font-medium block">رقم السجل المدني / الهوية:</span>
-                    <strong className="text-slate-900 font-mono font-bold text-xs block">{student.nationalId || "—"}</strong>
+                    <span className="text-[11px] text-slate-400 font-medium block">رقم الطالب:</span>
+                    <strong className="text-slate-900 font-mono font-bold text-xs block">{student.id || student["رقم الطالب"] || student.nationalId || "—"}</strong>
                   </div>
 
                   <div className="bg-white p-3 rounded-xl border border-slate-200/90 space-y-0.5">
@@ -665,7 +665,7 @@ ${counselorNotes ? `*مرئيات وتوصيات التوجيه الطلابي:*
                     {/* Student Info */}
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-4 gap-2 text-xs">
                       <div><span className="text-slate-400 block text-[10px]">الطالب:</span><strong>{aggItem.student.name}</strong></div>
-                      <div><span className="text-slate-400 block text-[10px]">السجل المدني:</span><strong>{aggItem.student.nationalId || "—"}</strong></div>
+                      <div><span className="text-slate-400 block text-[10px]">رقم الطالب:</span><strong>{aggItem.student.id || aggItem.student["رقم الطالب"] || aggItem.student.nationalId || "—"}</strong></div>
                       <div><span className="text-slate-400 block text-[10px]">الصف:</span><strong>{aggItem.student.grade || "—"}</strong></div>
                       <div><span className="text-slate-400 block text-[10px]">الشعبة:</span><strong>{aggItem.student.className || "—"}</strong></div>
                     </div>

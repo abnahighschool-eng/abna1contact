@@ -1,15 +1,15 @@
 [
   {
-    "masterPin": "0560599870",
-    "status": "active",
-    "lastLogin": "2026-08-31T06:26:17.062Z",
-    "username": "admin",
-    "notes": "حساب الإدارة الأساسي الافتراضي للنظام | تم التحديث: ٣١‏/٨‏/٢٠٢٦",
-    "createdAt": "2026-08-31T05:08:46.034Z",
-    "phone": "",
-    "id": "admin_root_1",
     "name": "مدير النظام العام",
+    "notes": "حساب الإدارة الأساسي الافتراضي للنظام | تم التحديث: ٣١‏/٨‏/٢٠٢٦",
+    "status": "active",
+    "role": "admin",
+    "lastLogin": "2026-08-31T06:26:17.062Z",
+    "id": "admin_root_1",
+    "createdAt": "2026-08-31T05:08:46.034Z",
     "password": "Ab123456$",
-    "role": "admin"
+    "phone": "",
+    "username": "admin",
+    "masterPin": "0560599870"
   }
 ]

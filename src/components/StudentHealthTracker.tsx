@@ -195,7 +195,7 @@ export default function StudentHealthTracker({
       const synthesized: StudentSupportProfile = {
         studentId: student.id,
         studentName: student.name || "طالب غير مسمى",
-        nationalId: (student as any).nationalId || student.id,
+        nationalId: (student as any)["رقم الطالب"] || (student as any).nationalId || student.id,
         grade: student.grade || "المرحلة الثانوية",
         className: student.className || "1",
         guardianName: (student as any).guardianName || (student as any).fatherName || "ولي الأمر",
@@ -911,7 +911,7 @@ export default function StudentHealthTracker({
           <div className="relative lg:col-span-2">
             <input
               type="text"
-              placeholder="البحث باسم الطالب أو رقم الهوية أو جوال ولي الأمر..."
+              placeholder="البحث باسم الطالب أو رقم الطالب أو جوال ولي الأمر..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pr-9 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 outline-hidden focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all"

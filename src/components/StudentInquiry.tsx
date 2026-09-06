@@ -1044,6 +1044,8 @@ export default function StudentInquiry({
       const matchesSearch =
         !consolidatedSearchTerm ||
         item.student.name.toLowerCase().includes(consolidatedSearchTerm.toLowerCase()) ||
+        (item.student.id && item.student.id.includes(consolidatedSearchTerm)) ||
+        ((item.student as any)["رقم الطالب"] && String((item.student as any)["رقم الطالب"]).includes(consolidatedSearchTerm)) ||
         (item.student.nationalId && item.student.nationalId.includes(consolidatedSearchTerm)) ||
         (item.student.className && item.student.className.toLowerCase().includes(consolidatedSearchTerm.toLowerCase())) ||
         (item.student.grade && item.student.grade.toLowerCase().includes(consolidatedSearchTerm.toLowerCase()));
@@ -1285,7 +1287,7 @@ export default function StudentInquiry({
                   type="text"
                   value={studentSearchTerm}
                   onChange={(e) => setStudentSearchTerm(e.target.value)}
-                  placeholder="ابحث بالاسم أو السجل المدني..."
+                  placeholder="ابحث بالاسم أو رقم الطالب..."
                   className="w-full pr-9 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all"
                 />
               </div>
@@ -1358,7 +1360,7 @@ export default function StudentInquiry({
                         <div className="min-w-0">
                           <span className="truncate block">{st.name}</span>
                           <span className="text-[11px] text-slate-400 font-normal block">
-                            السجل: {st.nationalId || "—"}
+                            رقم الطالب: {st.id || (st as any)["رقم الطالب"] || st.nationalId || "—"}
                           </span>
                         </div>
                       </div>
@@ -2108,7 +2110,7 @@ export default function StudentInquiry({
                   type="text"
                   value={consolidatedSearchTerm}
                   onChange={(e) => setConsolidatedSearchTerm(e.target.value)}
-                  placeholder="ابحث باسم الطالب، الهوية، الصف، الشعبة..."
+                  placeholder="ابحث باسم الطالب، رقم الطالب، الصف، الشعبة..."
                   className="w-full pr-9 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all"
                 />
               </div>
@@ -2216,9 +2218,9 @@ export default function StudentInquiry({
                               <h3 className="font-black text-base text-slate-900">
                                 {item.student.name}
                               </h3>
-                              {item.student.nationalId && (
+                              {(item.student.id || (item.student as any)["رقم الطالب"] || item.student.nationalId) && (
                                 <span className="text-xs text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded-lg">
-                                  هوية: {item.student.nationalId}
+                                  رقم الطالب: {item.student.id || (item.student as any)["رقم الطالب"] || item.student.nationalId}
                                 </span>
                               )}
                               {item.student.grade && (

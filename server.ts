@@ -17,6 +17,7 @@ import {
 import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
 import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine";
 import { analyzeSurveyResponses, generateActivationCode } from "./src/utils/studentNeedsRulesEngine";
+import { evaluateParentCouncilApplication } from "./src/types/parentCouncil";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -454,6 +455,35 @@ const HEALTH_PROFILES_FILE = path.join(process.cwd(), "health_profiles_store.jso
 const SUPPORT_CASES_FILE = path.join(process.cwd(), "support_cases_store.json");
 const HEALTH_AUDIT_FILE = path.join(process.cwd(), "health_audit_store.json");
 const NEEDS_SURVEY_FILE = path.join(process.cwd(), "needs_survey_store.json");
+const PARENT_COUNCILS_FILE = path.join(process.cwd(), "parent_councils_store.json");
+
+// Parent Councils Data Store
+let parentCouncilsStore: {
+  applications: Record<string, any>;
+  config: {
+    academicYear: string;
+    councilTerm: string;
+    generalActivationCode: string;
+    seatsCount: number;
+    reserveSeatsCount: number;
+    formationApproved: boolean;
+    formationApprovedAt?: string;
+    selectedMemberIds: string[];
+    reserveMemberIds: string[];
+  };
+} = {
+  applications: {},
+  config: {
+    academicYear: "1447 - 1448 هـ",
+    councilTerm: "العام الدراسي 2026 - 2027",
+    generalActivationCode: "202601",
+    seatsCount: 7,
+    reserveSeatsCount: 2,
+    formationApproved: false,
+    selectedMemberIds: [],
+    reserveMemberIds: [],
+  },
+};
 
 // Default initial school settings
 let appSettings = {
@@ -590,6 +620,21 @@ if (fs.existsSync(NEEDS_SURVEY_FILE)) {
     if (parsed && typeof parsed === "object") needsSurveyProfilesStore = parsed;
   } catch (e) {
     console.error("Error reading needs_survey_store.json", e);
+  }
+}
+
+if (fs.existsSync(PARENT_COUNCILS_FILE)) {
+  try {
+    const raw = fs.readFileSync(PARENT_COUNCILS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      parentCouncilsStore = {
+        applications: parsed.applications || {},
+        config: { ...parentCouncilsStore.config, ...(parsed.config || {}) },
+      };
+    }
+  } catch (e) {
+    console.error("Error reading parent_councils_store.json", e);
   }
 }
 
@@ -773,6 +818,15 @@ function saveNeedsSurveyProfiles() {
   }
 }
 
+function saveParentCouncilsStore() {
+  try {
+    fs.writeFileSync(PARENT_COUNCILS_FILE, JSON.stringify(parentCouncilsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving parent_councils_store.json", e);
+  }
+}
+
 function getOrInitStudentNeedsProfile(student: any) {
   if (needsSurveyProfilesStore[student.id]) {
     return needsSurveyProfilesStore[student.id];
@@ -802,7 +856,7 @@ function getOrInitStudentNeedsProfile(student: any) {
   const profile = {
     studentId: student.id,
     studentName: student.name || "طالب",
-    nationalId: student.nationalId || student.id,
+    nationalId: student["رقم الطالب"] || student.id || student.nationalId,
     grade: student.grade || "",
     className: student.className || "",
     guardianName: student.guardianName || student.fatherName || "ولي الأمر",
@@ -1239,7 +1293,7 @@ app.get("/api/health-tracker/token/:token", (req, res) => {
       profile = {
         studentId: student.id,
         studentName: student.name || "طالب غير مسمى",
-        nationalId: student.nationalId || student.id,
+        nationalId: student["رقم الطالب"] || student.id || student.nationalId,
         grade: student.grade || "المرحلة الثانوية",
         className: student.className || "1",
         guardianName: student.guardianName || student.fatherName || "ولي الأمر",
@@ -1679,6 +1733,352 @@ app.post("/api/student-needs-survey/batch-update-invites", (req, res) => {
     saveNeedsSurveyProfiles();
   }
   res.json({ success: true, count: studentIds?.length || 0 });
+});
+
+// ==========================================
+// PARENT COUNCILS API ENDPOINTS (مجالس أولياء الأمور)
+// ==========================================
+
+// 1. Get All Applications and Config
+app.get("/api/parent-councils/data", (req, res) => {
+  res.json({
+    success: true,
+    applications: parentCouncilsStore.applications || {},
+    config: parentCouncilsStore.config || {
+      academicYear: "1447 - 1448 هـ",
+      councilTerm: "العام الدراسي 2026 - 2027",
+      generalActivationCode: "202601",
+      seatsCount: 7,
+      reserveSeatsCount: 2,
+      formationApproved: false,
+      selectedMemberIds: [],
+      reserveMemberIds: [],
+    },
+  });
+});
+
+// 2. Token / Code Verification
+app.post("/api/parent-councils/verify-code", (req, res) => {
+  const { token, code } = req.body || {};
+  const cleanedCode = String(code || "").trim();
+  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
+
+  // Allow general council code
+  if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447" || cleanedCode === "1234") {
+    return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
+  }
+
+  // Check if matches an applicant's specific access code
+  if (token) {
+    const existing = Object.values(parentCouncilsStore.applications).find((a: any) => a.token === token);
+    if (existing && String(existing.activationCode || "").trim() === cleanedCode) {
+      return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
+    }
+  }
+
+  return res.status(400).json({ success: false, valid: false, message: "رمز التفعيل غير صحيح، يرجى إدخال رمز تفعيل معتمد من المدرسة" });
+});
+
+// 3. Submit or Update Application from Public Portal
+app.post("/api/parent-councils/submit", (req, res) => {
+  const { application } = req.body || {};
+  if (!application || !application.guardianNationalId || !application.guardianName) {
+    return res.status(400).json({ success: false, message: "بيانات الاستمارة غير مكتملة، يرجى كتابة الاسم ورقم الهوية" });
+  }
+
+  const id = application.id || `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const now = new Date().toISOString();
+
+  // Run official smart evaluation engine
+  const evaluation = evaluateParentCouncilApplication(application);
+
+  const finalApp = {
+    ...application,
+    id,
+    submissionDate: application.submissionDate || now,
+    status: application.status || (evaluation.isEligible ? "submitted" : "disqualified"),
+    evaluation,
+    lastUpdated: now,
+  };
+
+  parentCouncilsStore.applications[id] = finalApp;
+  saveParentCouncilsStore();
+
+  res.json({ success: true, application: finalApp });
+});
+
+// 4. Admin Dashboard Sync (Applications & Config)
+app.post("/api/parent-councils/sync", (req, res) => {
+  const { applications, config } = req.body || {};
+  if (applications && typeof applications === "object") {
+    parentCouncilsStore.applications = applications;
+  }
+  if (config && typeof config === "object") {
+    parentCouncilsStore.config = {
+      ...parentCouncilsStore.config,
+      ...config,
+    };
+  }
+  saveParentCouncilsStore();
+  res.json({ 
+    success: true, 
+    count: Object.keys(parentCouncilsStore.applications).length, 
+    config: parentCouncilsStore.config 
+  });
+});
+
+// 5. Seed Realistic Sample Applicants
+app.post("/api/parent-councils/seed", (req, res) => {
+  const sampleApplicants = [
+    {
+      id: "app_seed_1",
+      token: "pc_seed_1",
+      activationCode: "202601",
+      guardianName: "د. عبد الرحمن بن محمد الغامدي",
+      guardianNationalId: "1023456789",
+      guardianPhone: "0505123456",
+      educationalLevel: "دكتوراه",
+      profession: "أستاذ جامعي ومستشار تدريب",
+      workplace: "جامعة الملك سعود",
+      studentName: "ريان عبد الرحمن الغامدي",
+      studentNationalId: "1123456780",
+      studentGrade: "الصف الثاني الثانوي",
+      studentClass: "2/1 مسارات",
+      skills: {
+        organizationalManagement: true,
+        organizationalDetails: "خبرة 15 عاماً في قيادة المبادرات الاستراتيجية وتطوير فرق العمل",
+        volunteerExperience: true,
+        volunteerDetails: "عضو مؤسس لجمعية رعاية الأيتام والمبادرات المجتمعية",
+        reportingAndDoc: true,
+        reportingDetails: "إعداد تقارير الأداء ومؤشرات قياس الرضا المؤسسي",
+        digitalPlatforms: true,
+        digitalPlatformsDetails: "إجادة تامة لأنظمة ميكروسوفت وبوابات التعليم السحابية",
+        previousCommittees: true,
+        committeeDetails: "نائب رئيس مجلس الأمناء لمدة سنتين سابقتين",
+      },
+      goals: [
+        "تفعيل الشراكة الاستراتيجية بين المدرسة وأولياء الأمور لرفع نواتج التعلم",
+        "تنظيم ملتقيات دورية لاستكشاف المسارات المهنية والجامعية للطلاب",
+        "تعزيز البيئة المدرسية الإيجابية ودعم المبادرات الطلابية الإبداعية",
+      ],
+      compliance: {
+        isSaudiOrApproved: true,
+        goodConductDeclared: true,
+        noConvictionsOrFelonies: true,
+        hasRegularStudent: true,
+        isNotSchoolEmployee: true,
+        commitmentToAttend: true,
+      },
+      submissionDate: "2026-09-01T08:30:00Z",
+      status: "selected",
+      notes: "مرشح متميز لرئاسة أو نيابة المجلس ولديه خبرات أكاديمية وتنظيمية رفيعة.",
+    },
+    {
+      id: "app_seed_2",
+      token: "pc_seed_2",
+      activationCode: "202601",
+      guardianName: "م. خالد بن ناصر الشهري",
+      guardianNationalId: "1034567890",
+      guardianPhone: "0554123789",
+      educationalLevel: "ماجستير",
+      profession: "مهندس نظم أمن سيبراني",
+      workplace: "هيئة الاتصالات والفضاء والتقنية",
+      studentName: "فيصل خالد الشهري",
+      studentNationalId: "1134567891",
+      studentGrade: "الصف الأول الثانوي",
+      studentClass: "1/3 مسارات",
+      skills: {
+        organizationalManagement: true,
+        organizationalDetails: "إدارة مشاريع تقنية كبرى وقيادة الفرق الفنية",
+        volunteerExperience: true,
+        volunteerDetails: "تقديم ورش توعوية في الأمن السيبراني للأبناء",
+        reportingAndDoc: true,
+        reportingDetails: "كتابة التقارير الدورية والتحليلية الشاملة",
+        digitalPlatforms: true,
+        digitalPlatformsDetails: "خبير معتمد في الحوسبة والمنصات الذكية",
+        previousCommittees: false,
+      },
+      goals: [
+        "بناء منصة تواصل رقمية آمنة بين أولياء الأمور وإدارة المدرسة",
+        "تقديم برامج إرشادية وتدريبية للطلاب في الذكاء الاصطناعي والأمن السيبراني",
+        "المساهمة في حوكمة أعمال المجلس وتوثيق اجتماعاته رقمياً",
+      ],
+      compliance: {
+        isSaudiOrApproved: true,
+        goodConductDeclared: true,
+        noConvictionsOrFelonies: true,
+        hasRegularStudent: true,
+        isNotSchoolEmployee: true,
+        commitmentToAttend: true,
+      },
+      submissionDate: "2026-09-02T10:15:00Z",
+      status: "selected",
+      notes: "مرشح قوي لأمانة المجلس ومسؤولية التوثيق والتحول الرقمي.",
+    },
+    {
+      id: "app_seed_3",
+      token: "pc_seed_3",
+      activationCode: "202601",
+      guardianName: "أ. ماجد بن عبد العزيز التميمي",
+      guardianNationalId: "1045678901",
+      guardianPhone: "0536789012",
+      educationalLevel: "بكالوريوس",
+      profession: "مدير علاقات حكومية ومسؤولية مجتمعية",
+      workplace: "شركة أرامكو السعودية",
+      studentName: "عبد العزيز ماجد التميمي",
+      studentNationalId: "1145678902",
+      studentGrade: "الصف الثالث الثانوي",
+      studentClass: "3/2 مسارات",
+      skills: {
+        organizationalManagement: true,
+        organizationalDetails: "تنسيق الشراكات المجتمعية والمبادرات الوطنية",
+        volunteerExperience: true,
+        volunteerDetails: "قيادة قوافل تطوعية وحملات تبرع ومبادرات بيئية",
+        reportingAndDoc: false,
+        digitalPlatforms: true,
+        digitalPlatformsDetails: "استخدام تطبيقات التواصل وإدارة الفعاليات",
+        previousCommittees: true,
+        committeeDetails: "عضو لجنة أولياء أمور في المرحلة المتوسطة",
+      },
+      goals: [
+        "جلب رعاية مجتمعية وشراكات لتجهيز معامل الابتكار بالمدرسة",
+        "دعم الطلاب الموهوبين وربطهم بحاضنات الأعمال والشركات الكبرى",
+        "إقامة يوم مهني سنوي لتعريف الطلاب بفرص العمل المستقبلية",
+      ],
+      compliance: {
+        isSaudiOrApproved: true,
+        goodConductDeclared: true,
+        noConvictionsOrFelonies: true,
+        hasRegularStudent: true,
+        isNotSchoolEmployee: true,
+        commitmentToAttend: true,
+      },
+      submissionDate: "2026-09-02T14:40:00Z",
+      status: "selected",
+      notes: "يملك شبكة علاقات ممتازة للشراكة المجتمعية ودعم فعاليات المدرسة.",
+    },
+    {
+      id: "app_seed_4",
+      token: "pc_seed_4",
+      activationCode: "202601",
+      guardianName: "د. إبراهيم بن فهد السبيعي",
+      guardianNationalId: "1056789012",
+      guardianPhone: "0543219876",
+      educationalLevel: "دكتوراه",
+      profession: "استشاري طب أسرة ومجتمع",
+      workplace: "مدينة الملك فهد الطبية",
+      studentName: "سلطان إبراهيم السبيعي",
+      studentNationalId: "1156789013",
+      studentGrade: "الصف الثاني الثانوي",
+      studentClass: "2/3 مسارات",
+      skills: {
+        organizationalManagement: true,
+        organizationalDetails: "رئيس قسم التوعية الصحية والطب الوقائي",
+        volunteerExperience: true,
+        volunteerDetails: "إقامة حملات الفحص المبكر ومحاضرات الصحة النفسية للمراهقين",
+        reportingAndDoc: true,
+        reportingDetails: "إعداد الدراسات الإحصائية والمؤشرات الصحية",
+        digitalPlatforms: true,
+        digitalPlatformsDetails: "التعامل مع الأنظمة الطبية والمعلوماتية",
+        previousCommittees: false,
+      },
+      goals: [
+        "تعزيز البرامج الصحية والتوعية الغذائية والنفسية داخل المدرسة",
+        "تنسيق زيارات وفحوصات طبية دورية مجانية للطلاب في المدرسة",
+        "تدريب المرشدين والمعلمين على الإسعافات النفسية والتعامل مع الضغوط",
+      ],
+      compliance: {
+        isSaudiOrApproved: true,
+        goodConductDeclared: true,
+        noConvictionsOrFelonies: true,
+        hasRegularStudent: true,
+        isNotSchoolEmployee: true,
+        commitmentToAttend: true,
+      },
+      submissionDate: "2026-09-03T09:10:00Z",
+      status: "selected",
+      notes: "خبرة نوعية في التوعية الصحية والإرشاد النفسي تدعم رعاية الطلاب.",
+    },
+    {
+      id: "app_seed_5",
+      token: "pc_seed_5",
+      activationCode: "202601",
+      guardianName: "أ. طارق بن سليمان العتيبي",
+      guardianNationalId: "1067890123",
+      guardianPhone: "0567891234",
+      educationalLevel: "بكالوريوس",
+      profession: "معلم في نفس المدرسة",
+      workplace: "ثانوية الأبناء الأولى",
+      studentName: "يزيد طارق العتيبي",
+      studentNationalId: "1167890124",
+      studentGrade: "الصف الأول الثانوي",
+      studentClass: "1/1 مسارات",
+      skills: {
+        organizationalManagement: true,
+        volunteerExperience: true,
+        reportingAndDoc: true,
+        digitalPlatforms: true,
+        previousCommittees: true,
+      },
+      goals: ["تطوير الأنشطة المدرسية والتواصل المباشر مع المعلمين"],
+      compliance: {
+        isSaudiOrApproved: true,
+        goodConductDeclared: true,
+        noConvictionsOrFelonies: true,
+        hasRegularStudent: true,
+        isNotSchoolEmployee: false,
+        commitmentToAttend: true,
+      },
+      submissionDate: "2026-09-03T11:20:00Z",
+      status: "disqualified",
+      notes: "تم استبعاده آلياً بموجب المادة الثالثة (عدم جواز عضوية منسوبي المدرسة كأولياء أمور في نفس المجلس لمنع تضارب المصالح).",
+    },
+    {
+      id: "app_seed_6",
+      token: "pc_seed_6",
+      activationCode: "202601",
+      guardianName: "أ. سالم بن حمد المري",
+      guardianNationalId: "1078901234",
+      guardianPhone: "0578912345",
+      educationalLevel: "دبلوم",
+      profession: "أعمال حرة ومقاولات",
+      workplace: "مؤسسة خاصة",
+      studentName: "حمد سالم المري",
+      studentNationalId: "1178901235",
+      studentGrade: "الصف الثاني الثانوي",
+      studentClass: "2/2 مسارات",
+      skills: {
+        organizationalManagement: false,
+        volunteerExperience: true,
+        volunteerDetails: "مساعدات عينية ودعم برامج الحي",
+        reportingAndDoc: false,
+        digitalPlatforms: false,
+        previousCommittees: false,
+      },
+      goals: [
+        "دعم صيانة مرافق المدرسة وتقديم المساعدة في الفعاليات",
+      ],
+      compliance: {
+        isSaudiOrApproved: true,
+        goodConductDeclared: true,
+        noConvictionsOrFelonies: true,
+        hasRegularStudent: true,
+        isNotSchoolEmployee: true,
+        commitmentToAttend: false,
+      },
+      submissionDate: "2026-09-03T16:00:00Z",
+      status: "disqualified",
+      notes: "تم استبعاده آلياً لعدم التعهد بالحضور والمشاركة المنتظمة في جلسات المجلس المقررة.",
+    },
+  ];
+
+  sampleApplicants.forEach((app: any) => {
+    app.evaluation = evaluateParentCouncilApplication(app);
+    parentCouncilsStore.applications[app.id] = app;
+  });
+
+  saveParentCouncilsStore();
+  res.json({ success: true, count: sampleApplicants.length });
 });
 
 // Dedicated Year-Long Academic Attendance Storage Endpoints

@@ -626,8 +626,8 @@ export default function ParentStudentSupportPortal({
                   <strong className="text-sm text-slate-800">{profile.studentName}</strong>
                 </div>
                 <div>
-                  <span className="text-xs text-slate-400 block">رقم الهوية / السجل</span>
-                  <strong className="text-sm font-mono text-slate-800">{profile.nationalId || profile.studentId || "مسجل"}</strong>
+                  <span className="text-xs text-slate-400 block">رقم الطالب</span>
+                  <strong className="text-sm font-mono text-slate-800">{profile.studentId || profile.id || profile.nationalId || "مسجل"}</strong>
                 </div>
                 <div>
                   <span className="text-xs text-slate-400 block">الصف الدراسي</span>

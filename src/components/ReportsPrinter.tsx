@@ -38,6 +38,7 @@ interface ReportsPrinterProps {
   signatories?: SchoolSignatories;
   template?: string;
   onUpdateSignatory?: (updated: Partial<SchoolSignatories>) => void;
+  onOpenSignatoriesModal?: () => void;
   onNavigateToTab?: (tab: "connection" | "upload" | "send" | "individual" | "reports") => void;
 }
 

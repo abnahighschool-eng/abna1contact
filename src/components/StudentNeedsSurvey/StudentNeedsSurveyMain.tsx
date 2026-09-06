@@ -214,7 +214,7 @@ export default function StudentNeedsSurveyMain({
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const nameMatch = s.name?.toLowerCase().includes(q);
-        const idMatch = s.nationalId?.includes(q) || s.id?.includes(q);
+        const idMatch = s.id?.includes(q) || (s as any)["رقم الطالب"]?.includes(q) || s.nationalId?.includes(q);
         const phoneMatch = s.phone?.includes(q);
         if (!nameMatch && !idMatch && !phoneMatch) return false;
       }
@@ -727,7 +727,7 @@ export default function StudentNeedsSurveyMain({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="البحث باسم الطالب أو رقم الهوية أو الجوال..."
+                  placeholder="البحث باسم الطالب أو رقم الطالب أو الجوال..."
                   className="w-full pr-10 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-teal-600 focus:bg-white transition-all"
                 />
               </div>
@@ -829,7 +829,7 @@ export default function StudentNeedsSurveyMain({
                         className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
                       />
                     </th>
-                    <th className="p-4">اسم الطالب / الهوية</th>
+                    <th className="p-4">اسم الطالب / رقم الطالب</th>
                     <th className="p-4">الصف والشعبة</th>
                     <th className="p-4">جوال ولي الأمر</th>
                     <th className="p-4">رمز التفعيل</th>
@@ -873,7 +873,7 @@ export default function StudentNeedsSurveyMain({
                           <td className="p-4">
                             <div className="font-bold text-slate-900 text-sm">{student.name}</div>
                             <div className="text-[11px] text-slate-400 font-mono">
-                              {student.nationalId || student.id}
+                              {student.id || (student as any)["رقم الطالب"] || student.nationalId}
                             </div>
                           </td>
                           <td className="p-4 text-slate-700">
@@ -1311,11 +1311,11 @@ export default function StudentNeedsSurveyMain({
                       return;
                     }
 
-                    const headers = ["م", "اسم الطالب", "السجل المدني", "الصف", "الشعبة", "مستوى الأولوية", "الملاحظة والاحتياج المرصود", "التوجيه الصفي للمعلمين", "الإجراء الإرشادي المتخذ", "حالة المتابعة"];
+                    const headers = ["م", "اسم الطالب", "رقم الطالب", "الصف", "الشعبة", "مستوى الأولوية", "الملاحظة والاحتياج المرصود", "التوجيه الصفي للمعلمين", "الإجراء الإرشادي المتخذ", "حالة المتابعة"];
                     const rows = flagged.map((st, idx) => {
                       const p = profiles[st.id];
                       const name = extractStudentName(st);
-                      const idNum = st.nationalId || st.idNumber || st.id || "-";
+                      const idNum = st.id || (st as any)["رقم الطالب"] || st.nationalId || st.idNumber || "-";
                       const grade = extractStudentGrade(st);
                       const cls = extractStudentClass(st);
                       const prio = p?.overallPriority === "urgent" ? "عاجلة" : p?.overallPriority === "high" ? "مرتفعة" : p?.overallPriority === "medium" ? "متوسطة" : "مستقرة";
@@ -1367,7 +1367,7 @@ export default function StudentNeedsSurveyMain({
                   type="text"
                   value={reportSearchQuery}
                   onChange={(e) => setReportSearchQuery(e.target.value)}
-                  placeholder="البحث باسم الطالب أو رقم الهوية..."
+                  placeholder="البحث باسم الطالب أو رقم الطالب..."
                   className="w-full pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-teal-600"
                 />
               </div>
@@ -1557,7 +1557,7 @@ export default function StudentNeedsSurveyMain({
                 <thead>
                   <tr className="bg-slate-100 text-slate-900 font-extrabold border-b-2 border-slate-300">
                     <th className="p-3 w-10 text-center border-l border-slate-300">م</th>
-                    <th className="p-3 w-44 border-l border-slate-300">اسم الطالب / الهوية</th>
+                    <th className="p-3 w-44 border-l border-slate-300">اسم الطالب / رقم الطالب</th>
                     <th className="p-3 w-28 border-l border-slate-300">الصف والشعبة</th>
                     <th className="p-3 w-32 border-l border-slate-300">تصنيف ومستوى الحالة</th>
                     <th className="p-3 border-l border-slate-300">الملاحظة والاحتياج المرصود</th>
@@ -1570,7 +1570,7 @@ export default function StudentNeedsSurveyMain({
                     .filter((st) => {
                       const p = profiles[st.id];
                       const name = extractStudentName(st);
-                      const idNum = st.nationalId || st.idNumber || st.id || "";
+                      const idNum = st.id || (st as any)["رقم الطالب"] || st.nationalId || st.idNumber || "";
                       const grade = extractStudentGrade(st);
 
                       if (reportSearchQuery.trim()) {
@@ -1590,7 +1590,7 @@ export default function StudentNeedsSurveyMain({
                     .map((st, idx) => {
                       const p = profiles[st.id];
                       const studentName = extractStudentName(st);
-                      const nationalId = st.nationalId || st.idNumber || st.id || "-";
+                      const nationalId = st.id || (st as any)["رقم الطالب"] || st.nationalId || st.idNumber || "-";
                       const studentGrade = extractStudentGrade(st);
                       const studentClass = extractStudentClass(st);
 
@@ -1614,7 +1614,7 @@ export default function StudentNeedsSurveyMain({
                           <td className="p-3 font-extrabold text-slate-900 border-l border-slate-200">
                             <div>{studentName}</div>
                             <div className="text-[10px] text-slate-500 font-mono" dir="ltr">
-                              ID: {nationalId}
+                              رقم الطالب: {nationalId}
                             </div>
                           </td>
                           <td className="p-3 font-bold text-slate-700 border-l border-slate-200">

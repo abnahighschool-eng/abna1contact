@@ -398,7 +398,7 @@ export default function AttendanceSystem({
     return students.filter((student) => {
       const studentName = extractStudentName(student);
       const studentPhone = extractStudentPhone(student);
-      const studentId = student.id || student["رقم الهوية"] || student["السجل المدني"] || "";
+      const studentId = student.id || student["رقم الطالب"] || student["رقم الهوية"] || student["السجل المدني"] || "";
       const studentGrade = extractStudentGrade(student);
       const studentClass = extractStudentClass(student);
 
@@ -1458,7 +1458,7 @@ export default function AttendanceSystem({
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="بحث باسم الطالب أو رقم الجوال أو الهوية..."
+                      placeholder="بحث باسم الطالب أو رقم الجوال أو رقم الطالب..."
                       className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
                     />
                     {searchQuery && (

@@ -224,8 +224,8 @@ export default function GuidanceDocumentModal({
                 <strong className="text-slate-900">{student.studentName}</strong>
               </div>
               <div>
-                <span className="text-slate-500 font-semibold block text-[11px]">السجل المدني / الهوية:</span>
-                <strong className="text-slate-900 font-mono">{student.nationalId || student.id || "-"}</strong>
+                <span className="text-slate-500 font-semibold block text-[11px]">رقم الطالب:</span>
+                <strong className="text-slate-900 font-mono">{student.id || student.nationalId || "-"}</strong>
               </div>
               <div>
                 <span className="text-slate-500 font-semibold block text-[11px]">الصف والفصل:</span>

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { AppUser } from "../types";
 
-export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "student_needs" | "admin";
+export type MainSectionType = "home" | "teachers_schedule" | "messages" | "attendance" | "inquiry" | "student_needs" | "parent_councils" | "admin";
 
 interface SidebarProps {
   currentSection: MainSectionType;
@@ -121,6 +121,16 @@ export default function Sidebar({
       shortLabel: "احتياجات الطلاب",
       icon: HeartHandshake,
       description: "رصد احتياجات الطلاب الصحية والاجتماعية وإرسال الاستبيانات برمز تفعيل آمن",
+      badge: "جديد",
+      badgeColor: "bg-teal-50 text-teal-700 border border-teal-200",
+      statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
+    },
+    {
+      id: "parent_councils" as MainSectionType,
+      label: "مجالس أولياء الأمور",
+      shortLabel: "مجالس أولياء الأمور",
+      icon: Users,
+      description: "ترشيح عضوية المجلس، الفرز الذكي واستبعاد غير المنطبقين، والاعتماد الرسمي",
       badge: "جديد",
       badgeColor: "bg-teal-50 text-teal-700 border border-teal-200",
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",

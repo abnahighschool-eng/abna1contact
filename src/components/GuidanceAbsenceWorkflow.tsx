@@ -160,9 +160,9 @@ export default function GuidanceAbsenceWorkflow({
 
     const sampleDay1: NoorStudentAbsence[] = [
       {
-        id: "1123456781",
+        id: "1",
         studentName: "سعود فيصل خالد الحربي",
-        nationalId: "1123456781",
+        nationalId: "1",
         grade: "أول ثانوي",
         className: "101",
         excusedDaysCount: 0,
@@ -174,9 +174,9 @@ export default function GuidanceAbsenceWorkflow({
         source: "noor_tool"
       },
       {
-        id: "1123456782",
+        id: "2",
         studentName: "عبدالرحمن فهد ناصر الدوسري",
-        nationalId: "1123456782",
+        nationalId: "2",
         grade: "أول ثانوي",
         className: "102",
         excusedDaysCount: 1,
@@ -188,9 +188,9 @@ export default function GuidanceAbsenceWorkflow({
         source: "noor_tool"
       },
       {
-        id: "1123456783",
+        id: "3",
         studentName: "فهد ماجد سلطان العتيبي",
-        nationalId: "1123456783",
+        nationalId: "3",
         grade: "ثاني ثانوي",
         className: "201",
         excusedDaysCount: 0,
@@ -202,9 +202,9 @@ export default function GuidanceAbsenceWorkflow({
         source: "noor_tool"
       },
       {
-        id: "1123456784",
+        id: "4",
         studentName: "خالد محمد عبدالله القرني",
-        nationalId: "1123456784",
+        nationalId: "4",
         grade: "ثاني ثانوي",
         className: "202",
         excusedDaysCount: 1,
@@ -216,9 +216,9 @@ export default function GuidanceAbsenceWorkflow({
         source: "noor_tool"
       },
       {
-        id: "1123456785",
+        id: "5",
         studentName: "ريان عبدالعزيز صالح المطيري",
-        nationalId: "1123456785",
+        nationalId: "5",
         grade: "ثالث ثانوي",
         className: "301",
         excusedDaysCount: 0,
@@ -230,9 +230,9 @@ export default function GuidanceAbsenceWorkflow({
         source: "noor_tool"
       },
       {
-        id: "1123456786",
+        id: "6",
         studentName: "بندر نواف مشعل الغامدي",
-        nationalId: "1123456786",
+        nationalId: "6",
         grade: "ثالث ثانوي",
         className: "302",
         excusedDaysCount: 0,
@@ -681,7 +681,7 @@ export default function GuidanceAbsenceWorkflow({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث باسم الطالب أو رقم الهوية..."
+              placeholder="ابحث باسم الطالب أو رقم الطالب..."
               className="w-full pl-3 pr-9 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
             />
           </div>
@@ -802,7 +802,7 @@ export default function GuidanceAbsenceWorkflow({
                         </div>
 
                         <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                          {st.nationalId && <span>الهوية: <strong className="font-mono text-slate-700">{st.nationalId}</strong></span>}
+                          {(st.id || st.nationalId) && <span>رقم الطالب: <strong className="font-mono text-slate-700">{st.id || st.nationalId}</strong></span>}
                           <span>الجوال: <strong className="font-mono text-slate-700" dir="ltr">{phone || "غير متوفر"}</strong></span>
                         </div>
                       </div>

@@ -319,7 +319,7 @@ export default function DisciplineReportsPrinter({
   // Extract helper for civil ID
   const extractCivilId = (st: any): string => {
     if (!st) return "";
-    const idKeys = ["id", "civilId", "السجل المدني", "سجل مدني", "رقم الهوية", "الهوية", "رقم السجل", "الوطني", "رقم_الهوية"];
+    const idKeys = ["رقم الطالب", "id", "nationalId", "civilId", "السجل المدني", "سجل مدني", "رقم الهوية", "الهوية", "رقم السجل", "الوطني", "رقم_الهوية"];
     for (const k of idKeys) {
       if (st[k] && String(st[k]).trim() !== "") return String(st[k]).trim();
     }
@@ -709,7 +709,7 @@ export default function DisciplineReportsPrinter({
     const headers = [
       "م",
       "اسم الطالب",
-      "السجل المدني",
+      "رقم الطالب",
       "الصف",
       "الفصل",
       "رقم الجوال",
@@ -957,7 +957,7 @@ export default function DisciplineReportsPrinter({
                   setFilter((prev) => ({ ...prev, studentSearch: e.target.value }));
                   setIsSearchDropdownOpen(true);
                 }}
-                placeholder="اكتب جزءاً من اسم الطالب (مثال: محمد، عبد، خالد...) أو رقم الهوية أو الجوال..."
+                placeholder="اكتب جزءاً من اسم الطالب (مثال: محمد، عبد، خالد...) أو رقم الطالب أو الجوال..."
                 className="w-full bg-white border border-slate-300 rounded-xl pr-10 pl-10 py-2.5 text-xs font-bold text-slate-800 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-600 shadow-2xs"
                 id="input-discipline-autocomplete-search"
               />
@@ -993,7 +993,7 @@ export default function DisciplineReportsPrinter({
 
                 {autocompleteSuggestions.length === 0 ? (
                   <div className="p-6 text-center text-slate-400 text-xs font-medium">
-                    لم يتم العثور على طالب يطابق &quot;{filter.studentSearch}&quot;. تأكد من صحة الاسم أو رقم الهوية.
+                    لم يتم العثور على طالب يطابق &quot;{filter.studentSearch}&quot;. تأكد من صحة الاسم أو رقم الطالب.
                   </div>
                 ) : (
                   autocompleteSuggestions.map((st, idx) => {
@@ -1432,7 +1432,7 @@ export default function DisciplineReportsPrinter({
                   </div>
 
                   <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
-                    <span>الهوية: <strong className="font-mono">{civil || "-"}</strong></span>
+                    <span>رقم الطالب: <strong className="font-mono">{civil || "-"}</strong></span>
                     <button
                       onClick={() => handleToggleStudentSelection(id)}
                       className="text-red-600 hover:text-red-800 font-bold cursor-pointer"
@@ -1652,7 +1652,7 @@ export default function DisciplineReportsPrinter({
                     <th className={`${getRowPaddingClass()} border-l border-slate-300 min-w-[200px]`}>
                       اسم الطالب ومعلومات الإشعار
                     </th>
-                    <th className={`${getRowPaddingClass()} w-24 border-l border-slate-300 text-center font-mono`}>السجل المدني</th>
+                    <th className={`${getRowPaddingClass()} w-24 border-l border-slate-300 text-center font-mono`}>رقم الطالب</th>
                     <th className={`${getRowPaddingClass()} w-24 border-l border-slate-300 text-center`}>الصف / الفصل</th>
                     <th className={`${getRowPaddingClass()} w-24 border-l border-slate-300 text-center font-mono`}>جوال ولي الأمر</th>
                     <th className={`${getRowPaddingClass()} w-20 border-l border-slate-300 text-center`}>التاريخ</th>

@@ -40,6 +40,8 @@ import TeachersScheduleManager from "./components/TeachersScheduleManager";
 import TeacherEvaluationPortal from "./components/TeacherEvaluationPortal";
 import StudentNeedsSurveyMain from "./components/StudentNeedsSurvey/StudentNeedsSurveyMain";
 import ParentNeedsSurveyPortal from "./components/StudentNeedsSurvey/ParentNeedsSurveyPortal";
+import ParentCouncilDashboard from "./components/ParentCouncil/ParentCouncilDashboard";
+import ParentCouncilPortal from "./components/ParentCouncil/ParentCouncilPortal";
 import DatabaseManagementModal from "./components/DatabaseManagementModal";
 import { SchoolSignatoriesModal, DEFAULT_MINISTRY_LOGO } from "./components/SchoolSignatoriesModal";
 import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types/studentSupport";
@@ -212,6 +214,20 @@ export default function App() {
       return params.get("survey_token") || params.get("needs_token") || params.get("token") || params.get("support_token") || params.get("health_token");
     }
     return null;
+  });
+
+  // Direct Parent Council Portal URL parameter (?parent_council=true or ?council_token=<token> or ?council_code=<code>)
+  const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const isParentCouncil = params.get("parent_council") === "true" || !!params.get("council_token") || !!params.get("council_code");
+      return {
+        isOpen: isParentCouncil,
+        token: params.get("council_token") || null,
+        code: params.get("council_code") || params.get("code") || null,
+      };
+    }
+    return { isOpen: false, token: null, code: null };
   });
 
   const [supportProfiles, setSupportProfiles] = useState<Record<string, StudentSupportProfile>>(() => {
@@ -747,6 +763,20 @@ export default function App() {
     );
   }
 
+  // Direct Parent Council Portal (مجالس أولياء الأمور)
+  if (parentCouncilPortalData.isOpen) {
+    return (
+      <ParentCouncilPortal
+        token={parentCouncilPortalData.token}
+        initialCode={parentCouncilPortalData.code}
+        onExit={() => {
+          setParentCouncilPortalData({ isOpen: false, token: null, code: null });
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+      />
+    );
+  }
+
   // 1. Full Authentication Guard: Show login screen if not authenticated or blocked
   if (!currentUser || currentUser.status === "blocked") {
     return (
@@ -1116,6 +1146,20 @@ export default function App() {
               schoolSignatories={signatories}
               onOpenSignatoriesModal={() => setShowSignatoriesConfig(true)}
               currentUser={currentUser}
+            />
+          )}
+
+          {/* 6. Main Section: Parent Councils (مجالس أولياء الأمور في التعليم العام) */}
+          {mainSection === "parent_councils" && (
+            <ParentCouncilDashboard
+              students={students}
+              schoolSignatories={signatories}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onNavigateToWhatsApp={() => {
+                setMainSection("messages");
+                setActiveTab("connection");
+              }}
+              onOpenSignatoriesModal={() => setShowSignatoriesConfig(true)}
             />
           )}
 

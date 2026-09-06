@@ -247,6 +247,7 @@ export async function syncServerStateToFirestore(state: {
   supportCases?: any[];
   healthAuditLogs?: any[];
   needsSurveyProfiles?: any;
+  parentCouncils?: any;
 }): Promise<void> {
   // Merge state into pending payload
   Object.assign(pendingServerState, state);
