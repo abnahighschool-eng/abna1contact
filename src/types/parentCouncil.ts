@@ -1,6 +1,6 @@
 /**
  * Types and interfaces for Parent Councils (مجالس أولياء الأمور في التعليم العام)
- * ضوابط العضوية، استمارة الترشيح، الفرز الذكي، وتوليد الاستمارة الرسمية
+ * ضوابط العضوية، استمارة الترشيح، الفرز الآلي، وتوليد الاستمارة الرسمية
  */
 
 export interface CouncilSkills {
@@ -17,7 +17,7 @@ export interface CouncilSkills {
 }
 
 export interface CouncilCompliance {
-  isParentOrStaff: boolean; // 1. ولي أمر لطالب/طالبة أو أكثر مسجل بالمدرسة أو عضو هيئة تعليمية
+  isParentOrStaff: boolean; // 1. ولي أمر لطالب أو أكثر مسجل بالمدرسة أو عضو هيئة تعليمية
   commitmentToAttend: boolean; // 2. الالتزام بحضور اجتماعات المجلس والمشاركة الفاعلة
   notMemberInOtherSchool: boolean; // 3. ألا يجمع بين عضوية مجلسين من مجالس أولياء الأمور
   hasKidsInOtherSchoolsOnlyOneCouncil: boolean; // 5. إذا كان لديه أبناء في أكثر من مدرسة يُسمح بعضوية مجلس مدرسة واحدة
@@ -43,7 +43,7 @@ export interface ParentCouncilApplication {
   activationCode: string; // 6-digit numeric PIN
   activationToken: string; // URL access token
   studentId?: string;
-  studentName: string; // اسم الطالب / الطالبة
+  studentName: string; // اسم الطالب
   studentGrade: string; // الصف الدراسي
   studentClass?: string; // الشعبة
   fullName: string; // الاسم الرباعي لولي الأمر
@@ -83,7 +83,7 @@ export interface ParentCouncilConfig {
 }
 
 /**
- * خوارزمية الفرز الذكي والتقييم الآلي لطلبات مجالس أولياء الأمور
+ * خوارزمية الفرز الآلي والتقييم النظامي لطلبات مجالس أولياء الأمور
  */
 export function evaluateParentCouncilApplication(app: Partial<ParentCouncilApplication>): SmartEvaluationResult {
   const disqualificationReasons: string[] = [];

@@ -33,6 +33,12 @@ import {
 } from "../../types/parentCouncil";
 import { SchoolSignatories, Student } from "../../types";
 import ParentCouncilPrintSheet from "./ParentCouncilPrintSheet";
+import {
+  validateNationalId,
+  validateSaudiPhone,
+  validateEmail,
+  formatSaudiPhone,
+} from "../../utils/parentCouncilUtils";
 
 interface ParentCouncilPortalProps {
   token?: string | null;
@@ -208,6 +214,8 @@ export default function ParentCouncilPortal({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedApplication, setSubmittedApplication] = useState<ParentCouncilApplication | null>(null);
+  const [alreadySubmittedApplication, setAlreadySubmittedApplication] = useState<ParentCouncilApplication | null>(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Sync prop students
@@ -311,8 +319,18 @@ export default function ParentCouncilPortal({
       fetch(`/api/parent-councils/token/${token}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
+          if (data?.alreadySubmitted && data?.application) {
+            setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
+            setIsCodeVerified(true);
+            return;
+          }
           if (data?.application) {
             const app = data.application as ParentCouncilApplication;
+            if (app.status === "submitted" || app.status === "approved" || app.status === "disqualified") {
+              setAlreadySubmittedApplication(app);
+              setIsCodeVerified(true);
+              return;
+            }
             setFullName(app.fullName || "");
             setNationalId(app.nationalId || "");
             setPhone(app.phone || "");
@@ -363,9 +381,19 @@ export default function ParentCouncilPortal({
 
       setIsCodeVerified(true);
 
+      // If already submitted application was returned
+      if (data.alreadySubmitted && data.application) {
+        setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
+        return;
+      }
+
       // If existing application was returned, fill the fields
       if (data.application) {
         const app = data.application as ParentCouncilApplication;
+        if (app.status === "submitted" || app.status === "approved" || app.status === "disqualified") {
+          setAlreadySubmittedApplication(app);
+          return;
+        }
         setFullName(app.fullName || "");
         setNationalId(app.nationalId || "");
         setPhone(app.phone || "");
@@ -408,20 +436,26 @@ export default function ParentCouncilPortal({
       return;
     }
 
-    if (!nationalId.trim()) {
-      setSubmitError("يرجى إدخال رقم الهوية الوطنية");
+    if (!nationalId.trim() || !validateNationalId(nationalId)) {
+      setSubmitError("رقم الهوية الوطنية يجب أن يتكون من 10 أرقام صحيحة");
       setStep(1);
       return;
     }
 
-    if (!phone.trim()) {
-      setSubmitError("يرجى إدخال رقم الجوال");
+    if (!phone.trim() || !validateSaudiPhone(phone)) {
+      setSubmitError("رقم الجوال يجب أن يتكون من 10 أرقام تبدأ بـ 05");
+      setStep(1);
+      return;
+    }
+
+    if (!email.trim() || !validateEmail(email)) {
+      setSubmitError("يرجى إدخال بريد إلكتروني صالح (مثال: name@example.com)");
       setStep(1);
       return;
     }
 
     if (!studentName.trim()) {
-      setSubmitError("يرجى كتابة اسم الطالب / الطالبة");
+      setSubmitError("يرجى كتابة اسم الطالب");
       setStep(1);
       return;
     }
@@ -459,7 +493,7 @@ export default function ParentCouncilPortal({
       status: "submitted",
     };
 
-    // Calculate smart evaluation immediately
+    // Calculate evaluation immediately
     const evaluation = evaluateParentCouncilApplication(newApp);
     newApp.smartEvaluation = evaluation;
     newApp.status = evaluation.isEligible ? "submitted" : "disqualified";
@@ -492,17 +526,188 @@ export default function ParentCouncilPortal({
     }
   };
 
-  // View: Success Printable Official Form after submission
-  if (submittedApplication) {
+  // View: Print Official Form Modal
+  if (showPrintModal && (submittedApplication || alreadySubmittedApplication)) {
     return (
       <ParentCouncilPrintSheet
-        application={submittedApplication}
+        application={(submittedApplication || alreadySubmittedApplication)!}
         signatories={signatories}
-        onClose={() => {
-          setSubmittedApplication(null);
-          setStep(1);
-        }}
+        onClose={() => setShowPrintModal(false)}
       />
+    );
+  }
+
+  // View 1: Thank You Screen immediately following submission (without redirecting to site)
+  if (submittedApplication) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 sm:p-6" dir="rtl">
+        <div className="max-w-2xl mx-auto my-8 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-l from-teal-800 to-teal-700 text-white p-6 sm:p-8 text-center">
+            <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
+              <CheckCircle2 className="w-10 h-10 text-emerald-300" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black mb-2">
+              شكراً لكم على تعبئة استمارة الترشح
+            </h1>
+            <p className="text-xs sm:text-sm text-teal-100 font-medium leading-relaxed max-w-lg mx-auto">
+              تم استلام طلبكم بنجاح ورفعه إلى إدارة المدرسة، وسيتم مراجعة الطلب والمفاضلة وإشعاركم بالنتائج.
+            </p>
+          </div>
+
+          {/* Details & Reassurance */}
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-900 text-xs font-bold leading-relaxed flex items-center gap-3">
+              <ShieldCheck className="w-6 h-6 text-emerald-700 shrink-0" />
+              <div>
+                <span className="font-black block text-sm">تم تسجيل طلبكم رسمياً</span>
+                <span>تم إرسال الطلب لإدارة المدرسة، ولا حاجة لإعادة التعبئة.</span>
+              </div>
+            </div>
+
+            {/* Summary Data */}
+            <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3">
+              <div className="text-xs font-black text-slate-500 border-b border-slate-200 pb-2">
+                ملخص بيانات الاستمارة المقدمة:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-500 block">اسم ولي الأمر:</span>
+                  <span className="font-extrabold text-slate-900">{submittedApplication.fullName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">اسم الطالب:</span>
+                  <span className="font-extrabold text-slate-900">{submittedApplication.studentName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">الصف والشعبة:</span>
+                  <span className="font-bold text-slate-800">
+                    {submittedApplication.studentGrade} - الشعبة {submittedApplication.studentClass}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">رقم الجوال:</span>
+                  <span className="font-mono font-bold text-slate-800">{submittedApplication.phone}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">رقم الهوية الوطنية:</span>
+                  <span className="font-mono font-bold text-slate-800">{submittedApplication.nationalId}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">البريد الإلكتروني:</span>
+                  <span className="font-mono text-slate-800">{submittedApplication.email || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">تاريخ التقديم:</span>
+                  <span className="font-bold text-slate-800">{submittedApplication.submissionDateHijri}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">رقم التوثيق المرجعي:</span>
+                  <span className="font-mono font-bold text-teal-800">{submittedApplication.id}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPrintModal(true)}
+                className="flex-1 py-3 px-4 bg-teal-700 hover:bg-teal-800 text-white rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
+              >
+                <Printer className="w-4 h-4" />
+                <span>استعراض وطباعة الاستمارة الرسمية</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // View 2: Re-entry Check Screen (when parent re-enters the link after submission)
+  if (alreadySubmittedApplication) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 sm:p-6" dir="rtl">
+        <div className="max-w-2xl mx-auto my-8 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-l from-slate-900 to-teal-900 text-white p-6 sm:p-8 text-center">
+            <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
+              <ShieldCheck className="w-10 h-10 text-teal-300" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black mb-2">
+              تم تقديم طلب الطالب مسبقاً
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-200 font-medium leading-relaxed max-w-lg mx-auto">
+              المكرم ولي الأمر، نود إحاطتكم بأنه قد تم مسبقاً تقديم طلب الترشح لعضوية مجلس أولياء الأمور للطالب ({alreadySubmittedApplication.studentName})، والطلب معتمد ومسجل رسمياً لدى إدارة المدرسة.
+            </p>
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-teal-900 text-xs font-bold leading-relaxed flex items-center gap-3">
+              <CheckCircle2 className="w-6 h-6 text-teal-700 shrink-0" />
+              <div>
+                <span className="font-black block text-sm">طلبكم محفوظ ومسجل لدى إدارة المدرسة</span>
+                <span>لا داعي لإعادة تعبئة الاستمارة؛ طلبكم مدرج ضمن ملف الترشيحات للمفاضلة الرسمية.</span>
+              </div>
+            </div>
+
+            {/* Summary Box */}
+            <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3">
+              <div className="text-xs font-black text-slate-500 border-b border-slate-200 pb-2">
+                بيانات الاستمارة المقدمة:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-500 block">اسم ولي الأمر:</span>
+                  <span className="font-extrabold text-slate-900">{alreadySubmittedApplication.fullName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">اسم الطالب:</span>
+                  <span className="font-extrabold text-slate-900">{alreadySubmittedApplication.studentName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">الصف والشعبة:</span>
+                  <span className="font-bold text-slate-800">
+                    {alreadySubmittedApplication.studentGrade} - الشعبة {alreadySubmittedApplication.studentClass}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">رقم الجوال:</span>
+                  <span className="font-mono font-bold text-slate-800">{alreadySubmittedApplication.phone}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">رقم الهوية:</span>
+                  <span className="font-mono font-bold text-slate-800">{alreadySubmittedApplication.nationalId}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">البريد الإلكتروني:</span>
+                  <span className="font-mono text-slate-800">{alreadySubmittedApplication.email || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">تاريخ التقديم:</span>
+                  <span className="font-bold text-slate-800">{alreadySubmittedApplication.submissionDateHijri}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">رقم التوثيق المرجعي:</span>
+                  <span className="font-mono font-bold text-teal-800">{alreadySubmittedApplication.id}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPrintModal(true)}
+                className="flex-1 py-3 px-4 bg-teal-700 hover:bg-teal-800 text-white rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
+              >
+                <Printer className="w-4 h-4" />
+                <span>استعراض وطباعة نسخة من الاستمارة الرسمية</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -741,9 +946,8 @@ export default function ParentCouncilPortal({
                     </label>
                     <div className="flex flex-wrap gap-2">
                       {[
-                        { id: "father", label: "الأب (الافتراضي)" },
-                        { id: "mother", label: "الوالدة" },
-                        { id: "brother", label: "الأخ / الأخت" },
+                        { id: "father", label: "الأب" },
+                        { id: "brother", label: "الأخ" },
                         { id: "guardian", label: "الوكيل الشرعي" },
                         { id: "other", label: "صلة قرابة أخرى" },
                       ].map((item) => (
@@ -752,7 +956,7 @@ export default function ParentCouncilPortal({
                           type="button"
                           onClick={() => {
                             setGuardianRelation(item.id as any);
-                            setRelationLabel(item.label.replace(" (الافتراضي)", ""));
+                            setRelationLabel(item.label);
                             if (item.id !== "father") {
                               setIsEditingGuardianName(true);
                               setTimeout(() => guardianNameInputRef.current?.focus(), 100);
@@ -814,7 +1018,7 @@ export default function ParentCouncilPortal({
                       <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-center gap-2">
                         <span className="text-teal-700 font-black shrink-0">معلومة:</span>
                         <span>
-                          اسم ولي الأمر مسجل وجاهز تلقائياً، ويمكنك تعديله مباشرة إذا كان مقدم الطلب غير الأب (كالوالدة أو الوكيل الشرعي).
+                          اسم ولي الأمر مسجل وجاهز تلقائياً، ويمكنك تعديله مباشرة إذا كان مقدم الطلب غير الأب (كالأخ أو الوكيل الشرعي).
                         </span>
                       </div>
                     </div>
@@ -855,10 +1059,11 @@ export default function ParentCouncilPortal({
                     {/* Email */}
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
-                        البريد الإلكتروني (اختياري)
+                        البريد الإلكتروني <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="email"
+                        required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="example@domain.com"
@@ -870,7 +1075,7 @@ export default function ParentCouncilPortal({
                     {/* Student Name */}
                     <div>
                       <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
-                        اسم الطالب / الطالبة <span className="text-rose-600">*</span>
+                        اسم الطالب <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="text"
@@ -923,7 +1128,7 @@ export default function ParentCouncilPortal({
                         className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500"
                       />
                       <span className="text-xs font-bold text-slate-800">
-                        هل أنت عضو في الهيئة التعليمية بالمدرسة ونفسك ولي أمر لطالب/طالبة؟ (المادة 3 بند 4)
+                        هل أنت عضو في الهيئة التعليمية بالمدرسة ونفسك ولي أمر لطالب؟ (المادة 3 بند 4)
                       </span>
                     </label>
                   </div>
@@ -932,8 +1137,24 @@ export default function ParentCouncilPortal({
                     <button
                       type="button"
                       onClick={() => {
-                        if (!fullName.trim() || !nationalId.trim() || !phone.trim() || !studentName.trim()) {
-                          setSubmitError("يرجى ملء جميع الحقول المطلوبة التي تحمل علامة (*)");
+                        if (!fullName.trim()) {
+                          setSubmitError("يرجى إدخال الاسم الرباعي لولي الأمر");
+                          return;
+                        }
+                        if (!nationalId.trim() || !validateNationalId(nationalId)) {
+                          setSubmitError("رقم الهوية الوطنية يجب أن يتكون من 10 أرقام صحيحة");
+                          return;
+                        }
+                        if (!phone.trim() || !validateSaudiPhone(phone)) {
+                          setSubmitError("رقم الجوال يجب أن يتكون من 10 أرقام تبدأ بـ 05");
+                          return;
+                        }
+                        if (!email.trim() || !validateEmail(email)) {
+                          setSubmitError("يرجى إدخال بريد إلكتروني صالح (مثال: name@example.com)");
+                          return;
+                        }
+                        if (!studentName.trim()) {
+                          setSubmitError("يرجى كتابة اسم الطالب");
                           return;
                         }
                         setSubmitError(null);
@@ -1310,7 +1531,7 @@ export default function ParentCouncilPortal({
                         <span>المادة (الثالثة): ضوابط العضوية في مجلس أولياء الأمور بالمدارس</span>
                       </h3>
                       <p className="text-[11px] text-amber-800 leading-relaxed">
-                        يتم التحقق الذكي من هذه الشروط النظامية لقبول الترشيح واستبعاد من لا تنطبق عليه الضوابط تلقائياً:
+                        يتم التحقق من هذه الشروط النظامية لقبول الترشيح واستبعاد من لا تنطبق عليه الضوابط تلقائياً:
                       </p>
                     </div>
 
@@ -1326,7 +1547,7 @@ export default function ParentCouncilPortal({
                           className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 mt-0.5"
                         />
                         <span className="text-xs font-bold text-slate-800 leading-relaxed">
-                          1. أن يكون ولي أمر لطالب/لطالبة أو أكثر مُسجل بالمدرسة أو عضواً بالهيئة التعليمية بالمدرسة.
+                          1. أن يكون ولي أمر لطالب أو أكثر مُسجل بالمدرسة أو عضواً بالهيئة التعليمية بالمدرسة.
                         </span>
                       </label>
 

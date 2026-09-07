@@ -38,6 +38,7 @@ import {
 import { SchoolSignatories, Student } from "../../types";
 import ParentCouncilPrintSheet from "./ParentCouncilPrintSheet";
 import CouncilFormationPrintSheet from "./CouncilFormationPrintSheet";
+import ParentCouncilStudentInvites from "./ParentCouncilStudentInvites";
 
 interface ParentCouncilDashboardProps {
   students: Student[];
@@ -59,6 +60,7 @@ export default function ParentCouncilDashboard({
 
   // Main state
   const [applications, setApplications] = useState<Record<string, ParentCouncilApplication>>({});
+  const [invites, setInvites] = useState<Record<string, any>>({});
   const [config, setConfig] = useState<ParentCouncilConfig>({
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -106,6 +108,7 @@ export default function ParentCouncilDashboard({
           if (data.success) {
             setApplications(data.applications || {});
             if (data.config) setConfig((prev) => ({ ...prev, ...data.config }));
+            if (data.invites) setInvites(data.invites);
             return;
           }
         }
@@ -118,17 +121,20 @@ export default function ParentCouncilDashboard({
       // Local storage fallback
       const savedApps = localStorage.getItem("parent_councils_apps");
       const savedConfig = localStorage.getItem("parent_councils_config");
+      const savedInvites = localStorage.getItem("parent_councils_invites");
       if (savedApps) {
         try {
           setApplications(JSON.parse(savedApps));
         } catch (e) {}
-      } else {
-        // Seed realistic sample applications for immediate visual testing if empty
-        seedSampleApplications();
       }
       if (savedConfig) {
         try {
           setConfig(JSON.parse(savedConfig));
+        } catch (e) {}
+      }
+      if (savedInvites) {
+        try {
+          setInvites(JSON.parse(savedInvites));
         } catch (e) {}
       }
       setLoading(false);
@@ -136,6 +142,21 @@ export default function ParentCouncilDashboard({
 
     loadData();
   }, [students]);
+
+  // Handler to update student invites across state, storage, and server
+  const handleUpdateInvites = async (newInvites: Record<string, any>) => {
+    setInvites(newInvites);
+    try {
+      localStorage.setItem("parent_councils_invites", JSON.stringify(newInvites));
+      await fetch("/api/parent-councils/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invites: newInvites }),
+      });
+    } catch (e) {
+      console.error("Error saving invites:", e);
+    }
+  };
 
   // Seed sample data based on actual students in the school
   const seedSampleApplications = () => {
@@ -505,7 +526,7 @@ export default function ParentCouncilDashboard({
     };
 
     syncUpdates(updatedApps, newConfig);
-    showToast("تم إجراء الفرز الذكي الآلي وتوزيع المقاعد والاحتياط بنجاح.");
+    showToast("تم إجراء الفرز الآلي وتوزيع المقاعد والاحتياط بنجاح.");
   };
 
   // Action: Disqualify candidate manually (with reason)
@@ -728,7 +749,7 @@ export default function ParentCouncilDashboard({
                 )}
               </div>
               <p className="text-xs text-slate-500 font-medium mt-1">
-                إدارة طلبات الترشيح، الفرز الذكي واستبعاد من لا تنطبق عليه الشروط، وتوليد استمارات المجلس الرسمية لـ{" "}
+                إدارة طلبات الترشيح، الفرز الآلي واستبعاد من لا تنطبق عليه الشروط، وتوليد استمارات المجلس الرسمية لـ{" "}
                 <span className="font-bold text-slate-700">{schoolSignatories.schoolName || "المدرسة"}</span>
               </p>
             </div>
@@ -825,7 +846,7 @@ export default function ParentCouncilDashboard({
           }`}
         >
           <Sparkles className="w-4 h-4 text-amber-300" />
-          <span>القسم الذكي لفرز وترشيح المجلس</span>
+          <span>نظام فرز وترشيح المجلس</span>
           <span className="text-[10px] bg-teal-900/40 text-teal-100 px-2 py-0.5 rounded-full font-mono">
             {config.selectedMemberIds.length}
           </span>
@@ -852,20 +873,20 @@ export default function ParentCouncilDashboard({
           }`}
         >
           <Share2 className="w-4 h-4 text-emerald-500" />
-          <span>دعوات الواتساب ورمز التفعيل</span>
+          <span>تحديد الطلاب وإرسال دعوات الترشح عبر واتساب</span>
         </button>
       </div>
 
-      {/* TAB 1: القسم الذكي لفرز وترشيح المجلس */}
+      {/* TAB 1: نظام فرز وترشيح المجلس */}
       {activeTab === "smart_screening" && (
         <div className="space-y-6">
           
-          {/* Smart Controls Bar */}
+          {/* Controls Bar */}
           <div className="bg-linear-to-r from-teal-900 to-slate-900 text-white p-6 rounded-3xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-amber-300" />
-                <h2 className="text-base font-black">المساعد الذكي لفرز واختيار أعضاء المجلس</h2>
+                <h2 className="text-base font-black">نظام فرز واختيار أعضاء المجلس</h2>
               </div>
               <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
                 يقوم النظام بدراسة الاستمارات وفحص امتلاك المهارات الإدارية والتطوعية وتطبيق ضوابط المادة (الثالثة)، واقتراح التشكيل الأنسب للمجلس مع إمكانية استبعاد أو استبدال أي مرشح يدوياً.
@@ -880,7 +901,7 @@ export default function ParentCouncilDashboard({
                 title="إعادة الفرز التلقائي لجميع الطلبات"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>إعادة الفرز الذكي</span>
+                <span>إجراء الفرز الآلي</span>
               </button>
 
               <button
@@ -917,7 +938,7 @@ export default function ParentCouncilDashboard({
 
             {selectedApps.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-xs">
-                لا يوجد أعضاء في التشكيل حتى الآن. اضغط على "إعادة الفرز الذكي" لاقتراح التشكيل تلقائياً.
+                لا يوجد أعضاء في التشكيل حتى الآن. اضغط على "إجراء الفرز الآلي" لاقتراح التشكيل بعد استلام الاستمارات.
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -1211,7 +1232,7 @@ export default function ParentCouncilDashboard({
                   <th className="p-3">اسم ولي الأمر</th>
                   <th className="p-3">الطالب والصف</th>
                   <th className="p-3">المهارات المعتمدة</th>
-                  <th className="p-3 text-center">التقييم الذكي</th>
+                  <th className="p-3 text-center">التقييم النظامي</th>
                   <th className="p-3 text-center">الحالة</th>
                   <th className="p-3 text-center">تاريخ التقديم</th>
                   <th className="p-3 text-center">الإجراءات</th>
@@ -1322,186 +1343,109 @@ export default function ParentCouncilDashboard({
         </div>
       )}
 
-      {/* TAB 3: دعوات الواتساب ورمز التفعيل */}
+      {/* TAB 3: تحديد الطلاب وإرسال دعوات الترشح عبر واتساب */}
       {activeTab === "links_and_wa" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* Card 1: Portal Link & Activation Code */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-5">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
-                <Share2 className="w-5 h-5 text-teal-700" />
-                <span>رابط الترشيح المباشر ورمز التفعيل</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                يمكن مشاركة هذا الرابط مع أولياء الأمور عبر مجموعات الواتساب أو الرسائل النصية للترشح
-              </p>
-            </div>
+        <div className="space-y-6">
+          <ParentCouncilStudentInvites
+            students={students}
+            schoolSignatories={schoolSignatories}
+            isWhatsAppConnected={isWhatsAppConnected}
+            onNavigateToWhatsApp={onNavigateToWhatsApp}
+            applications={applications}
+            invites={invites}
+            onUpdateInvites={handleUpdateInvites}
+            showToast={showToast}
+          />
 
-            <div className="space-y-4">
-              
-              {/* Direct Link Box */}
+          {/* Supplementary Council Settings & General Fallback Link */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
-                <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                  رابط بوابة الترشيح العامة:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={publicPortalUrl}
-                    className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-800"
-                    dir="ltr"
-                  />
-                  <button
-                    type="button"
-                    onClick={copyPortalLink}
-                    className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedLink ? "تم النسخ" : "نسخ"}</span>
-                  </button>
-                </div>
+                <h3 className="text-xs sm:text-sm font-black text-slate-800 flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-slate-600" />
+                  <span>إعدادات مقاعد المجلس والرابط العام المباشر</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  الرابط العام البديل في حال الرغبة بمشاركة رابط موحد في مجموعات أولياء الأمور
+                </p>
               </div>
 
-              {/* Activation Code Setting */}
-              <div>
-                <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                  رمز التفعيل العام المعتمد:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={config.generalActivationCode}
-                    onChange={(e) => {
-                      const updated = { ...config, generalActivationCode: e.target.value };
-                      setConfig(updated);
-                      localStorage.setItem("parent_councils_config", JSON.stringify(updated));
-                    }}
-                    className="w-48 px-3.5 py-2.5 bg-white border-2 border-teal-600 rounded-xl text-center text-base font-mono font-black tracking-widest text-teal-900"
-                    dir="ltr"
-                  />
-                  <span className="text-xs text-slate-500">
-                    رمز رقمي مخصص للمدرسة للدخول للاستمارة
-                  </span>
-                </div>
-              </div>
-
-              {/* Council Quota */}
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    عدد مقاعد المجلس الأساسية:
-                  </label>
-                  <input
-                    type="number"
-                    min={3}
-                    max={15}
-                    value={config.seatsCount}
-                    onChange={(e) => {
-                      const updated = { ...config, seatsCount: Number(e.target.value) || 7 };
-                      setConfig(updated);
-                      localStorage.setItem("parent_councils_config", JSON.stringify(updated));
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    عدد مقاعد الاحتياط:
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={config.reserveSeatsCount}
-                    onChange={(e) => {
-                      const updated = { ...config, reserveSeatsCount: Number(e.target.value) || 2 };
-                      setConfig(updated);
-                      localStorage.setItem("parent_councils_config", JSON.stringify(updated));
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Test in New Tab */}
-              <div className="pt-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyPortalLink}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>نسخ الرابط العام</span>
+                </button>
                 <a
                   href={publicPortalUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-extrabold text-teal-700 hover:text-teal-900 underline"
+                  className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>فتح وتجربة استمارة ولي الأمر في نافذة جديدة</span>
+                  <span>تجربة الرابط العام</span>
                 </a>
               </div>
-
-            </div>
-          </div>
-
-          {/* Card 2: WhatsApp Messaging */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
-                <Send className="w-5 h-5 text-emerald-600" />
-                <span>إرسال دعوة الترشح عبر واتساب</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                تخصيص وإرسال رسالة الدعوة الرسمية برمز التفعيل لأولياء الأمور
-              </p>
             </div>
 
-            <div>
-              <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                نص رسالة الدعوة:
-              </label>
-              <textarea
-                rows={6}
-                value={customWhatsAppMsg}
-                onChange={(e) => setCustomWhatsAppMsg(e.target.value)}
-                className="w-full p-3 rounded-xl border border-slate-300 text-xs text-slate-800 font-medium focus:ring-1 focus:ring-teal-600 focus:outline-hidden"
-              />
-              <div className="text-[10px] text-slate-400 mt-1">
-                المتغيرات التلقائية: &#123;المدرسة&#125; اسم المدرسة، &#123;الرابط&#125; رابط البوابة، &#123;الرمز&#125; رمز التفعيل.
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  رمز التفعيل العام المعتمد:
+                </label>
+                <input
+                  type="text"
+                  value={config.generalActivationCode}
+                  onChange={(e) => {
+                    const updated = { ...config, generalActivationCode: e.target.value };
+                    setConfig(updated);
+                    localStorage.setItem("parent_councils_config", JSON.stringify(updated));
+                  }}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-mono font-bold tracking-wider text-slate-900"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  عدد مقاعد المجلس الأساسية:
+                </label>
+                <input
+                  type="number"
+                  min={3}
+                  max={15}
+                  value={config.seatsCount}
+                  onChange={(e) => {
+                    const updated = { ...config, seatsCount: Number(e.target.value) || 7 };
+                    setConfig(updated);
+                    localStorage.setItem("parent_councils_config", JSON.stringify(updated));
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold font-mono text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  عدد مقاعد الاحتياط:
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={config.reserveSeatsCount}
+                  onChange={(e) => {
+                    const updated = { ...config, reserveSeatsCount: Number(e.target.value) || 2 };
+                    setConfig(updated);
+                    localStorage.setItem("parent_councils_config", JSON.stringify(updated));
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold font-mono text-slate-900"
+                />
               </div>
             </div>
-
-            {/* Connection Check */}
-            {!isWhatsAppConnected && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center justify-between">
-                <span>واتساب غير مرتبط حالياً في النظام.</span>
-                {onNavigateToWhatsApp && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToWhatsApp}
-                    className="font-bold underline text-amber-900"
-                  >
-                    ربط الواتساب الآن
-                  </button>
-                )}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                const finalMsg = customWhatsAppMsg
-                  .replace("{المدرسة}", schoolSignatories.schoolName || "المدرسة")
-                  .replace("{الرابط}", publicPortalUrl)
-                  .replace("{الرمز}", config.generalActivationCode);
-                navigator.clipboard.writeText(finalMsg);
-                showToast("تم نسخ نص رسالة الواتساب بالرابط والرمز بنجاح، يمكنك لصقها في المجموعات.");
-              }}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Copy className="w-4 h-4" />
-              <span>نسخ الرسالة الجاهزة للإرسال في واتساب</span>
-            </button>
           </div>
-
         </div>
       )}
 

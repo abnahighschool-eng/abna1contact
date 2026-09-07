@@ -460,6 +460,7 @@ const PARENT_COUNCILS_FILE = path.join(process.cwd(), "parent_councils_store.jso
 // Parent Councils Data Store
 let parentCouncilsStore: {
   applications: Record<string, any>;
+  invites: Record<string, any>;
   config: {
     academicYear: string;
     councilTerm: string;
@@ -473,6 +474,7 @@ let parentCouncilsStore: {
   };
 } = {
   applications: {},
+  invites: {},
   config: {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -630,6 +632,7 @@ if (fs.existsSync(PARENT_COUNCILS_FILE)) {
     if (parsed && typeof parsed === "object") {
       parentCouncilsStore = {
         applications: parsed.applications || {},
+        invites: parsed.invites || {},
         config: { ...parentCouncilsStore.config, ...(parsed.config || {}) },
       };
     }
@@ -1739,11 +1742,12 @@ app.post("/api/student-needs-survey/batch-update-invites", (req, res) => {
 // PARENT COUNCILS API ENDPOINTS (مجالس أولياء الأمور)
 // ==========================================
 
-// 1. Get All Applications and Config
+// 1. Get All Applications, Config, and Invites
 app.get("/api/parent-councils/data", (req, res) => {
   res.json({
     success: true,
     applications: parentCouncilsStore.applications || {},
+    invites: parentCouncilsStore.invites || {},
     config: parentCouncilsStore.config || {
       academicYear: "1447 - 1448 هـ",
       councilTerm: "العام الدراسي 2026 - 2027",
@@ -1757,57 +1761,146 @@ app.get("/api/parent-councils/data", (req, res) => {
   });
 });
 
-// 2. Token / Code Verification
+// 2. Token / Student Lookup
+app.get("/api/parent-councils/token/:token", (req, res) => {
+  const token = req.params.token;
+  const existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+    (a: any) =>
+      a.activationToken === token ||
+      a.token === token ||
+      a.studentId === token ||
+      a.id === token
+  );
+
+  const invite =
+    parentCouncilsStore.invites?.[token] ||
+    Object.values(parentCouncilsStore.invites || {}).find(
+      (inv: any) => inv.token === token || inv.studentId === token
+    );
+
+  res.json({
+    success: true,
+    alreadySubmitted: !!existingApp,
+    application: existingApp || null,
+    invite: invite || null,
+  });
+});
+
+// 3. Check Submission Status
+app.get("/api/parent-councils/check-submission", (req, res) => {
+  const { studentId, nationalId, phone, token } = req.query;
+  const existingApp = Object.values(parentCouncilsStore.applications || {}).find((a: any) => {
+    if (studentId && a.studentId === studentId) return true;
+    if (token && (a.activationToken === token || a.token === token)) return true;
+    if (nationalId && a.nationalId === nationalId) return true;
+    if (phone && a.phone === phone) return true;
+    return false;
+  });
+
+  res.json({
+    success: true,
+    alreadySubmitted: !!existingApp,
+    application: existingApp || null,
+  });
+});
+
+// 4. Token / Code Verification
 app.post("/api/parent-councils/verify-code", (req, res) => {
-  const { token, code } = req.body || {};
+  const { token, code, studentId } = req.body || {};
   const cleanedCode = String(code || "").trim();
   const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
 
   // Allow general council code
-  if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447" || cleanedCode === "1234") {
+  if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
     return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
   }
 
-  // Check if matches an applicant's specific access code
-  if (token) {
-    const existing = Object.values(parentCouncilsStore.applications).find((a: any) => a.token === token);
-    if (existing && String(existing.activationCode || "").trim() === cleanedCode) {
-      return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
-    }
+  // Check invites store
+  const invite: any = Object.values(parentCouncilsStore.invites || {}).find(
+    (inv: any) =>
+      (token && inv.token === token) ||
+      (studentId && inv.studentId === studentId) ||
+      inv.code === cleanedCode
+  );
+  if (invite && String(invite.code || "").trim() === cleanedCode) {
+    const existingForStudent = Object.values(parentCouncilsStore.applications || {}).find(
+      (a: any) =>
+        (invite.studentId && a.studentId === invite.studentId) ||
+        (token && (a.activationToken === token || a.token === token))
+    );
+    return res.json({
+      success: true,
+      valid: true,
+      message: "رمز التفعيل معتمد",
+      invite,
+      alreadySubmitted: !!existingForStudent,
+      application: existingForStudent || null,
+    });
   }
 
-  return res.status(400).json({ success: false, valid: false, message: "رمز التفعيل غير صحيح، يرجى إدخال رمز تفعيل معتمد من المدرسة" });
+  // Check existing application codes
+  const existing = Object.values(parentCouncilsStore.applications || {}).find(
+    (a: any) =>
+      (token && (a.activationToken === token || a.token === token)) ||
+      (studentId && a.studentId === studentId)
+  );
+  if (existing && String(existing.activationCode || "").trim() === cleanedCode) {
+    return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
+  }
+
+  // If studentId provided, accept any 6-digit numeric PIN
+  if (studentId && /^\d{6}$/.test(cleanedCode)) {
+    return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
+  }
+
+  return res.status(400).json({
+    success: false,
+    valid: false,
+    message: "رمز التفعيل غير صحيح، يرجى إدخال الرمز المخصص لولي الأمر والمرسل عبر الواتساب",
+  });
 });
 
-// 3. Submit or Update Application from Public Portal
+// 5. Submit or Update Application from Public Portal
 app.post("/api/parent-councils/submit", (req, res) => {
   const { application } = req.body || {};
-  if (!application || !application.guardianNationalId || !application.guardianName) {
-    return res.status(400).json({ success: false, message: "بيانات الاستمارة غير مكتملة، يرجى كتابة الاسم ورقم الهوية" });
+  if (!application || (!application.fullName && !application.guardianName)) {
+    return res.status(400).json({
+      success: false,
+      message: "بيانات الاستمارة غير مكتملة، يرجى كتابة الاسم ورقم الهوية الوطنية",
+    });
   }
 
   const id = application.id || `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const now = new Date().toISOString();
 
   // Run official smart evaluation engine
-  const evaluation = evaluateParentCouncilApplication(application);
+  const smartEvaluation = evaluateParentCouncilApplication(application);
 
   const finalApp = {
     ...application,
     id,
-    submissionDate: application.submissionDate || now,
-    status: application.status || (evaluation.isEligible ? "submitted" : "disqualified"),
-    evaluation,
+    fullName: application.fullName || application.guardianName,
+    nationalId: application.nationalId || application.guardianNationalId,
+    phone: application.phone || application.guardianPhone,
+    status: application.status || (smartEvaluation.isEligible ? "submitted" : "disqualified"),
+    smartEvaluation,
+    submittedAt: application.submittedAt || now,
     lastUpdated: now,
   };
 
   parentCouncilsStore.applications[id] = finalApp;
-  saveParentCouncilsStore();
 
+  // Mark invite as submitted if exists
+  if (application.studentId && parentCouncilsStore.invites?.[application.studentId]) {
+    parentCouncilsStore.invites[application.studentId].isSubmitted = true;
+    parentCouncilsStore.invites[application.studentId].submittedAt = now;
+  }
+
+  saveParentCouncilsStore();
   res.json({ success: true, application: finalApp });
 });
 
-// 4. Admin Dashboard Sync (Applications & Config)
+// 6. Admin Dashboard Sync (Applications & Config)
 app.post("/api/parent-councils/sync", (req, res) => {
   const { applications, config } = req.body || {};
   if (applications && typeof applications === "object") {
@@ -1820,15 +1913,47 @@ app.post("/api/parent-councils/sync", (req, res) => {
     };
   }
   saveParentCouncilsStore();
-  res.json({ 
-    success: true, 
-    count: Object.keys(parentCouncilsStore.applications).length, 
-    config: parentCouncilsStore.config 
+  res.json({
+    success: true,
+    count: Object.keys(parentCouncilsStore.applications).length,
+    config: parentCouncilsStore.config,
   });
 });
 
-// 5. Seed Realistic Sample Applicants
+// 7. Save and Update Student Invites
+app.post("/api/parent-councils/invites", (req, res) => {
+  const { invites } = req.body || {};
+  if (invites && typeof invites === "object") {
+    parentCouncilsStore.invites = {
+      ...(parentCouncilsStore.invites || {}),
+      ...invites,
+    };
+    saveParentCouncilsStore();
+  }
+  res.json({ success: true, invites: parentCouncilsStore.invites });
+});
+
+// 8. Reset Parent Councils Store (Clear fake data or start clean)
+app.post("/api/parent-councils/reset", (req, res) => {
+  parentCouncilsStore.applications = {};
+  parentCouncilsStore.invites = {};
+  parentCouncilsStore.config = {
+    academicYear: "1447 - 1448 هـ",
+    councilTerm: "العام الدراسي 2026 - 2027",
+    generalActivationCode: "202601",
+    seatsCount: 7,
+    reserveSeatsCount: 2,
+    formationApproved: false,
+    selectedMemberIds: [],
+    reserveMemberIds: [],
+  };
+  saveParentCouncilsStore();
+  res.json({ success: true, message: "تمت إعادة تعيين وتنظيم قسم مجالس أولياء الأمور بنجاح" });
+});
+
+// 5. Seed Realistic Sample Applicants (Disabled to preserve real data)
 app.post("/api/parent-councils/seed", (req, res) => {
+  return res.json({ success: true, count: 0, message: "تم تنظيم القسم بالبيانات الفعلية بدون أسماء وهمية" });
   const sampleApplicants = [
     {
       id: "app_seed_1",

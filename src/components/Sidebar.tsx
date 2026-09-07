@@ -130,7 +130,7 @@ export default function Sidebar({
       label: "مجالس أولياء الأمور",
       shortLabel: "مجالس أولياء الأمور",
       icon: Users,
-      description: "ترشيح عضوية المجلس، الفرز الذكي واستبعاد غير المنطبقين، والاعتماد الرسمي",
+      description: "ترشيح عضوية المجلس، الفرز الآلي واستبعاد غير المنطبقين، والاعتماد الرسمي",
       badge: "جديد",
       badgeColor: "bg-teal-50 text-teal-700 border border-teal-200",
       statusDot: isWhatsAppConnected ? "bg-emerald-500" : "bg-amber-400",
