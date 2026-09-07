@@ -531,6 +531,21 @@ export default function ParentCouncilDashboard({
     showToast("تم إجراء الفرز الآلي وتوزيع المقاعد والاحتياط بنجاح.");
   };
 
+  // Action: Toggle Survey Closed / Open globally
+  const handleToggleSurveyStatus = async () => {
+    const newStatus = !config.isSurveyClosed;
+    const newConfig: ParentCouncilConfig = {
+      ...config,
+      isSurveyClosed: newStatus,
+    };
+    await syncUpdates(applications, newConfig);
+    if (newStatus) {
+      showToast("تم إيقاف استقبال جميع الاستبيانات بنجاح. لن يتمكن أولياء الأمور من التقديم الآن.");
+    } else {
+      showToast("تم فتح استقبال الاستبيانات بنجاح. يمكن لأولياء الأمور الآن تعبئة الاستمارة.");
+    }
+  };
+
   // Action: Disqualify candidate manually (with reason)
   const handleExcludeCandidate = (appId: string) => {
     const app = applications[appId];
@@ -1247,13 +1262,13 @@ export default function ParentCouncilDashboard({
 
                   return (
                     <tr key={app.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="p-3">
-                        <div className="font-extrabold text-slate-900">{app.fullName}</div>
+                      <td className="p-3 min-w-[150px]">
+                        <div className="font-extrabold text-slate-900 break-words whitespace-normal leading-snug">{app.fullName}</div>
                         <div className="text-[10px] text-slate-400 font-mono" dir="ltr">{app.phone}</div>
                       </td>
 
-                      <td className="p-3">
-                        <div className="font-bold text-slate-800">{app.studentName}</div>
+                      <td className="p-3 min-w-[150px]">
+                        <div className="font-bold text-slate-800 break-words whitespace-normal leading-snug">{app.studentName}</div>
                         <div className="text-[10px] text-slate-500">{app.studentGrade}</div>
                       </td>
 
@@ -1358,6 +1373,8 @@ export default function ParentCouncilDashboard({
             invites={invites}
             onUpdateInvites={handleUpdateInvites}
             showToast={showToast}
+            isSurveyClosed={config.isSurveyClosed}
+            onToggleSurveyStatus={handleToggleSurveyStatus}
           />
 
           {/* Supplementary Council Settings & General Fallback Link */}
@@ -1366,14 +1383,25 @@ export default function ParentCouncilDashboard({
               <div>
                 <h3 className="text-xs sm:text-sm font-black text-slate-800 flex items-center gap-2">
                   <Settings className="w-4 h-4 text-slate-600" />
-                  <span>إعدادات مقاعد المجلس والرابط العام المباشر</span>
+                  <span>إعدادات مقاعد المجلس وإيقاف/تفعيل الاستبيانات والرابط العام المباشر</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  الرابط العام البديل في حال الرغبة بمشاركة رابط موحد في مجموعات أولياء الأمور
+                  التحكم في إيقاف أو فتح استقبال طلبات أولياء الأمور والرابط العام البديل
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleToggleSurveyStatus}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer border transition-colors ${
+                    config.isSurveyClosed
+                      ? "bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200"
+                      : "bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100"
+                  }`}
+                >
+                  <span>{config.isSurveyClosed ? "الاستبيان موقوف (اضغط للفتح)" : "إيقاف استقبال الاستبيانات"}</span>
+                </button>
                 <button
                   type="button"
                   onClick={copyPortalLink}

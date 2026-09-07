@@ -43,6 +43,7 @@ import {
 interface ParentCouncilPortalProps {
   token?: string | null;
   initialCode?: string | null;
+  signatories?: SchoolSignatories;
   students?: Student[];
   onExit?: () => void;
 }
@@ -134,6 +135,7 @@ function findStudentSiblings(
 export default function ParentCouncilPortal({
   token,
   initialCode,
+  signatories: propSignatories,
   students: propStudents,
   onExit,
 }: ParentCouncilPortalProps) {
@@ -144,15 +146,17 @@ export default function ParentCouncilPortal({
   const [codeError, setCodeError] = useState<string | null>(null);
 
   // School signatories and info
-  const [signatories, setSignatories] = useState<SchoolSignatories>({
-    countryName: "المملكة العربية السعودية",
-    ministryName: "وزارة التعليم",
-    administrationName: "الإدارة العامة للتعليم",
-    schoolName: "ثانوية الأبناء الأولى",
-    principalName: "مدير المدرسة",
-    vicePrincipalName: "وكيل المدرسة",
-    counselorName: "الموجه الطلابي",
-  });
+  const [signatories, setSignatories] = useState<SchoolSignatories>(
+    propSignatories || {
+      countryName: "المملكة العربية السعودية",
+      ministryName: "وزارة التعليم",
+      administrationName: "الإدارة العامة للتعليم",
+      schoolName: "ثانوية الأبناء الأولى",
+      principalName: "مدير المدرسة",
+      vicePrincipalName: "وكيل المدرسة",
+      counselorName: "الموجه الطلابي",
+    }
+  );
 
   // Students list for quick lookup if available
   const [students, setStudents] = useState<Student[]>(propStudents || []);
@@ -215,6 +219,8 @@ export default function ParentCouncilPortal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedApplication, setSubmittedApplication] = useState<ParentCouncilApplication | null>(null);
   const [alreadySubmittedApplication, setAlreadySubmittedApplication] = useState<ParentCouncilApplication | null>(null);
+  const [isSurveyClosed, setIsSurveyClosed] = useState(false);
+  const [isExpired, setIsExpired] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -227,6 +233,16 @@ export default function ParentCouncilPortal({
 
   // Load School Settings & URL params & Initial Check
   useEffect(() => {
+    // 0. Check global survey status from server
+    fetch("/api/parent-councils/data")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.config?.isSurveyClosed) {
+          setIsSurveyClosed(true);
+        }
+      })
+      .catch(() => {});
+
     // 1. Load local school signatories
     const savedSignatories = localStorage.getItem("school_signatories");
     if (savedSignatories) {
@@ -319,12 +335,32 @@ export default function ParentCouncilPortal({
       fetch(`/api/parent-councils/token/${token}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
-          if (data?.alreadySubmitted && data?.application) {
+          if (!data) return;
+          if (data.isSurveyClosed) {
+            setIsSurveyClosed(true);
+            return;
+          }
+          if (data.isExpired) {
+            setIsExpired(true);
+            return;
+          }
+          if (data.alreadySubmitted && data.application) {
             setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
             setIsCodeVerified(true);
             return;
           }
-          if (data?.application) {
+          if (data.invite) {
+            if (data.invite.studentName && !studentName) setStudentName(data.invite.studentName);
+            if (data.invite.studentGrade && !studentGrade) setStudentGrade(data.invite.studentGrade);
+            if (data.invite.studentClass && !studentClass) setStudentClass(data.invite.studentClass);
+            if (data.invite.guardianPhone && !phone) setPhone(data.invite.guardianPhone);
+            if (data.invite.studentId && !studentId) setStudentId(data.invite.studentId);
+            if (data.invite.code && !activationCodeInput) {
+              setActivationCodeInput(data.invite.code);
+              setIsCodeVerified(true);
+            }
+          }
+          if (data.application) {
             const app = data.application as ParentCouncilApplication;
             if (app.status === "submitted" || app.status === "approved" || app.status === "disqualified") {
               setAlreadySubmittedApplication(app);
@@ -376,6 +412,14 @@ export default function ParentCouncilPortal({
 
       const data = await res.json();
       if (!res.ok || !data.success) {
+        if (data?.isSurveyClosed) {
+          setIsSurveyClosed(true);
+          return;
+        }
+        if (data?.isExpired) {
+          setIsExpired(true);
+          return;
+        }
         throw new Error(data.error || "رمز التفعيل غير صحيح أو انتهت صلاحيته");
       }
 
@@ -625,7 +669,77 @@ export default function ParentCouncilPortal({
     );
   }
 
-  // View 2: Re-entry Check Screen (when parent re-enters the link after submission)
+  // View 0A: Survey Closed by Administration
+  if (isSurveyClosed) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 sm:p-6" dir="rtl">
+        <div className="max-w-2xl mx-auto my-8 sm:my-14 bg-white rounded-3xl border border-rose-200 shadow-xl overflow-hidden">
+          <div className="bg-gradient-to-l from-rose-900 via-rose-800 to-rose-700 text-white p-6 sm:p-8 text-center">
+            <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
+              <Lock className="w-9 h-9 text-rose-200" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black mb-2">
+              الاستبيان مغلق حالياً
+            </h1>
+            <p className="text-xs sm:text-sm text-rose-100 font-medium leading-relaxed max-w-lg mx-auto">
+              عذراً، تم إيقاف استقبال طلبات الترشح والاستبيان لعضوية مجلس أولياء الأمور من قِبل إدارة المدرسة، ولا يمكن تعبئة الاستمارة في الوقت الحالي.
+            </p>
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-6 text-center">
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-rose-900 text-xs font-bold leading-relaxed flex items-center gap-3 text-right">
+              <AlertCircle className="w-6 h-6 text-rose-700 shrink-0" />
+              <div>
+                <span className="font-black block text-sm">تم إيقاف الاستبيان بقرار من إدارة المدرسة</span>
+                <span>إذا كانت لديكم أي استفسارات، يرجى التواصل مباشرة مع إدارة المدرسة أو الموجه الطلابي.</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-500 font-medium">
+              {signatories.schoolName || "ثانوية الأبناء الأولى"} — مجالس أولياء الأمور في التعليم العام
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // View 0B: Survey Expired (3 Days)
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 sm:p-6" dir="rtl">
+        <div className="max-w-2xl mx-auto my-8 sm:my-14 bg-white rounded-3xl border border-amber-200 shadow-xl overflow-hidden">
+          <div className="bg-gradient-to-l from-amber-800 via-amber-700 to-amber-600 text-white p-6 sm:p-8 text-center">
+            <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
+              <Clock className="w-9 h-9 text-amber-200" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black mb-2">
+              انتهاء الوقت المخصص للإجابة عن الاستبيان
+            </h1>
+            <p className="text-xs sm:text-sm text-amber-100 font-medium leading-relaxed max-w-lg mx-auto">
+              عذراً، لقد انتهت المهلة المحددة للإجابة على استبيان الترشح لعضوية مجلس أولياء الأمور (المدة المحددة للتقديم هي 3 أيام من تاريخ إرسال الدعوة).
+            </p>
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-6 text-center">
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-900 text-xs font-bold leading-relaxed flex items-center gap-3 text-right">
+              <Clock className="w-6 h-6 text-amber-700 shrink-0" />
+              <div>
+                <span className="font-black block text-sm">انقضاء فترة التقديم المتاحة (3 أيام)</span>
+                <span>نقدر عالياً اهتمامكم وحرصكم الكريم، ونتطلع لمشاركتكم الفعالة في الأنشطة والبرامج المدرسية القادمة.</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-500 font-medium">
+              {signatories.schoolName || "ثانوية الأبناء الأولى"} — مجالس أولياء الأمور في التعليم العام
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // View 2: Re-entry Check Screen (when parent re-enters after submission)
   if (alreadySubmittedApplication) {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 sm:p-6" dir="rtl">
@@ -633,13 +747,13 @@ export default function ParentCouncilPortal({
           {/* Header Banner */}
           <div className="bg-gradient-to-l from-slate-900 to-teal-900 text-white p-6 sm:p-8 text-center">
             <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
-              <ShieldCheck className="w-10 h-10 text-teal-300" />
+              <Lock className="w-9 h-9 text-teal-300" />
             </div>
             <h1 className="text-xl sm:text-2xl font-black mb-2">
-              تم تقديم طلب الطالب مسبقاً
+              تمت الإجابة على الاستبيان
             </h1>
             <p className="text-xs sm:text-sm text-slate-200 font-medium leading-relaxed max-w-lg mx-auto">
-              المكرم ولي الأمر، نود إحاطتكم بأنه قد تم مسبقاً تقديم طلب الترشح لعضوية مجلس أولياء الأمور للطالب ({alreadySubmittedApplication.studentName})، والطلب معتمد ومسجل رسمياً لدى إدارة المدرسة.
+              المكرم ولي الأمر، نود إحاطتكم بأنه قد تمت الإجابة على استمارة الترشح لعضوية مجلس أولياء الأمور للطالب ({alreadySubmittedApplication.studentName}) مسبقاً، وتم إقفال الاستمارة ولا يمكن إعادة الدخول لتعديلها.
             </p>
           </div>
 
@@ -647,15 +761,15 @@ export default function ParentCouncilPortal({
             <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-teal-900 text-xs font-bold leading-relaxed flex items-center gap-3">
               <CheckCircle2 className="w-6 h-6 text-teal-700 shrink-0" />
               <div>
-                <span className="font-black block text-sm">طلبكم محفوظ ومسجل لدى إدارة المدرسة</span>
-                <span>لا داعي لإعادة تعبئة الاستمارة؛ طلبكم مدرج ضمن ملف الترشيحات للمفاضلة الرسمية.</span>
+                <span className="font-black block text-sm">الاستمارة مقفلة - تم حفظ طلبكم رسمياً</span>
+                <span>طلبكم مدرج ضمن ملف الترشيحات للمفاضلة الرسمية لدى إدارة المدرسة.</span>
               </div>
             </div>
 
             {/* Summary Box */}
             <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3">
               <div className="text-xs font-black text-slate-500 border-b border-slate-200 pb-2">
-                بيانات الاستمارة المقدمة:
+                بيانات الاستمارة المسجلة:
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
@@ -679,10 +793,6 @@ export default function ParentCouncilPortal({
                 <div>
                   <span className="text-slate-500 block">رقم الهوية:</span>
                   <span className="font-mono font-bold text-slate-800">{alreadySubmittedApplication.nationalId}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">البريد الإلكتروني:</span>
-                  <span className="font-mono text-slate-800">{alreadySubmittedApplication.email || "—"}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">تاريخ التقديم:</span>

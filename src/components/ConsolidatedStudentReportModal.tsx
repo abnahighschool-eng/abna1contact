@@ -610,9 +610,9 @@ ${counselorNotes ? `*مرئيات وتوصيات التوجيه الطلابي:*
         {/* ========================================================================= */}
         <div className="bg-slate-50/80 border border-slate-300 rounded-xl p-3.5 space-y-2.5 print-avoid-break">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-0.5">
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-0.5 col-span-2 sm:col-span-2">
               <span className="text-[10px] text-slate-500 font-bold block">اسم الطالب الرباعي:</span>
-              <strong className="text-slate-950 font-black text-sm sm:text-base block truncate">
+              <strong className="text-slate-950 font-black text-sm sm:text-base block whitespace-normal break-words leading-snug">
                 {curStudent.name}
               </strong>
             </div>

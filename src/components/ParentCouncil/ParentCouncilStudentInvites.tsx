@@ -22,6 +22,8 @@ import {
   KeyRound,
   FileCheck,
   MessageSquare,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../../types";
 import { ParentCouncilApplication } from "../../types/parentCouncil";
@@ -40,8 +42,29 @@ export interface ParentCouncilInvite {
   token: string;
   isSent?: boolean;
   sentAt?: string;
+  createdAt?: string;
   isSubmitted?: boolean;
 }
+
+// Deterministic stable code/token per student ID (fixed, stable, unique per student/parent)
+export const getStableCodeForStudent = (studentId: string | number): string => {
+  let hash = 0;
+  const str = `pc_salt_abna_${studentId}`;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  const codeNum = 100000 + (hash % 900000);
+  return codeNum.toString();
+};
+
+export const getStableTokenForStudent = (studentId: string | number): string => {
+  let hash = 0;
+  const str = `tok_pc_${studentId}`;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 37 + str.charCodeAt(i)) >>> 0;
+  }
+  return `pc_${studentId}_${hash.toString(36)}`;
+};
 
 interface ParentCouncilStudentInvitesProps {
   students: Student[];
@@ -53,6 +76,8 @@ interface ParentCouncilStudentInvitesProps {
   invites: Record<string, ParentCouncilInvite>;
   onUpdateInvites: (newInvites: Record<string, ParentCouncilInvite>) => void;
   showToast: (msg: string) => void;
+  isSurveyClosed?: boolean;
+  onToggleSurveyStatus?: () => void;
 }
 
 export default function ParentCouncilStudentInvites({
@@ -65,6 +90,8 @@ export default function ParentCouncilStudentInvites({
   invites,
   onUpdateInvites,
   showToast,
+  isSurveyClosed = false,
+  onToggleSurveyStatus,
 }: ParentCouncilStudentInvitesProps) {
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -174,9 +201,9 @@ export default function ParentCouncilStudentInvites({
     const studentGrade = student.grade || (student as any)["الصف"] || "الأول ثانوي";
     const studentClass = student.className || (student as any)["الفصل"] || (student as any)["الشعبة"] || "1";
 
-    // Generate unique 6-digit activation code per parent
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const token = `pc_${student.id}_${Math.random().toString(36).substring(2, 8)}`;
+    // Stable deterministic code and token per student (never random, never flickers)
+    const code = getStableCodeForStudent(student.id);
+    const token = getStableTokenForStudent(student.id);
 
     return {
       studentId: student.id,
@@ -187,13 +214,14 @@ export default function ParentCouncilStudentInvites({
       code,
       token,
       isSent: false,
+      createdAt: new Date().toISOString(),
     };
   };
 
   // Helper to construct invite link
   const buildInviteUrl = (token: string, code: string) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/?portal=parent-council&token=${token}&code=${code}`;
+    return `${origin}/?portal=parent-council&parent_council=true&council_token=${token}&token=${token}&code=${code}&council_code=${code}`;
   };
 
   // Filter students based on user selection
@@ -656,7 +684,33 @@ export default function ParentCouncilStudentInvites({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+            {/* Survey Status Toggle Button */}
+            {onToggleSurveyStatus && (
+              <button
+                type="button"
+                onClick={onToggleSurveyStatus}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-black cursor-pointer border transition-colors ${
+                  isSurveyClosed
+                    ? "bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200"
+                    : "bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100"
+                }`}
+                title={isSurveyClosed ? "الاستبيان موقوف حالياً، اضغط لإعادة الفتح" : "الاستبيان متاح، اضغط لإيقاف استقبال الاستبيانات"}
+              >
+                {isSurveyClosed ? (
+                  <>
+                    <Lock className="w-3.5 h-3.5 text-rose-700" />
+                    <span>الاستبيان موقوف (اضغط للفتح)</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>الاستبيان متاح (اضغط للإيقاف)</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {!isWhatsAppConnected ? (
               <div className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-bold">
                 <AlertCircle className="w-4 h-4 text-amber-600" />
@@ -680,6 +734,38 @@ export default function ParentCouncilStudentInvites({
           </div>
         </div>
       </div>
+
+      {/* Survey Closed Warning Banner */}
+      {isSurveyClosed && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="text-sm font-black text-rose-950 flex items-center gap-2">
+                <span>الاستبيان مغلق حالياً بقرار من إدارة المدرسة</span>
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-200 text-rose-900 font-extrabold">
+                  موقوف لجميع أولياء الأمور
+                </span>
+              </div>
+              <div className="text-xs text-rose-800 mt-0.5">
+                لن يتمكن أي ولي أمر من فتح الاستبيان أو تقديم الاستمارة حتى تقوم الإدارة بإعادة فتحه.
+              </div>
+            </div>
+          </div>
+          {onToggleSurveyStatus && (
+            <button
+              type="button"
+              onClick={onToggleSurveyStatus}
+              className="px-4 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-black shrink-0 cursor-pointer shadow-xs transition-all flex items-center gap-2"
+            >
+              <Unlock className="w-4 h-4" />
+              <span>إعادة فتح الاستبيان الآن</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Progress Card during Batch Sending */}
       {batchProgress.isRunning && (
@@ -942,7 +1028,6 @@ export default function ParentCouncilStudentInvites({
                   <th className="p-3">اسم الطالب</th>
                   <th className="p-3">الصف والشعبة</th>
                   <th className="p-3">رقم الجوال</th>
-                  <th className="p-3 text-center">رمز التفعيل الخاص</th>
                   <th className="p-3 text-center">حالة الدعوة</th>
                   <th className="p-3 text-center">الاستمارة</th>
                   <th className="p-3 text-center">إجراءات سريعة</th>
@@ -976,40 +1061,24 @@ export default function ParentCouncilStudentInvites({
                       </td>
 
                       {/* Student Name */}
-                      <td className="p-3">
-                        <div className="font-extrabold text-slate-900">{sName}</div>
+                      <td className="p-3 min-w-[180px] max-w-[320px]">
+                        <div className="font-extrabold text-slate-900 break-words whitespace-normal leading-snug">
+                          {sName}
+                        </div>
                         {student.id && (
                           <div className="text-[10px] text-slate-400 font-mono">ID: {student.id}</div>
                         )}
                       </td>
 
                       {/* Grade & Section */}
-                      <td className="p-3">
+                      <td className="p-3 whitespace-nowrap">
                         <span className="font-bold text-slate-800">{sGrade}</span>
                         {sClass && <span className="text-slate-500 mr-1">(شعبة {sClass})</span>}
                       </td>
 
                       {/* Phone */}
-                      <td className="p-3 font-mono text-slate-700" dir="ltr">
+                      <td className="p-3 font-mono text-slate-700 whitespace-nowrap" dir="ltr">
                         {sPhone || <span className="text-slate-400 italic">غير مسجل</span>}
-                      </td>
-
-                      {/* Unique Activation Code */}
-                      <td className="p-3 text-center">
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-teal-50 border border-teal-200">
-                          <KeyRound className="w-3.5 h-3.5 text-teal-700" />
-                          <span className="font-mono font-black text-teal-900 tracking-wider text-xs">
-                            {invite.code}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRegenerateCode(student)}
-                            title="توليد رمز جديد لولي الأمر"
-                            className="text-teal-700 hover:text-teal-900 cursor-pointer p-0.5"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                          </button>
-                        </div>
                       </td>
 
                       {/* Invitation Status */}

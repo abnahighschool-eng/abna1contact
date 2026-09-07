@@ -471,6 +471,8 @@ let parentCouncilsStore: {
     formationApprovedAt?: string;
     selectedMemberIds: string[];
     reserveMemberIds: string[];
+    isSurveyClosed?: boolean;
+    surveyClosedMessage?: string;
   };
 } = {
   applications: {},
@@ -484,6 +486,8 @@ let parentCouncilsStore: {
     formationApproved: false,
     selectedMemberIds: [],
     reserveMemberIds: [],
+    isSurveyClosed: false,
+    surveyClosedMessage: "",
   },
 };
 
@@ -1761,10 +1765,32 @@ app.get("/api/parent-councils/data", (req, res) => {
   });
 });
 
+// Helper functions for stable deterministic codes matching client logic
+function getStableCodeForStudent(studentId: string | number): string {
+  let hash = 0;
+  const str = `pc_salt_abna_${studentId}`;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  const codeNum = 100000 + (hash % 900000);
+  return codeNum.toString();
+}
+
+function getStableTokenForStudent(studentId: string | number): string {
+  let hash = 0;
+  const str = `tok_pc_${studentId}`;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 37 + str.charCodeAt(i)) >>> 0;
+  }
+  return `pc_${studentId}_${hash.toString(36)}`;
+}
+
 // 2. Token / Student Lookup
 app.get("/api/parent-councils/token/:token", (req, res) => {
   const token = req.params.token;
-  const existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+  const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
+
+  let existingApp = Object.values(parentCouncilsStore.applications || {}).find(
     (a: any) =>
       a.activationToken === token ||
       a.token === token ||
@@ -1772,14 +1798,50 @@ app.get("/api/parent-councils/token/:token", (req, res) => {
       a.id === token
   );
 
-  const invite =
+  let invite: any =
     parentCouncilsStore.invites?.[token] ||
     Object.values(parentCouncilsStore.invites || {}).find(
       (inv: any) => inv.token === token || inv.studentId === token
     );
 
+  // If invite not found in store but token starts with pc_, synthesize stable invite
+  if (!invite && token && token.startsWith("pc_")) {
+    const parts = token.split("_");
+    const extractedStudentId = parts[1];
+    if (extractedStudentId) {
+      invite = {
+        studentId: extractedStudentId,
+        studentName: "",
+        studentGrade: "",
+        studentClass: "",
+        guardianPhone: "",
+        code: getStableCodeForStudent(extractedStudentId),
+        token: token,
+        isSent: false,
+        createdAt: new Date().toISOString(),
+      };
+      if (!existingApp) {
+        existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+          (a: any) => a.studentId === extractedStudentId
+        );
+      }
+    }
+  }
+
+  // Check 3 days expiration for unsubmitted invites
+  let isExpired = false;
+  if (!existingApp && invite && (invite.sentAt || invite.createdAt)) {
+    const createdTime = new Date(invite.sentAt || invite.createdAt).getTime();
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    if (!isNaN(createdTime) && Date.now() - createdTime > threeDaysMs) {
+      isExpired = true;
+    }
+  }
+
   res.json({
     success: true,
+    isSurveyClosed,
+    isExpired,
     alreadySubmitted: !!existingApp,
     application: existingApp || null,
     invite: invite || null,
@@ -1789,6 +1851,8 @@ app.get("/api/parent-councils/token/:token", (req, res) => {
 // 3. Check Submission Status
 app.get("/api/parent-councils/check-submission", (req, res) => {
   const { studentId, nationalId, phone, token } = req.query;
+  const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
+
   const existingApp = Object.values(parentCouncilsStore.applications || {}).find((a: any) => {
     if (studentId && a.studentId === studentId) return true;
     if (token && (a.activationToken === token || a.token === token)) return true;
@@ -1799,6 +1863,7 @@ app.get("/api/parent-councils/check-submission", (req, res) => {
 
   res.json({
     success: true,
+    isSurveyClosed,
     alreadySubmitted: !!existingApp,
     application: existingApp || null,
   });
@@ -1809,19 +1874,59 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   const { token, code, studentId } = req.body || {};
   const cleanedCode = String(code || "").trim();
   const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
+  const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
+
+  if (isSurveyClosed) {
+    return res.status(403).json({
+      success: false,
+      isSurveyClosed: true,
+      error: "عذراً، تم إيقاف استقبال طلبات الترشح والاستبيان لعضوية مجلس أولياء الأمور من قبل إدارة المدرسة.",
+    });
+  }
+
+  // Check invites store
+  let invite: any = Object.values(parentCouncilsStore.invites || {}).find(
+    (inv: any) =>
+      (token && inv.token === token) ||
+      (studentId && inv.studentId === studentId) ||
+      inv.code === cleanedCode
+  );
+
+  let candidateStudentId = studentId || (invite && invite.studentId);
+  if (!candidateStudentId && token && token.startsWith("pc_")) {
+    candidateStudentId = token.split("_")[1];
+  }
+
+  if (!invite && candidateStudentId) {
+    const stableCode = getStableCodeForStudent(candidateStudentId);
+    if (cleanedCode === stableCode) {
+      invite = {
+        studentId: candidateStudentId,
+        code: stableCode,
+        token: token || getStableTokenForStudent(candidateStudentId),
+        createdAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  // Check expiration (3 days)
+  if (invite && (invite.sentAt || invite.createdAt)) {
+    const createdTime = new Date(invite.sentAt || invite.createdAt).getTime();
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    if (!isNaN(createdTime) && Date.now() - createdTime > threeDaysMs) {
+      return res.status(400).json({
+        success: false,
+        isExpired: true,
+        error: "عذراً، لقد انتهت المهلة المحددة للإجابة على الاستبيان (المدة المحددة هي 3 أيام من تاريخ إرسال الدعوة).",
+      });
+    }
+  }
 
   // Allow general council code
   if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
     return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
   }
 
-  // Check invites store
-  const invite: any = Object.values(parentCouncilsStore.invites || {}).find(
-    (inv: any) =>
-      (token && inv.token === token) ||
-      (studentId && inv.studentId === studentId) ||
-      inv.code === cleanedCode
-  );
   if (invite && String(invite.code || "").trim() === cleanedCode) {
     const existingForStudent = Object.values(parentCouncilsStore.applications || {}).find(
       (a: any) =>
@@ -1848,7 +1953,7 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
     return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
   }
 
-  // If studentId provided, accept any 6-digit numeric PIN
+  // If studentId provided, accept matching 6-digit numeric PIN
   if (studentId && /^\d{6}$/.test(cleanedCode)) {
     return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
   }
@@ -1856,12 +1961,20 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   return res.status(400).json({
     success: false,
     valid: false,
-    message: "رمز التفعيل غير صحيح، يرجى إدخال الرمز المخصص لولي الأمر والمرسل عبر الواتساب",
+    message: "رمز التفعيل غير صحيح، يرجى إدخال الرمز المخصص لولي الأمر والمرسل عبر الرسالة",
   });
 });
 
 // 5. Submit or Update Application from Public Portal
 app.post("/api/parent-councils/submit", (req, res) => {
+  if (parentCouncilsStore.config?.isSurveyClosed) {
+    return res.status(403).json({
+      success: false,
+      isSurveyClosed: true,
+      message: "عذراً، تم إيقاف استقبال طلبات الترشح والاستبيان لعضوية مجلس أولياء الأمور من قبل إدارة المدرسة.",
+    });
+  }
+
   const { application } = req.body || {};
   if (!application || (!application.fullName && !application.guardianName)) {
     return res.status(400).json({
@@ -1894,6 +2007,15 @@ app.post("/api/parent-councils/submit", (req, res) => {
   if (application.studentId && parentCouncilsStore.invites?.[application.studentId]) {
     parentCouncilsStore.invites[application.studentId].isSubmitted = true;
     parentCouncilsStore.invites[application.studentId].submittedAt = now;
+  }
+  if (application.token) {
+    const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
+      (inv: any) => inv.token === application.token
+    );
+    if (matchedInvite) {
+      matchedInvite.isSubmitted = true;
+      matchedInvite.submittedAt = now;
+    }
   }
 
   saveParentCouncilsStore();

@@ -207,27 +207,47 @@ export default function App() {
     return [];
   });
 
+  // Direct Parent Council Portal URL parameter (?portal=parent-council or ?parent_council=true or ?council_token=<token> or ?token=pc_... or ?council_code=<code>)
+  const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("council_token") || params.get("token") || null;
+      const isParentCouncil =
+        params.get("portal") === "parent-council" ||
+        params.get("parent_council") === "true" ||
+        params.get("council") === "true" ||
+        !!params.get("council_token") ||
+        (token !== null && token.startsWith("pc_"));
+
+      if (isParentCouncil) {
+        return {
+          isOpen: true,
+          token: token,
+          code: params.get("council_code") || params.get("code") || null,
+        };
+      }
+    }
+    return { isOpen: false, token: null, code: null };
+  });
+
   // Direct Parent Student Needs Survey Portal URL parameter (?survey_token=<token> or ?needs_token=<token> or ?token=<token>)
   const [parentSurveyToken, setParentSurveyToken] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      return params.get("survey_token") || params.get("needs_token") || params.get("token") || params.get("support_token") || params.get("health_token");
+      const token = params.get("token");
+      const isParentCouncil =
+        params.get("portal") === "parent-council" ||
+        params.get("parent_council") === "true" ||
+        params.get("council") === "true" ||
+        !!params.get("council_token") ||
+        (token !== null && token.startsWith("pc_"));
+
+      if (isParentCouncil) {
+        return null;
+      }
+      return params.get("survey_token") || params.get("needs_token") || (params.get("portal") === "needs" ? params.get("token") : null) || (!params.get("portal") && params.get("token")) || params.get("support_token") || params.get("health_token");
     }
     return null;
-  });
-
-  // Direct Parent Council Portal URL parameter (?parent_council=true or ?council_token=<token> or ?council_code=<code>)
-  const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const isParentCouncil = params.get("parent_council") === "true" || !!params.get("council_token") || !!params.get("council_code");
-      return {
-        isOpen: isParentCouncil,
-        token: params.get("council_token") || null,
-        code: params.get("council_code") || params.get("code") || null,
-      };
-    }
-    return { isOpen: false, token: null, code: null };
   });
 
   const [supportProfiles, setSupportProfiles] = useState<Record<string, StudentSupportProfile>>(() => {
@@ -750,6 +770,22 @@ export default function App() {
     );
   }
 
+  // Direct Parent Council Portal (مجالس أولياء الأمور)
+  if (parentCouncilPortalData.isOpen) {
+    return (
+      <ParentCouncilPortal
+        token={parentCouncilPortalData.token}
+        initialCode={parentCouncilPortalData.code}
+        signatories={signatories}
+        students={students}
+        onExit={() => {
+          setParentCouncilPortalData({ isOpen: false, token: null, code: null });
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+      />
+    );
+  }
+
   // Direct Parent Student Needs Survey Portal (Accessed directly via WhatsApp token link)
   if (parentSurveyToken) {
     return (
@@ -757,20 +793,6 @@ export default function App() {
         token={parentSurveyToken}
         onExit={() => {
           setParentSurveyToken(null);
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }}
-      />
-    );
-  }
-
-  // Direct Parent Council Portal (مجالس أولياء الأمور)
-  if (parentCouncilPortalData.isOpen) {
-    return (
-      <ParentCouncilPortal
-        token={parentCouncilPortalData.token}
-        initialCode={parentCouncilPortalData.code}
-        onExit={() => {
-          setParentCouncilPortalData({ isOpen: false, token: null, code: null });
           window.history.replaceState({}, document.title, window.location.pathname);
         }}
       />

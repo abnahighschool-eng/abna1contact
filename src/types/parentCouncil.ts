@@ -80,6 +80,8 @@ export interface ParentCouncilConfig {
   formationApprovedAt?: string;
   selectedMemberIds: string[];
   reserveMemberIds: string[];
+  isSurveyClosed?: boolean; // هل الاستبيان مغلق بقرار الإدارة
+  surveyClosedMessage?: string;
 }
 
 /**
