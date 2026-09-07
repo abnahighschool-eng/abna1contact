@@ -76,10 +76,32 @@ export default function ParentCouncilStudentInvites({
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
 
-  // Message Template
-  const [messageTemplate, setMessageTemplate] = useState(
-    `السلام عليكم ورحمة الله وبركاته،\nالمكرم ولي أمر الطالب/ {اسم_الطالب} ({الصف})،\n\nحرصاً من إدارة {المدرسة} على تفعيل الشراكة والتكامل بين البيت والمدرسة، يسرنا دعوتكم للترشح لعضوية "مجلس أولياء الأمور" للعام الدراسي الحالي.\n\nرابط استمارة الترشح الخاصة بكم:\n{الرابط}\n\nرمز التفعيل الخاص بكم: {رمز_التفعيل}\n\nنأمل التكرم بالدخول وتعبئة الاستمارة، شاكرين ومقدرين كريم تعاونكم،،\nإدارة المدرسة`
-  );
+  const DEFAULT_PARENT_COUNCIL_TEMPLATE =
+    `السلام عليكم ورحمة الله وبركاته،\nالمكرم ولي أمر الطالب/ {اسم_الطالب} ({الصف})،\n\nحرصاً من إدارة {المدرسة} على تفعيل الشراكة والتكامل بين البيت والمدرسة، يسرنا دعوتكم للترشح لعضوية "مجلس أولياء الأمور" للعام الدراسي الحالي.\n\nرابط استمارة الترشح الخاصة بكم:\n{الرابط}\n\nرمز التفعيل الخاص بكم: {رمز_التفعيل}\n\nنأمل التكرم بالدخول وتعبئة الاستمارة، شاكرين ومقدرين كريم تعاونكم،،\nإدارة المدرسة`;
+
+  // Message Template with localStorage persistence
+  const [messageTemplate, setMessageTemplate] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("parent_council_invite_template");
+      if (saved && saved.trim()) return saved;
+    }
+    return DEFAULT_PARENT_COUNCIL_TEMPLATE;
+  });
+
+  const handleTemplateChange = (val: string) => {
+    setMessageTemplate(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("parent_council_invite_template", val);
+    }
+  };
+
+  const handleResetTemplate = () => {
+    setMessageTemplate(DEFAULT_PARENT_COUNCIL_TEMPLATE);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("parent_council_invite_template", DEFAULT_PARENT_COUNCIL_TEMPLATE);
+    }
+    showToast("تمت استعادة صيغة الرسالة الافتراضية بنجاح.");
+  };
 
   // Batch Sending Progress
   const [batchProgress, setBatchProgress] = useState<{
@@ -249,19 +271,33 @@ export default function ParentCouncilStudentInvites({
 
   // Helper to build WhatsApp Message text for a student
   const buildStudentMessage = (student: Student, invite: ParentCouncilInvite) => {
-    const sName = student.name || (student as any)["اسم الطالب"] || "الطالب";
-    const sGrade = student.grade || (student as any)["الصف"] || "";
+    const sName = student.name || (student as any)["اسم الطالب"] || (student as any)["الاسم"] || "الطالب";
+    const sGrade = student.grade || (student as any)["الصف"] || (student as any)["رقم الصف"] || "";
     const sClass = student.className || (student as any)["الفصل"] || (student as any)["الشعبة"] || "";
     const url = buildInviteUrl(invite.token, invite.code);
 
-    return messageTemplate
-      .replace(/{المدرسة}/g, schoolSignatories.schoolName || "المدرسة")
+    const templateToUse =
+      (messageTemplate && messageTemplate.trim()) || DEFAULT_PARENT_COUNCIL_TEMPLATE;
+
+    const classLabel = sGrade
+      ? `${sGrade}${sClass ? ` - شعبة ${sClass}` : ""}`
+      : sClass
+      ? `شعبة ${sClass}`
+      : "";
+
+    return templateToUse
+      .replace(/{المدرسة}/g, schoolSignatories?.schoolName || "ثانوية الأبناء الأولى")
       .replace(/{اسم_الطالب}/g, sName)
       .replace(/{الطالب}/g, sName)
-      .replace(/{الصف}/g, `${sGrade} - شعبة ${sClass}`)
+      .replace(/{الصف}/g, classLabel)
+      .replace(/{الفصل}/g, sClass)
+      .replace(/{الشعبة}/g, sClass)
       .replace(/{الرابط}/g, url)
+      .replace(/{رابط}/g, url)
       .replace(/{رمز_التفعيل}/g, invite.code)
-      .replace(/{الرمز}/g, invite.code);
+      .replace(/{رمز}/g, invite.code)
+      .replace(/{الرمز}/g, invite.code)
+      .replace(/{كود}/g, invite.code);
   };
 
   // Single Send WhatsApp Handler
@@ -335,9 +371,15 @@ export default function ParentCouncilStudentInvites({
         if (!invite) {
           invite = getOrCreateInvite(student);
         }
-        const sName = student.name || (student as any)["اسم الطالب"] || "طالب";
-        const sPhone = student.phone || (student as any)["رقم الجوال"] || "";
-        const sGrade = student.grade || (student as any)["الصف"] || "";
+        const sName = student.name || (student as any)["اسم الطالب"] || (student as any)["الاسم"] || "طالب";
+        const sPhone =
+          student.phone ||
+          (student as any)["رقم الجوال"] ||
+          (student as any)["الجوال"] ||
+          (student as any)["هاتف ولي الأمر"] ||
+          (student as any)["جوال ولي الأمر"] ||
+          "";
+        const sGrade = student.grade || (student as any)["الصف"] || (student as any)["رقم الصف"] || "";
         const sClass = student.className || (student as any)["الفصل"] || (student as any)["الشعبة"] || "";
         const message = buildStudentMessage(student, invite);
         return {
@@ -347,6 +389,7 @@ export default function ParentCouncilStudentInvites({
           grade: sGrade,
           className: sClass,
           message,
+          customMessage: message,
         };
       });
   }, [students, selectedStudentIds, invites, messageTemplate]);
@@ -696,16 +739,26 @@ export default function ParentCouncilStudentInvites({
             <MessageSquare className="w-4 h-4 text-teal-700" />
             <span>صيغة رسالة الدعوة عبر واتساب (تحتوي على الرابط المباشر ورمز التفعيل الخاص)</span>
           </h3>
-          <span className="text-[11px] text-slate-400">
-            يتم استبدال المتغيرات تلقائياً لكل طالب
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleResetTemplate}
+              className="text-[11px] font-bold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer"
+            >
+              استعادة الصيغة الافتراضية
+            </button>
+            <span className="text-slate-300">|</span>
+            <span className="text-[11px] text-slate-400">
+              يتم استبدال المتغيرات تلقائياً لكل طالب
+            </span>
+          </div>
         </div>
 
         <div>
           <textarea
             rows={5}
             value={messageTemplate}
-            onChange={(e) => setMessageTemplate(e.target.value)}
+            onChange={(e) => handleTemplateChange(e.target.value)}
             className="w-full p-3.5 rounded-2xl border border-slate-300 text-xs font-medium text-slate-800 focus:ring-2 focus:ring-teal-600 focus:outline-hidden leading-relaxed"
           />
           <div className="flex flex-wrap gap-2 text-[10px] text-slate-500 mt-2 font-mono">
@@ -1082,7 +1135,39 @@ export default function ParentCouncilStudentInvites({
         title="إرسال دعوات الترشح لمجلس أولياء الأمور عبر الواتساب"
         subtitle={`سيتم إرسال دعوة الترشح المخصصة متضمنة رمز التفعيل والرابط الآمن إلى ${modalRecipients.length} من أولياء الأمور.`}
         recipients={modalRecipients}
+        recipientLabel="ولي أمر"
         intervalSeconds={15}
+        onSendSingle={async (item) => {
+          const sPhone = item.phone || (item as any)["رقم الجوال"] || (item as any).guardianPhone;
+          const sMsg = item.customMessage || (item as any).message;
+          if (!sPhone || !String(sPhone).trim()) {
+            return { success: false, error: "لا يوجد رقم جوال مسجل" };
+          }
+          if (!sMsg || !String(sMsg).trim()) {
+            return { success: false, error: "نص الرسالة غير محدد" };
+          }
+          try {
+            const res = await fetch("/api/whatsapp/send-single", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                phone: sPhone,
+                message: sMsg,
+                customMessage: sMsg,
+                studentName: item.name,
+                grade: item.grade,
+                className: item.className,
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              return { success: true };
+            }
+            return { success: false, error: data.error || "تعذر الإرسال عبر الخادم" };
+          } catch (err: any) {
+            return { success: false, error: err.message || "خطأ في الشبكة" };
+          }
+        }}
         onItemSuccess={(item) => {
           const currentInvites = { ...invites };
           const inv = currentInvites[item.id] || getOrCreateInvite(students.find((s) => s.id === item.id)!);

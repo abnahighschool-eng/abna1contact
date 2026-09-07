@@ -3002,7 +3002,12 @@ app.post("/api/whatsapp/campaign/:id/resume", (req, res) => {
 
 // Single Message Send Endpoint
 app.post(["/api/whatsapp/send-single", "/api/whatsapp/send", "/api/send-individual", "/api/send-whatsapp"], async (req, res) => {
-  const { phone, message, studentName, grade, className } = req.body;
+  const phone = req.body.phone || req.body.guardianPhone || req.body.mobile || req.body["رقم الجوال"] || req.body["الجوال"];
+  const message = req.body.message || req.body.customMessage || req.body.text || req.body.msg;
+  const studentName = req.body.studentName || req.body.name || req.body["اسم الطالب"] || req.body["اسم المعلم"];
+  const grade = req.body.grade || req.body["الصف"];
+  const className = req.body.className || req.body["الفصل"] || req.body["الشعبة"];
+
   if (!phone || !message) {
     return res.status(400).json({ error: "يرجى تحديد رقم الجوال ونص الرسالة" });
   }

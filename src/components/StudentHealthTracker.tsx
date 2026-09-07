@@ -370,6 +370,7 @@ export default function StudentHealthTracker({
           grade: p.grade,
           className: p.className,
           message,
+          customMessage: message,
         };
       });
   }, [selectedStudentIds, mergedStudentProfiles, schoolName]);

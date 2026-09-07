@@ -128,15 +128,29 @@ export default function UnifiedCampaignModal({
     item: CampaignRecipientItem
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      const messageText = item.customMessage || (item as any).message || (item as any).text || "";
+      const phoneNum = item.phone || (item as any).guardianPhone || (item as any)["رقم الجوال"] || "";
+
+      if (!phoneNum || !String(phoneNum).trim()) {
+        return { success: false, error: "لا يوجد رقم جوال مسجل" };
+      }
+      if (!messageText || !String(messageText).trim()) {
+        return { success: false, error: "نص الرسالة غير محدد" };
+      }
+
       const res = await fetch("/api/whatsapp/send-single", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: item.phone,
-          message: item.customMessage,
+          phone: phoneNum,
+          message: messageText,
+          customMessage: messageText,
+          studentName: item.name,
+          grade: item.grade,
+          className: item.className,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         return { success: true };
       }
