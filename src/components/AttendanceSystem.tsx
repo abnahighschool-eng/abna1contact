@@ -35,6 +35,7 @@ import {
 import { Student, SchoolSignatories } from "../types";
 import { saveAttendanceDataToCloud } from "../firebaseService";
 import DisciplineReportsPrinter from "./DisciplineReportsPrinter";
+import ExcelAbsenceImporter from "./ExcelAbsenceImporter";
 
 interface AttendanceSystemProps {
   students: Student[];
@@ -144,7 +145,9 @@ export default function AttendanceSystem({
   isWhatsAppConnected,
   onNavigateToMessages,
 }: AttendanceSystemProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"daily_absence" | "daily_tardiness" | "notifications" | "reports">("daily_absence");
+  const [activeSubTab, setActiveSubTab] = useState<
+    "daily_absence" | "daily_tardiness" | "excel_absence_import" | "notifications" | "reports"
+  >("daily_absence");
   
   // Selected date for attendance (YYYY-MM-DD)
   const getTodayISO = () => {
@@ -1287,7 +1290,7 @@ export default function AttendanceSystem({
       <div className="space-y-6">
         
         {/* Subtabs for Attendance Module */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-xs text-xs font-semibold text-slate-600 gap-1.5 no-print" id="attendance-subtabs">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 bg-white border border-slate-200/80 p-1.5 rounded-2xl shadow-xs text-xs font-semibold text-slate-600 gap-1.5 no-print" id="attendance-subtabs">
           
           <button
             onClick={() => setActiveSubTab("daily_absence")}
@@ -1323,6 +1326,19 @@ export default function AttendanceSystem({
                 {attendanceStats.tardy}
               </span>
             )}
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab("excel_absence_import")}
+            className={`py-3 px-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === "excel_absence_import"
+                ? "bg-slate-900 text-white shadow-sm font-bold"
+                : "hover:bg-slate-50 hover:text-slate-900"
+            }`}
+            id="tab-btn-excel-absence-import"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <span>استيراد غياب الإكسل</span>
           </button>
 
           <button
@@ -2255,6 +2271,25 @@ export default function AttendanceSystem({
             </div>
           )}
 
+          {/* Subtab: Excel Absence Import (استيراد كشف الغائبين من إكسل) */}
+          {activeSubTab === "excel_absence_import" && (
+            <ExcelAbsenceImporter
+              students={students}
+              signatories={signatories}
+              selectedDate={selectedDate}
+              formattedDayName={formattedDayName}
+              isWhatsAppConnected={isWhatsAppConnected}
+              onNavigateToMessages={onNavigateToMessages}
+              onNavigateToSubTab={(subtab) => setActiveSubTab(subtab)}
+              attendanceRecords={attendanceRecords}
+              setAttendanceRecords={setAttendanceRecords}
+              todaySentMap={todaySentMap}
+              setTodaySentMap={setTodaySentMap}
+              absenceTemplate={absenceTemplate}
+              setAbsenceTemplate={setAbsenceTemplate}
+            />
+          )}
+
           {/* 3. Subtab: Parent Notifications via WhatsApp */}
           {activeSubTab === "notifications" && (
             <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-6 no-print">
@@ -2744,7 +2779,7 @@ export default function AttendanceSystem({
                   }
                 }}
                 onNavigateToTab={(tab) => {
-                  if (tab === "daily_absence" || tab === "daily_tardiness" || tab === "notifications" || tab === "reports") {
+                  if (tab === "daily_absence" || tab === "daily_tardiness" || tab === "excel_absence_import" || tab === "notifications" || tab === "reports") {
                     setActiveSubTab(tab);
                   }
                 }}
@@ -2895,13 +2930,25 @@ export default function AttendanceSystem({
                   <span>إيقاف الإرسال الآن</span>
                 </button>
               ) : (
-                <button
-                  onClick={() => setBatchProgress((prev) => ({ ...prev, isOpen: false }))}
-                  className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
-                >
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span>إغلاق والعودة لرصد جديد (جاهز)</span>
-                </button>
+                <div className="flex flex-col sm:flex-row items-center gap-2 w-full">
+                  <button
+                    onClick={() => {
+                      setBatchProgress((prev) => ({ ...prev, isOpen: false }));
+                      setActiveSubTab("reports");
+                    }}
+                    className="w-full sm:flex-1 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>عرض كشف الانضباط والطباعة</span>
+                  </button>
+                  <button
+                    onClick={() => setBatchProgress((prev) => ({ ...prev, isOpen: false }))}
+                    className="w-full sm:flex-1 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span>إغلاق والعودة لرصد جديد</span>
+                  </button>
+                </div>
               )}
             </div>
 

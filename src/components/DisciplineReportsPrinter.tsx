@@ -45,6 +45,12 @@ export interface AttendanceRecordEntry {
   notified?: boolean;
   notifiedAt?: string;
   sentMessage?: string;
+  customName?: string;
+  customGrade?: string;
+  customClass?: string;
+  customPhone?: string;
+  importedFromExcel?: boolean;
+  civilId?: string;
 }
 
 export interface DisciplineReportItem {
@@ -72,7 +78,7 @@ interface DisciplineReportsPrinterProps {
   initialDate?: string;
   isWhatsAppConnected?: boolean;
   onUpdateSignatory?: (updated: Partial<SchoolSignatories>) => void;
-  onNavigateToTab?: (tab: "daily_absence" | "daily_tardiness" | "notifications" | "reports") => void;
+  onNavigateToTab?: (tab: "daily_absence" | "daily_tardiness" | "excel_absence_import" | "notifications" | "reports") => void;
 }
 
 // Generate concise, non-truncated official message for parents
@@ -301,8 +307,13 @@ export default function DisciplineReportsPrinter({
       const g = extractStudentGrade(st);
       if (g) grades.add(g);
     });
+    Object.values(attendanceRecords).forEach((dayData) => {
+      Object.values(dayData).forEach((rec: any) => {
+        if (rec?.customGrade) grades.add(rec.customGrade);
+      });
+    });
     return Array.from(grades).sort();
-  }, [students]);
+  }, [students, attendanceRecords]);
 
   const uniqueClasses = useMemo(() => {
     const classes = new Set<string>();
@@ -313,8 +324,17 @@ export default function DisciplineReportsPrinter({
         if (c) classes.add(c);
       }
     });
+    Object.values(attendanceRecords).forEach((dayData) => {
+      Object.values(dayData).forEach((rec: any) => {
+        const g = rec?.customGrade;
+        const c = rec?.customClass;
+        if (c && (filter.grade === "all" || g === filter.grade)) {
+          classes.add(c);
+        }
+      });
+    });
     return Array.from(classes).sort();
-  }, [students, filter.grade]);
+  }, [students, filter.grade, attendanceRecords]);
 
   // Extract helper for civil ID
   const extractCivilId = (st: any): string => {
@@ -345,6 +365,11 @@ export default function DisciplineReportsPrinter({
   // Per-student historical stats and messages count map
   const studentHistoricalStatsMap = useMemo(() => {
     const map: Record<string, {
+      studentName?: string;
+      grade?: string;
+      className?: string;
+      phone?: string;
+      civilId?: string;
       totalAbsences: number;
       unexcusedCount: number;
       excusedCount: number;
@@ -432,6 +457,11 @@ export default function DisciplineReportsPrinter({
       const totalAbsences = unexcusedCount + excusedCount;
 
       map[studentId] = {
+        studentName,
+        grade: extractStudentGrade(st),
+        className: extractStudentClass(st),
+        phone,
+        civilId,
         totalAbsences,
         unexcusedCount,
         excusedCount,
@@ -448,6 +478,66 @@ export default function DisciplineReportsPrinter({
           status: unexcusedCount > 0 ? "absent_unexcused" : (tardyCount > 0 ? "tardy" : "absent_excused"),
         }, localSignatories.schoolName) : "لا توجد إشعارات غياب سابقة مرسلة لهذا الطالب"),
       };
+    });
+
+    // Also include any non-roster students recorded in attendance records (e.g. from Excel absence import)
+    const rosterStudentIds = new Set(students.map((s) => String(s.id)));
+    Object.keys(attendanceRecords).forEach((dStr) => {
+      const dayData = attendanceRecords[dStr] || {};
+      Object.keys(dayData).forEach((extraKey) => {
+        if (!rosterStudentIds.has(String(extraKey)) && !map[extraKey]) {
+          const rec = dayData[extraKey] as any;
+          if (rec && rec.status && rec.status !== "present") {
+            const studentName = rec.customName || "طالب مستورد";
+            let unexcused = 0;
+            let excused = 0;
+            let tardy = 0;
+            let tardyMins = 0;
+            let notifCount = 0;
+            let lastDate = "";
+            let lastTime = "";
+            let lastMsg = "";
+
+            Object.keys(attendanceRecords).forEach((d) => {
+              const r = attendanceRecords[d]?.[extraKey] as any;
+              if (r) {
+                if (r.status === "absent_unexcused") unexcused++;
+                else if (r.status === "absent_excused") excused++;
+                else if (r.status === "tardy") {
+                  tardy++;
+                  tardyMins += (r.tardyMinutes || 15);
+                }
+                if (r.notified) {
+                  notifCount++;
+                  if (!lastDate || d >= lastDate) {
+                    lastDate = d;
+                    lastTime = r.notifiedAt || "";
+                    lastMsg = r.sentMessage || "";
+                  }
+                }
+              }
+            });
+
+            map[extraKey] = {
+              studentName,
+              grade: rec.customGrade || "-",
+              className: rec.customClass || "-",
+              phone: rec.customPhone || "",
+              civilId: rec.civilId || "",
+              totalAbsences: unexcused + excused,
+              unexcusedCount: unexcused,
+              excusedCount: excused,
+              tardyCount: tardy,
+              totalTardyMinutes: tardyMins,
+              messagesSentCount: notifCount,
+              messagesReceivedCount: notifCount,
+              lastSentDate: lastDate,
+              lastSentTime: lastTime,
+              lastSentMessage: lastMsg || "إشعار غياب مستورد من ملف إكسل",
+            };
+          }
+        }
+      });
     });
 
     return map;
@@ -507,14 +597,16 @@ export default function DisciplineReportsPrinter({
     targetDates.forEach((dStr) => {
       const dayData = attendanceRecords[dStr] || {};
       const dayName = getArabicDayName(dStr);
+      const studentIdsInRoster = new Set<string>();
 
       students.forEach((st, idx) => {
-        const rec = dayData[st.id];
+        studentIdsInRoster.add(String(st.id));
+        const rec = dayData[st.id] as any;
         const status = rec?.status || "present";
-        const studentName = extractStudentName(st, idx + 1);
-        const grade = extractStudentGrade(st);
-        const className = extractStudentClass(st);
-        const phone = extractStudentPhone(st);
+        const studentName = rec?.customName || extractStudentName(st, idx + 1);
+        const grade = rec?.customGrade || extractStudentGrade(st);
+        const className = rec?.customClass || extractStudentClass(st);
+        const phone = rec?.customPhone || extractStudentPhone(st);
         const civilId = extractCivilId(st);
 
         items.push({
@@ -534,6 +626,32 @@ export default function DisciplineReportsPrinter({
           notifiedAt: rec?.notifiedAt,
           sentMessage: rec?.sentMessage,
         });
+      });
+
+      // Also include any imported or non-roster records stored in dayData (such as from Excel absence import)
+      Object.keys(dayData).forEach((extraKey) => {
+        if (!studentIdsInRoster.has(String(extraKey))) {
+          const rec = dayData[extraKey] as any;
+          if (rec && rec.status && rec.status !== "present") {
+            items.push({
+              id: `${dStr}_${extraKey}`,
+              studentId: extraKey,
+              studentName: rec.customName || rec.name || "طالب مستورد من إكسل",
+              civilId: rec.civilId || "",
+              grade: rec.customGrade || rec.grade || "-",
+              className: rec.customClass || rec.className || "-",
+              phone: rec.customPhone || rec.phone || "",
+              date: dStr,
+              dayName,
+              status: rec.status,
+              tardyMinutes: rec.tardyMinutes,
+              notes: rec.notes || (rec.importedFromExcel ? "مستورد من كشف غياب الإكسل" : undefined),
+              notified: rec.notified,
+              notifiedAt: rec.notifiedAt,
+              sentMessage: rec.sentMessage,
+            });
+          }
+        }
       });
     });
 
@@ -1353,12 +1471,13 @@ export default function DisciplineReportsPrinter({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {selectedStudentIds.map((id, idx) => {
               const student = students.find((s) => s.id === id);
-              if (!student) return null;
-              const name = extractStudentName(student, idx + 1);
-              const grade = extractStudentGrade(student);
-              const className = extractStudentClass(student);
-              const phone = extractStudentPhone(student);
-              const civil = extractCivilId(student);
+              const summaryData = studentHistoricalStatsMap[id];
+              if (!student && !summaryData) return null;
+              const name = student ? extractStudentName(student, idx + 1) : (summaryData?.studentName || "طالب مستورد");
+              const grade = student ? extractStudentGrade(student) : (summaryData?.grade || "-");
+              const className = student ? extractStudentClass(student) : (summaryData?.className || "");
+              const phone = student ? extractStudentPhone(student) : (summaryData?.phone || "");
+              const civil = student ? extractCivilId(student) : (summaryData?.civilId || "");
               const stStats = studentHistoricalStatsMap[id] || {
                 totalAbsences: 0,
                 unexcusedCount: 0,
@@ -1634,13 +1753,22 @@ export default function DisciplineReportsPrinter({
                 قم بتغيير محددات البحث أو التاريخ أو رصد غياب وتأخر الطلاب ليتم إدراجهم هنا فوراً.
               </p>
               {onNavigateToTab && (
-                <button
-                  onClick={() => onNavigateToTab("daily_absence")}
-                  className="mt-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-4 rounded-xl transition-all flex items-center gap-1.5 no-print cursor-pointer"
-                >
-                  <UserX className="w-3.5 h-3.5" />
-                  <span>الذهاب لرصد الغياب اليومي</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                  <button
+                    onClick={() => onNavigateToTab("daily_absence")}
+                    className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-4 rounded-xl transition-all flex items-center gap-1.5 no-print cursor-pointer"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>الذهاب لرصد الغياب اليومي</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigateToTab("excel_absence_import")}
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs py-2 px-4 rounded-xl transition-all flex items-center gap-1.5 no-print cursor-pointer shadow-xs"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>استيراد غياب من ملف إكسل</span>
+                  </button>
+                </div>
               )}
             </div>
           ) : (
