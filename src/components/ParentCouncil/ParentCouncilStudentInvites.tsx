@@ -25,6 +25,9 @@ import {
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../../types";
 import { ParentCouncilApplication } from "../../types/parentCouncil";
+import UnifiedCampaignModal from "../common/UnifiedCampaignModal";
+import CampaignLaunchButtons from "../common/CampaignLaunchButtons";
+import { launchOfficialCampaign } from "../../utils/campaignLauncher";
 
 export interface ParentCouncilInvite {
   studentId: string;
@@ -45,6 +48,7 @@ interface ParentCouncilStudentInvitesProps {
   schoolSignatories: SchoolSignatories;
   isWhatsAppConnected: boolean;
   onNavigateToWhatsApp?: () => void;
+  onNavigateToMessages?: (tab?: string) => void;
   applications: Record<string, ParentCouncilApplication>;
   invites: Record<string, ParentCouncilInvite>;
   onUpdateInvites: (newInvites: Record<string, ParentCouncilInvite>) => void;
@@ -56,6 +60,7 @@ export default function ParentCouncilStudentInvites({
   schoolSignatories,
   isWhatsAppConnected,
   onNavigateToWhatsApp,
+  onNavigateToMessages,
   applications,
   invites,
   onUpdateInvites,
@@ -69,6 +74,7 @@ export default function ParentCouncilStudentInvites({
 
   // Selection state
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
 
   // Message Template
   const [messageTemplate, setMessageTemplate] = useState(
@@ -317,6 +323,78 @@ export default function ParentCouncilStudentInvites({
     const msg = buildStudentMessage(student, invite);
     navigator.clipboard.writeText(msg);
     showToast(`تم نسخ رسالة الدعوة الخاصة بـ (${student.name}) برابط التفعيل ورمز التفعيل.`);
+  };
+
+  // Prepare recipients for UnifiedCampaignModal
+  const modalRecipients = useMemo(() => {
+    const currentInvites = { ...invites };
+    return students
+      .filter((s) => selectedStudentIds.includes(s.id))
+      .map((student) => {
+        let invite = currentInvites[student.id];
+        if (!invite) {
+          invite = getOrCreateInvite(student);
+        }
+        const sName = student.name || (student as any)["اسم الطالب"] || "طالب";
+        const sPhone = student.phone || (student as any)["رقم الجوال"] || "";
+        const sGrade = student.grade || (student as any)["الصف"] || "";
+        const sClass = student.className || (student as any)["الفصل"] || (student as any)["الشعبة"] || "";
+        const message = buildStudentMessage(student, invite);
+        return {
+          id: student.id,
+          name: sName,
+          phone: sPhone,
+          grade: sGrade,
+          className: sClass,
+          message,
+        };
+      });
+  }, [students, selectedStudentIds, invites, messageTemplate]);
+
+  // Option 2: Launch as Official Campaign into Campaign Monitor
+  const handleLaunchAsOfficialCampaign = async () => {
+    if (selectedStudentIds.length === 0) {
+      alert("يرجى تحديد طالب واحد على الأقل لإرسال دعوة الترشح لولي أمره.");
+      return;
+    }
+    const targets = students.filter((s) => selectedStudentIds.includes(s.id));
+    const currentInvites = { ...invites };
+    const recipients = targets.map((student) => {
+      let invite = currentInvites[student.id];
+      if (!invite) {
+        invite = getOrCreateInvite(student);
+        currentInvites[student.id] = invite;
+      }
+      return {
+        id: student.id,
+        name: student.name || (student as any)["اسم الطالب"] || "طالب",
+        phone: student.phone || (student as any)["رقم الجوال"] || "",
+        grade: student.grade || (student as any)["الصف"] || "",
+        className: student.className || (student as any)["الفصل"] || (student as any)["الشعبة"] || "",
+        customMessage: buildStudentMessage(student, invite),
+      };
+    });
+
+    await launchOfficialCampaign({
+      campaignName: `حملة دعوات الترشح لمجلس أولياء الأمور (${new Date().toLocaleDateString("ar-SA")})`,
+      recipients,
+      delayMs: 15000,
+      onNavigateToMessages,
+      onSuccess: () => {
+        targets.forEach((student) => {
+          let inv = currentInvites[student.id];
+          if (inv) {
+            currentInvites[student.id] = {
+              ...inv,
+              isSent: true,
+              sentAt: new Date().toISOString(),
+            };
+          }
+        });
+        onUpdateInvites(currentInvites);
+        showToast(`تم إطلاق الحملة بنجاح لـ ${targets.length} طالب`);
+      },
+    });
   };
 
   // Batch Send WhatsApp with 15s delay + jitter
@@ -759,21 +837,20 @@ export default function ParentCouncilStudentInvites({
             )}
           </div>
 
-          {/* Action: Send to Selected Students */}
+          {/* Standardized Dual Campaign Launch Buttons */}
           <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-            <span className="text-xs font-bold text-slate-500">
-              المحدد: <strong className="text-teal-800 font-mono text-sm">{selectedStudentIds.length}</strong> طالب
-            </span>
-
-            <button
-              type="button"
-              onClick={handleStartBatchWhatsApp}
-              disabled={selectedStudentIds.length === 0 || batchProgress.isRunning}
-              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-teal-800 hover:bg-teal-900 disabled:bg-slate-300 text-white font-black text-xs transition-all shadow-md active:scale-95 cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              <span>إرسال الدعوات المحددة ({selectedStudentIds.length}) مع الفاصل الزمني</span>
-            </button>
+            <CampaignLaunchButtons
+              count={selectedStudentIds.length}
+              recipientLabel="طالب"
+              intervalSeconds={15}
+              onLaunchModal={() => setIsBatchModalOpen(true)}
+              onLaunchOfficialCampaign={handleLaunchAsOfficialCampaign}
+              disabled={selectedStudentIds.length === 0}
+              customModalLabel={`إرسال حملة جماعية (${selectedStudentIds.length} طالب) - بفاصل 15 ثانية`}
+              customOfficialLabel="نظام الحملات الجماعية"
+              modalButtonId="btn-batch-send-parent-council-modal"
+              officialButtonId="btn-batch-send-parent-council-official"
+            />
           </div>
 
         </div>
@@ -997,6 +1074,29 @@ export default function ParentCouncilStudentInvites({
           </div>
         </div>
       )}
+
+      {/* Standardized Batch Sending Progress Modal */}
+      <UnifiedCampaignModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        title="إرسال دعوات الترشح لمجلس أولياء الأمور عبر الواتساب"
+        subtitle={`سيتم إرسال دعوة الترشح المخصصة متضمنة رمز التفعيل والرابط الآمن إلى ${modalRecipients.length} من أولياء الأمور.`}
+        recipients={modalRecipients}
+        intervalSeconds={15}
+        onItemSuccess={(item) => {
+          const currentInvites = { ...invites };
+          const inv = currentInvites[item.id] || getOrCreateInvite(students.find((s) => s.id === item.id)!);
+          currentInvites[item.id] = {
+            ...inv,
+            isSent: true,
+            sentAt: new Date().toISOString(),
+          };
+          onUpdateInvites(currentInvites);
+        }}
+        onComplete={() => {
+          showToast("اكتمل إرسال دعوات مجلس أولياء الأمور بنجاح.");
+        }}
+      />
 
     </div>
   );

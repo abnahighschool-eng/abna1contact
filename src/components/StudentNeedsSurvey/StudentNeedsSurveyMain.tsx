@@ -57,6 +57,8 @@ import {
   extractStudentGrade,
   extractStudentClass,
 } from "../AttendanceSystem";
+import CampaignLaunchButtons from "../common/CampaignLaunchButtons";
+import { launchOfficialCampaign } from "../../utils/campaignLauncher";
 
 interface BatchSendProgress {
   isOpen: boolean;
@@ -86,6 +88,7 @@ interface StudentNeedsSurveyMainProps {
   schoolSignatories?: SchoolSignatories;
   onOpenSignatoriesModal?: () => void;
   onNavigateToWhatsApp?: () => void;
+  onNavigateToMessages?: (tab?: string) => void;
 }
 
 export default function StudentNeedsSurveyMain({
@@ -96,6 +99,7 @@ export default function StudentNeedsSurveyMain({
   schoolSignatories,
   onOpenSignatoriesModal,
   onNavigateToWhatsApp,
+  onNavigateToMessages,
 }: StudentNeedsSurveyMainProps) {
   // Main Sub-Tabs
   const [activeTab, setActiveTab] = useState<"roster" | "dashboard" | "cases" | "alerts" | "official_report">("roster");
@@ -169,10 +173,29 @@ export default function StudentNeedsSurveyMain({
       const res = await fetch("/api/student-needs-survey/profiles");
       if (res.ok) {
         const data = await res.json();
-        setProfiles(data.profiles || {});
+        if (data && data.profiles) {
+          setProfiles(data.profiles);
+          try {
+            localStorage.setItem("abna_needs_survey_profiles", JSON.stringify(data.profiles));
+          } catch {}
+        }
+      } else {
+        // Fallback to cached profiles
+        try {
+          const cached = localStorage.getItem("abna_needs_survey_profiles");
+          if (cached) {
+            setProfiles(JSON.parse(cached));
+          }
+        } catch {}
       }
-    } catch (e) {
-      console.error("Error fetching survey profiles:", e);
+    } catch {
+      // Graceful fallback from local storage cache if network is temporarily re-establishing
+      try {
+        const cached = localStorage.getItem("abna_needs_survey_profiles");
+        if (cached) {
+          setProfiles(JSON.parse(cached));
+        }
+      } catch {}
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -507,6 +530,40 @@ export default function StudentNeedsSurveyMain({
     }
   };
 
+  // Launch as Official Campaign into Campaign Monitor (Option 2)
+  const handleLaunchAsOfficialCampaign = async () => {
+    const targets = filteredStudents.filter((s) => selectedStudentIds.includes(s.id));
+    if (targets.length === 0) {
+      showToast("يرجى تحديد طالب واحد على الأقل قبل بدء الإرسال");
+      return;
+    }
+
+    const recipients = targets.map((s) => ({
+      id: s.id,
+      name: extractStudentName(s),
+      phone: extractStudentPhone(s),
+      grade: extractStudentGrade(s),
+      className: extractStudentClass(s),
+      customMessage: buildStudentMessage(s),
+    }));
+
+    await launchOfficialCampaign({
+      campaignName: `حملة روابط استبيان احتياجات الطلاب (${new Date().toLocaleDateString("ar-SA")})`,
+      recipients,
+      delayMs: 15000,
+      onNavigateToMessages,
+      onSuccess: () => {
+        const studentIds = targets.map((s) => s.id);
+        fetch("/api/student-needs-survey/batch-update-invites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ studentIds, status: "sent" }),
+        }).then(() => fetchProfiles());
+        showToast(`تم إطلاق الحملة بنجاح لـ ${targets.length} طالب`);
+      },
+    });
+  };
+
   // Add Action to selected case
   const handleAddCaseAction = async () => {
     if (!selectedCaseProfile || !newActionNotes.trim()) return;
@@ -798,17 +855,19 @@ export default function StudentNeedsSurveyMain({
                 )}
               </div>
 
-              {/* Batch Send WhatsApp Button */}
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={selectedStudentIds.length === 0}
-                  onClick={startBatchDispatch}
-                  className="py-2.5 px-5 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>إرسال الروابط عبر الواتساب ({selectedStudentIds.length})</span>
-                </button>
-              </div>
+              {/* Standardized Dual Campaign Launch Buttons */}
+              <CampaignLaunchButtons
+                count={selectedStudentIds.length}
+                recipientLabel="طالب"
+                intervalSeconds={15}
+                onLaunchModal={startBatchDispatch}
+                onLaunchOfficialCampaign={handleLaunchAsOfficialCampaign}
+                disabled={selectedStudentIds.length === 0}
+                customModalLabel={`إرسال حملة جماعية (${selectedStudentIds.length} طالب) - بفاصل 15 ثانية`}
+                customOfficialLabel="نظام الحملات الجماعية"
+                modalButtonId="btn-batch-send-survey-modal"
+                officialButtonId="btn-batch-send-survey-official"
+              />
             </div>
           </div>
 

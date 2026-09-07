@@ -62,6 +62,9 @@ import {
   IntegratedTeacherRecord,
   normalizeArabicText,
 } from "../utils/teachersScheduleParser";
+import CampaignLaunchButtons from "./common/CampaignLaunchButtons";
+import UnifiedCampaignModal from "./common/UnifiedCampaignModal";
+import { launchOfficialCampaign, CampaignRecipientItem } from "../utils/campaignLauncher";
 
 interface StudentInquiryProps {
   students: Student[];
@@ -75,6 +78,7 @@ interface StudentInquiryProps {
   isWhatsAppConnected: boolean;
   onNavigateToWhatsApp?: () => void;
   onNavigateToTeachersSchedule?: () => void;
+  onNavigateToMessages?: (tab?: string) => void;
 }
 
 type TabType = "new_inquiry" | "inquiries_log" | "consolidated_reports" | "teachers_schedule";
@@ -104,7 +108,8 @@ export default function StudentInquiry({
   schoolSignatories,
   isWhatsAppConnected,
   onNavigateToWhatsApp,
-  onNavigateToTeachersSchedule
+  onNavigateToTeachersSchedule,
+  onNavigateToMessages,
 }: StudentInquiryProps) {
   const [activeTab, setActiveTab] = useState<TabType>("new_inquiry");
 
@@ -128,6 +133,7 @@ export default function StudentInquiry({
   const [extraTeacherSubject, setExtraTeacherSubject] = useState("");
 
   const [sendingInquiries, setSendingInquiries] = useState(false);
+  const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
   const [inquirySuccessBanner, setInquirySuccessBanner] = useState<string | null>(null);
 
   // --- 2. INQUIRIES LOG STATE ---
@@ -503,6 +509,154 @@ export default function StudentInquiry({
   const activeSelectedTeachers = useMemo(() => {
     return candidateTeachers.filter((t) => selectedTeacherKeys.includes(t.key));
   }, [candidateTeachers, selectedTeacherKeys]);
+
+  // Prepared recipients for teacher inquiry campaigns
+  const modalInquiryRecipients = useMemo(() => {
+    const selectedStudentsList = students
+      .filter((s) => selectedStudentIds.includes(s.id))
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        grade: s.grade,
+        className: s.className || (s as any)["الشعبة"],
+        nationalId: s.nationalId,
+      }));
+
+    return activeSelectedTeachers.map((t) => {
+      let studentText = "";
+      if (selectedStudentsList.length === 1) {
+        studentText = `الطالب ${selectedStudentsList[0].name} (الصف: ${selectedStudentsList[0].grade || t.grade || ""} - الشعبة: ${t.section || selectedStudentsList[0].className || ""})`;
+      } else {
+        studentText = `الطلاب الموضحين أدناه في شعبة (${t.section}):\n` + selectedStudentsList.map((s: any, idx: number) => `${idx + 1}. ${s.name}`).join("\n");
+      }
+
+      const schoolTitle = schoolSignatories.schoolName || "ثانوية الأبناء الأولى";
+      const message = `أهلاً أستاذ ${t.teacherName}،\nنأمل منك مشكوراً تزويدنا بملاحظاتك عن ${studentText} في مادة (${t.subject}).\n\n🔗 *رابط الاستعلام والتقييم:*\n${window.location.origin}/?eval=inquiry_${t.teacherId || Date.now()}\n\nشاكرين ومقدرين حسن تعاونكم،\nإدارة ${schoolTitle}`;
+
+      return {
+        id: t.key,
+        name: t.teacherName,
+        phone: t.teacherPhone,
+        grade: t.grade,
+        className: t.section,
+        message,
+      };
+    });
+  }, [activeSelectedTeachers, selectedStudentIds, students, schoolSignatories]);
+
+  // Option 1 send-single handler for UnifiedCampaignModal
+  const handleSendSingleInquiryInModal = async (item: CampaignRecipientItem): Promise<{ success: boolean; error?: string }> => {
+    const selectedStudentsList = students
+      .filter((s) => selectedStudentIds.includes(s.id))
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        grade: s.grade,
+        className: s.className || (s as any)["الشعبة"],
+        nationalId: s.nationalId,
+      }));
+
+    const t = activeSelectedTeachers.find((teach) => teach.key === item.id);
+    if (!t) return { success: false, error: "بيانات المعلم غير موجودة" };
+
+    const requestsPayload = [{
+      teacherId: t.teacherId || "",
+      teacherName: t.teacherName,
+      teacherPhone: t.teacherPhone,
+      subject: t.subject,
+      section: t.section,
+      grade: t.grade,
+      students: selectedStudentsList,
+    }];
+
+    try {
+      const res = await fetch("/api/inquiries/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requests: requestsPayload,
+          origin: window.location.origin,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data.error || "فشل إرسال الاستعلام" };
+      }
+      if (data.inquiries && Array.isArray(data.inquiries)) {
+        onUpdateInquiries([...data.inquiries, ...inquiryRequests]);
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || "خطأ في الشبكة" };
+    }
+  };
+
+  // Option 2: Launch as Official Campaign into Campaign Monitor
+  const handleLaunchInquiryOfficialCampaign = async () => {
+    if (selectedStudentIds.length === 0 || activeSelectedTeachers.length === 0) {
+      alert("يرجى اختيار طالب واحد ومعلم واحد على الأقل للاستعلام عنه");
+      return;
+    }
+
+    const selectedStudentsList = students
+      .filter((s) => selectedStudentIds.includes(s.id))
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        grade: s.grade,
+        className: s.className || (s as any)["الشعبة"],
+        nationalId: s.nationalId,
+      }));
+
+    const requestsPayload = activeSelectedTeachers.map((t) => ({
+      teacherId: t.teacherId || "",
+      teacherName: t.teacherName,
+      teacherPhone: t.teacherPhone,
+      subject: t.subject,
+      section: t.section,
+      grade: t.grade,
+      students: selectedStudentsList,
+    }));
+
+    try {
+      const res = await fetch("/api/inquiries/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requests: requestsPayload,
+          origin: window.location.origin,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.inquiries) {
+        onUpdateInquiries([...data.inquiries, ...inquiryRequests]);
+      }
+    } catch (err) {
+      console.error("Error creating inquiry requests:", err);
+    }
+
+    await launchOfficialCampaign({
+      campaignName: `حملة استعلام المعلمين عن الطلاب (${new Date().toLocaleDateString("ar-SA")})`,
+      recipients: modalInquiryRecipients.map((r) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone,
+        grade: r.grade,
+        className: r.className,
+        customMessage: r.message,
+      })),
+      delayMs: 15000,
+      onNavigateToMessages,
+      onSuccess: () => {
+        setSelectedStudentIds([]);
+        setCandidateTeachers([]);
+        setSelectedTeacherKeys([]);
+        setInquirySuccessBanner("تم إطلاق حملة استعلامات المعلمين بنجاح ويمكن متابعتها في مراقب الحملات.");
+        setActiveTab("inquiries_log");
+      },
+    });
+  };
 
   // Dispatch Inquiries
   const handleSendInquiries = async () => {
@@ -1754,24 +1908,19 @@ export default function StudentInquiry({
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={handleSendInquiries}
+              {/* Standardized Dual Campaign Launch Buttons */}
+              <CampaignLaunchButtons
+                count={activeSelectedTeachers.length}
+                recipientLabel="معلم"
+                intervalSeconds={15}
+                onLaunchModal={() => setIsInquiryModalOpen(true)}
+                onLaunchOfficialCampaign={handleLaunchInquiryOfficialCampaign}
                 disabled={sendingInquiries || selectedStudentIds.length === 0 || activeSelectedTeachers.length === 0}
-                className="w-full sm:w-auto px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white rounded-2xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {sendingInquiries ? (
-                  <>
-                    <Clock className="w-4 h-4 animate-spin" />
-                    <span>جاري إرسال الرسائل للمعلمين...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    <span>إرسال رسائل الاستعلام عبر واتساب المعلمين المحددين ({activeSelectedTeachers.length})</span>
-                  </>
-                )}
-              </button>
+                customModalLabel={`إرسال حملة جماعية (${activeSelectedTeachers.length} معلم) - بفاصل 15 ثانية`}
+                customOfficialLabel="نظام الحملات الجماعية"
+                modalButtonId="btn-batch-send-inquiries-modal"
+                officialButtonId="btn-batch-send-inquiries-official"
+              />
             </div>
           </div>
 
@@ -2873,86 +3022,164 @@ export default function StudentInquiry({
             </div>
 
             {/* Official printable report paper */}
-            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-6" id="printable-inquiry-report">
+            <div className="p-6 sm:p-8 bg-white rounded-2xl border border-slate-300 shadow-sm space-y-5 print:border-none print:shadow-none print:p-0" id="printable-inquiry-report">
               
-              {/* Report Header */}
-              <div className="text-center pb-4 border-b border-slate-200 space-y-1">
-                <span className="text-xs text-slate-500">المملكة العربية السعودية • وزارة التعليم</span>
-                <h2 className="text-lg font-black text-slate-900">
-                  {viewingInquiryModal.schoolName || schoolSignatories.schoolName || "ثانوية الأبناء الأولى"}
-                </h2>
-                <h3 className="text-sm font-bold text-emerald-700">
-                  استمارة إفادة المعلم عن المستوى الدراسي والسلوكي للطالب
-                </h3>
+              {/* Report Header - Official Tarwisa */}
+              <div className="border-b-2 border-slate-900 pb-3 flex items-center justify-between gap-4 text-xs font-bold">
+                <div className="text-right flex flex-col text-xs leading-snug text-slate-800 flex-1">
+                  <span className="font-extrabold text-xs sm:text-sm text-slate-950 tracking-wide">
+                    {schoolSignatories.countryName || "المملكة العربية السعودية"}
+                  </span>
+                  <span className="font-bold text-xs text-slate-900 mt-0.5">
+                    {schoolSignatories.ministryName || "وزارة التعليم"}
+                  </span>
+                  <span className="font-semibold text-slate-700 text-[11px] mt-0.5">
+                    {schoolSignatories.administrationName || "الإدارة العامة للتعليم"}
+                  </span>
+                  <span className="font-extrabold text-xs text-emerald-900 mt-0.5">
+                    {viewingInquiryModal.schoolName || schoolSignatories.schoolName || "ثانوية الأبناء الأولى"}
+                  </span>
+                  <span className="text-[10px] text-slate-600 font-medium">قسم التوجيه الطلابي والإرشاد</span>
+                </div>
+
+                <div className="flex flex-col items-center justify-center text-center shrink-0 px-2">
+                  {schoolSignatories.logoUrl ? (
+                    <img
+                      src={schoolSignatories.logoUrl}
+                      alt="شعار المدرسة"
+                      referrerPolicy="no-referrer"
+                      style={{
+                        width: `${schoolSignatories.logoWidth || 60}px`,
+                        height: `${schoolSignatories.logoHeight || 60}px`,
+                        objectFit: "contain",
+                      }}
+                      className="rounded-md mb-1"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl border border-emerald-700 flex items-center justify-center bg-emerald-50/50 text-emerald-800 mb-1">
+                      <GraduationCap className="w-5 h-5" />
+                    </div>
+                  )}
+                  <h2 className="text-sm sm:text-base font-black text-slate-950 tracking-tight leading-snug">
+                    استمارة إفادة المعلم عن المستوى الدراسي والسلوكي للطالب
+                  </h2>
+                  <span className="text-[10.5px] font-bold text-emerald-800">
+                    (نظام الاستعلام والمتابعة المدرسية المعتمد)
+                  </span>
+                </div>
+
+                <div className="text-left flex flex-col text-[11px] leading-tight text-slate-800 font-mono flex-1" dir="ltr">
+                  <div><strong>التاريخ:</strong> {new Date().toLocaleDateString("ar-SA")}</div>
+                  <div className="mt-0.5"><strong>المادة:</strong> {viewingInquiryModal.subject}</div>
+                  <div className="mt-0.5"><strong>الشعبة:</strong> {viewingInquiryModal.section || "—"}</div>
+                  <div className="mt-1">
+                    <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-800 border border-slate-200">
+                      T-INQ-{viewingInquiryModal.id?.slice(-4) || "8821"}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Inquiry Meta */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 block text-[10px]">المعلم:</span>
-                  <strong className="text-slate-900 font-bold">{viewingInquiryModal.teacherName}</strong>
+              {/* Inquiry Meta Box */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-50/80 p-3 rounded-xl border border-slate-300">
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] font-bold">اسم المعلم:</span>
+                  <strong className="text-slate-950 font-black text-xs sm:text-sm">{viewingInquiryModal.teacherName}</strong>
                 </div>
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 block text-[10px]">المادة:</span>
-                  <strong className="text-slate-900 font-bold">{viewingInquiryModal.subject}</strong>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] font-bold">المادة الدراسية:</span>
+                  <strong className="text-slate-900 font-extrabold text-xs sm:text-sm">{viewingInquiryModal.subject}</strong>
                 </div>
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 block text-[10px]">الشعبة:</span>
-                  <strong className="text-slate-900 font-bold">{viewingInquiryModal.section || "—"}</strong>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] font-bold">الشعبة / الصف:</span>
+                  <strong className="text-slate-900 font-bold text-xs">{viewingInquiryModal.section || "كافة الشعب"}</strong>
                 </div>
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 block text-[10px]">حالة الاعتماد:</span>
-                  <strong className={viewingInquiryModal.isVerified ? "text-emerald-600 font-bold" : "text-amber-600 font-bold"}>
-                    {viewingInquiryModal.isVerified ? "معتمد رسمياً" : "قيد المتابعة"}
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                  <span className="text-slate-500 block text-[10px] font-bold">حالة التوثيق:</span>
+                  <strong className={viewingInquiryModal.isVerified ? "text-emerald-700 font-black text-xs" : "text-amber-700 font-bold text-xs"}>
+                    {viewingInquiryModal.isVerified ? "✓ معتمد وموثق رسمياً" : "قيد المتابعة والرصد"}
                   </strong>
                 </div>
               </div>
 
-              {/* Student Evaluations Details */}
+              {/* Student Evaluations Details - Each student in visually distinct card */}
               <div className="space-y-4">
                 {viewingInquiryModal.students.map((st, idx) => {
                   const evalItem = viewingInquiryModal.evaluations?.find((e) => e.studentId === st.id);
 
                   return (
-                    <div key={st.id} className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
-                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                        <h4 className="font-extrabold text-sm text-slate-900">
-                          {idx + 1}. الطالب: {st.name}
-                        </h4>
-                        <span className="text-xs text-slate-500">
-                          شعبة: {st.className || viewingInquiryModal.section || "—"}
-                        </span>
+                    <div key={st.id} className="bg-white p-4 sm:p-5 rounded-xl border-2 border-slate-300 space-y-3 print-avoid-break shadow-2xs">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-md bg-slate-900 text-white font-mono font-bold text-xs flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <h4 className="font-black text-sm sm:text-base text-slate-950">
+                            الطالب: {st.name}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          {st.id && (
+                            <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                              رقم: {st.id}
+                            </span>
+                          )}
+                          <span className="text-slate-700 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            شعبة {st.className || viewingInquiryModal.section || "—"}
+                          </span>
+                        </div>
                       </div>
 
                       {evalItem ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                          <div className="bg-slate-50 p-2 rounded-xl">
-                            <span className="text-slate-400 block text-[10px]">التحصيل الدراسي:</span>
-                            <span className="font-bold text-emerald-700">{evalItem.academicLevel}</span>
-                          </div>
-                          <div className="bg-slate-50 p-2 rounded-xl">
-                            <span className="text-slate-400 block text-[10px]">الانضباط الصفي:</span>
-                            <span className="font-bold text-blue-700">{evalItem.disciplineLevel}</span>
-                          </div>
-                          <div className="bg-slate-50 p-2 rounded-xl">
-                            <span className="text-slate-400 block text-[10px]">السلوك والمواظبة:</span>
-                            <span className="font-bold text-purple-700">{evalItem.behaviorLevel}</span>
-                          </div>
-                          <div className="bg-slate-50 p-2 rounded-xl">
-                            <span className="text-slate-400 block text-[10px]">المشاركة والواجبات:</span>
-                            <span className="font-bold text-amber-700">{evalItem.participationLevel}</span>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-300 space-y-1">
+                              <span className="text-slate-600 block text-[10px] font-bold">التحصيل الدراسي:</span>
+                              <span className="font-black text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-300 inline-block">
+                                {evalItem.academicLevel}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-300 space-y-1">
+                              <span className="text-slate-600 block text-[10px] font-bold">الانضباط الصفي:</span>
+                              <span className="font-black text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-300 inline-block">
+                                {evalItem.disciplineLevel}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-300 space-y-1">
+                              <span className="text-slate-600 block text-[10px] font-bold">السلوك والمواظبة:</span>
+                              <span className="font-black text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-300 inline-block">
+                                {evalItem.behaviorLevel}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-300 space-y-1">
+                              <span className="text-slate-600 block text-[10px] font-bold">المشاركة والواجبات:</span>
+                              <span className="font-black text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-300 inline-block">
+                                {evalItem.participationLevel}
+                              </span>
+                            </div>
                           </div>
 
-                          {evalItem.teacherNotes && (
-                            <div className="col-span-2 sm:col-span-4 bg-slate-50 p-3 rounded-xl text-xs space-y-1">
-                              <span className="text-slate-400 block text-[10px] font-bold">ملاحظات وتوصيات المعلم:</span>
-                              <p className="text-slate-800 leading-relaxed">{evalItem.teacherNotes}</p>
+                          {/* Teacher Notes in prominent full-width rectangle */}
+                          <div className="border border-slate-300 bg-slate-50/80 rounded-xl p-3 sm:p-4 space-y-1.5 text-right">
+                            <div className="flex items-center gap-1.5 text-xs font-black text-slate-900 border-b border-slate-200 pb-1">
+                              <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>ملاحظات وتوصيات المعلم لمتابعة الطالب:</span>
                             </div>
-                          )}
+                            {evalItem.teacherNotes ? (
+                              <p className="bg-white border border-slate-200 rounded-lg p-2.5 text-slate-900 font-semibold text-xs leading-relaxed select-text whitespace-pre-line">
+                                {evalItem.teacherNotes}
+                              </p>
+                            ) : (
+                              <p className="bg-white border border-slate-200/80 rounded-lg p-2 text-slate-400 italic text-xs">
+                                لا توجد ملاحظات كتابية إضافية مسجلة من قِبل المعلم.
+                              </p>
+                            )}
+                          </div>
                         </div>
                       ) : (
-                        <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-xs">
-                          لم يقم المعلم بتعبئة تقييم هذا الطالب بعد.
+                        <div className="p-3 bg-amber-50/60 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>لم يقم المعلم بتعبئة تقييم هذا الطالب بعد (بانتظار الرصد).</span>
                         </div>
                       )}
                     </div>
@@ -2960,23 +3187,40 @@ export default function StudentInquiry({
                 })}
               </div>
 
-              {/* Official Signatures Row */}
-              <div className="pt-6 border-t border-slate-200 grid grid-cols-3 gap-4 text-center text-xs">
-                <div className="space-y-1">
-                  <span className="text-slate-400 block text-[10px]">معلم المادة:</span>
-                  <strong className="text-slate-800 font-bold block">{viewingInquiryModal.teacherName}</strong>
+              {/* Official Signatures Row - 3 Signatories */}
+              <div className="pt-6 border-t-2 border-slate-900 grid grid-cols-3 gap-4 text-center text-xs print-avoid-break">
+                <div className="space-y-2">
+                  <span className="text-slate-500 block text-[11px] font-bold">معلم المادة:</span>
+                  <div className="h-7 flex items-center justify-center">
+                    <strong className="text-slate-950 font-black text-xs block">{viewingInquiryModal.teacherName}</strong>
+                  </div>
+                  <div className="border-t border-dashed border-slate-300 pt-1 text-[10px] text-slate-400 font-medium">
+                    التوقيع: ................................
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-slate-400 block text-[10px]">الموجه الطلابي:</span>
-                  <strong className="text-slate-800 font-bold block">
-                    {schoolSignatories.counselorName || "أ. فهد التوجيه"}
-                  </strong>
+
+                <div className="space-y-2">
+                  <span className="text-slate-500 block text-[11px] font-bold">الموجه الطلابي:</span>
+                  <div className="h-7 flex items-center justify-center">
+                    <strong className="text-slate-950 font-black text-xs block">
+                      {schoolSignatories.counselorName || "أ. فهد التوجيه"}
+                    </strong>
+                  </div>
+                  <div className="border-t border-dashed border-slate-300 pt-1 text-[10px] text-slate-400 font-medium">
+                    التوقيع: ................................
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-slate-400 block text-[10px]">مدير المدرسة:</span>
-                  <strong className="text-slate-800 font-bold block">
-                    {schoolSignatories.principalName || "أ. مدير المدرسة"}
-                  </strong>
+
+                <div className="space-y-2">
+                  <span className="text-slate-500 block text-[11px] font-bold">مدير المدرسة:</span>
+                  <div className="h-7 flex items-center justify-center">
+                    <strong className="text-slate-950 font-black text-xs block">
+                      {schoolSignatories.principalName || "أ. مدير المدرسة"}
+                    </strong>
+                  </div>
+                  <div className="border-t border-dashed border-slate-300 pt-1 text-[10px] text-slate-400 font-medium">
+                    الختم والتوقيع الرسمي
+                  </div>
                 </div>
               </div>
 
@@ -3608,6 +3852,24 @@ export default function StudentInquiry({
           </div>
         </div>
       )}
+
+      {/* Standardized Batch Sending Progress Modal for Teacher Inquiries */}
+      <UnifiedCampaignModal
+        isOpen={isInquiryModalOpen}
+        onClose={() => setIsInquiryModalOpen(false)}
+        title="إرسال طلبات استعلام المعلمين عبر الواتساب"
+        subtitle={`سيتم إرسال رسائل الاستعلام المخصصة إلى (${modalInquiryRecipients.length}) معلماً بفاصل أمان ذكي 15 ثانية وتفاوت بشري عشوائي.`}
+        recipients={modalInquiryRecipients}
+        intervalSeconds={15}
+        onSendSingle={handleSendSingleInquiryInModal}
+        onComplete={() => {
+          setSelectedStudentIds([]);
+          setCandidateTeachers([]);
+          setSelectedTeacherKeys([]);
+          setInquirySuccessBanner("اكتمل إرسال جميع استعلامات المعلمين بنجاح.");
+          setActiveTab("inquiries_log");
+        }}
+      />
 
     </div>
   );

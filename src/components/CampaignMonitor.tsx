@@ -394,6 +394,8 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
               setCampaignId(data.id);
               setCampaign(data);
             }
+          } else if (detailRes.status === 404) {
+            localStorage.removeItem("active_campaign_id");
           }
         }
       } catch {
@@ -407,18 +409,33 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
   // Poll campaign status when running or initialized
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let consecutiveErrors = 0;
+
     if (campaignId && campaign?.status !== "completed") {
       interval = setInterval(async () => {
         try {
           const response = await fetch(`/api/whatsapp/campaign/${campaignId}`);
           if (response.ok) {
+            consecutiveErrors = 0;
             const data = await response.json();
             setCampaign(data);
+          } else if (response.status === 404) {
+            // Campaign not found on server, clear stale state
+            localStorage.removeItem("active_campaign_id");
+            setCampaignId(null);
+            setCampaign(null);
+          } else {
+            consecutiveErrors++;
           }
-        } catch (err) {
-          console.error("Error polling campaign", err);
+        } catch {
+          // Network fluctuation or server restarting
+          consecutiveErrors++;
+          if (consecutiveErrors >= 6) {
+            // Pause aggressive polling if server is temporarily unreachable
+            clearInterval(interval);
+          }
         }
-      }, 1000);
+      }, 1500);
     }
     return () => clearInterval(interval);
   }, [campaignId, campaign?.status]);
@@ -481,8 +498,8 @@ export default function CampaignMonitor({ students, template, onTemplateChange, 
           if (campRes.ok) {
             setCampaign(await campRes.json());
           }
-        } catch (fetchErr) {
-          console.error("Initial campaign fetch error:", fetchErr);
+        } catch {
+          // Status polling will retrieve update on next tick
         }
       } else {
         setValidationError(data.error || "تعذر إطلاق الحملة، يرجى التحقق من صحة البيانات.");

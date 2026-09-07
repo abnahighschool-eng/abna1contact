@@ -12943,6 +12943,49 @@
     },
     "actions": []
   },
+  "302": {
+    "studentId": "302",
+    "studentName": "راكان",
+    "nationalId": "302",
+    "grade": "الاول",
+    "className": "1",
+    "guardianName": "ولي الأمر",
+    "guardianPhone": "0560599870",
+    "activationToken": "sn_302",
+    "activationCode": "934170",
+    "isActivated": false,
+    "submissionCount": 0,
+    "status": "not_sent",
+    "overallPriority": "low",
+    "primaryCategories": [
+      "general"
+    ],
+    "indicatorExplanations": [],
+    "smartSummary": "لم يتم استلام استبيان بعد من ولي الأمر لهذا الطالب.",
+    "smartRecommendations": [
+      "إرسال رابط الاستبيان لولي الأمر لرصد الاحتياجات."
+    ],
+    "teacherGuidance": {
+      "studentName": "راكان",
+      "grade": "الاول",
+      "className": "1",
+      "attentionLevel": "routine",
+      "whatStudentNeeds": [
+        "التشجيع الإيجابي وبناء الثقة داخل الحصة",
+        "مراعاة الفروق الفردية وتقدير جهود الطالب في المشاركة"
+      ],
+      "whatToAvoid": [
+        "تجنب إحراج الطالب أو مقارنته بالآخرين أمام زملائه",
+        "تجنب مناقشة أي أمور خاصة داخل الصف"
+      ],
+      "whatToObserve": [
+        "مستوى الاندماج والتفاعل مع الأنشطة الصفية",
+        "إشعار الموجه الطلابي بلطف عند ملاحظة أي تغير ملحوظ"
+      ],
+      "isApprovedByCounselor": false
+    },
+    "actions": []
+  },
   "manual-1788247370167": {
     "studentId": "manual-1788247370167",
     "studentName": "راكان",

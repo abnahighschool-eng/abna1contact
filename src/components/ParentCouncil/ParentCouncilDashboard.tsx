@@ -45,6 +45,7 @@ interface ParentCouncilDashboardProps {
   schoolSignatories: SchoolSignatories;
   isWhatsAppConnected: boolean;
   onNavigateToWhatsApp?: () => void;
+  onNavigateToMessages?: (tab?: string) => void;
   onOpenSignatoriesModal?: () => void;
 }
 
@@ -53,6 +54,7 @@ export default function ParentCouncilDashboard({
   schoolSignatories,
   isWhatsAppConnected,
   onNavigateToWhatsApp,
+  onNavigateToMessages,
   onOpenSignatoriesModal,
 }: ParentCouncilDashboardProps) {
   // Navigation tabs
@@ -1351,6 +1353,7 @@ export default function ParentCouncilDashboard({
             schoolSignatories={schoolSignatories}
             isWhatsAppConnected={isWhatsAppConnected}
             onNavigateToWhatsApp={onNavigateToWhatsApp}
+            onNavigateToMessages={onNavigateToMessages}
             applications={applications}
             invites={invites}
             onUpdateInvites={handleUpdateInvites}

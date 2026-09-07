@@ -469,10 +469,10 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.error("Could not fetch health tracker state", err);
+        console.warn("Notice: Health tracker state sync deferred until server connects");
       }
     } catch (e) {
-      console.error("Could not fetch remote app-state", e);
+      console.warn("Notice: Remote app-state sync deferred until server connects");
     }
   };
 
@@ -1131,6 +1131,10 @@ export default function App() {
                 setActiveTab("connection");
               }}
               onNavigateToTeachersSchedule={() => setMainSection("teachers_schedule")}
+              onNavigateToMessages={(tab) => {
+                setMainSection("messages");
+                if (tab) setActiveTab(tab as any);
+              }}
             />
           )}
 
@@ -1142,6 +1146,10 @@ export default function App() {
               onNavigateToWhatsApp={() => {
                 setMainSection("messages");
                 setActiveTab("connection");
+              }}
+              onNavigateToMessages={(tab) => {
+                setMainSection("messages");
+                if (tab) setActiveTab(tab as any);
               }}
               schoolSignatories={signatories}
               onOpenSignatoriesModal={() => setShowSignatoriesConfig(true)}
@@ -1158,6 +1166,10 @@ export default function App() {
               onNavigateToWhatsApp={() => {
                 setMainSection("messages");
                 setActiveTab("connection");
+              }}
+              onNavigateToMessages={(tab) => {
+                setMainSection("messages");
+                if (tab) setActiveTab(tab as any);
               }}
               onOpenSignatoriesModal={() => setShowSignatoriesConfig(true)}
             />

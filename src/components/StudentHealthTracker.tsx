@@ -54,6 +54,9 @@ import {
 } from "../utils/studentSupportRulesEngine";
 import StudentSupportDetailModal from "./StudentSupportDetailModal";
 import TeacherSupportCardModal from "./TeacherSupportCardModal";
+import CampaignLaunchButtons from "./common/CampaignLaunchButtons";
+import UnifiedCampaignModal from "./common/UnifiedCampaignModal";
+import { launchOfficialCampaign } from "../utils/campaignLauncher";
 
 export interface BatchLogItem {
   id: string;
@@ -101,6 +104,7 @@ interface StudentHealthTrackerProps {
   schoolName?: string;
   isWhatsAppConnected?: boolean;
   onNavigateToWhatsApp?: () => void;
+  onNavigateToMessages?: (tab?: string) => void;
 }
 
 export default function StudentHealthTracker({
@@ -115,6 +119,7 @@ export default function StudentHealthTracker({
   schoolName = "ثانوية الأبناء الأولى",
   isWhatsAppConnected = false,
   onNavigateToWhatsApp,
+  onNavigateToMessages,
 }: StudentHealthTrackerProps) {
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -126,6 +131,7 @@ export default function StudentHealthTracker({
 
   // Selection for bulk WhatsApp
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
 
   // WhatsApp Anti-Ban Rate Limiting & Human Jitter (تفاوت عشوائي لمنع الحظر)
   const [delayPreset, setDelayPreset] = useState<"safe" | "balanced" | "custom">("safe");
@@ -345,6 +351,71 @@ export default function StudentHealthTracker({
     navigator.clipboard.writeText(formUrl);
     setCopiedId(p.studentId);
     setTimeout(() => setCopiedId(null), 2500);
+  };
+
+  // Prepare recipients for UnifiedCampaignModal
+  const modalHealthRecipients = useMemo(() => {
+    return selectedStudentIds
+      .map((id) => mergedStudentProfiles.find((p) => p.studentId === id))
+      .filter(Boolean)
+      .map((profile) => {
+        const p = profile!;
+        const studentName = p.studentName || "طالب";
+        const studentPhone = p.activatedPhone || p.guardianPhone || "";
+        const message = getWhatsAppMessage(p);
+        return {
+          id: p.studentId,
+          name: studentName,
+          phone: studentPhone,
+          grade: p.grade,
+          className: p.className,
+          message,
+        };
+      });
+  }, [selectedStudentIds, mergedStudentProfiles, schoolName]);
+
+  // Option 2: Launch as Official Campaign into Campaign Monitor
+  const handleLaunchHealthOfficialCampaign = async () => {
+    if (selectedStudentIds.length === 0) {
+      alert("يرجى تحديد طالب واحد على الأقل لإرسال رابط الاستمارة لولي أمره.");
+      return;
+    }
+
+    const recipients = selectedStudentIds
+      .map((id) => mergedStudentProfiles.find((p) => p.studentId === id))
+      .filter(Boolean)
+      .map((profile) => {
+        const p = profile!;
+        return {
+          id: p.studentId,
+          name: p.studentName || "طالب",
+          phone: p.activatedPhone || p.guardianPhone || "",
+          grade: p.grade,
+          className: p.className,
+          customMessage: getWhatsAppMessage(p),
+        };
+      });
+
+    await launchOfficialCampaign({
+      campaignName: `حملة استمارة الدعم الصحي والنفسي (${new Date().toLocaleDateString("ar-SA")})`,
+      recipients,
+      delayMs: 15000,
+      onNavigateToMessages,
+      onSuccess: async () => {
+        for (const r of recipients) {
+          const p = mergedStudentProfiles.find((x) => x.studentId === r.id);
+          if (p) {
+            const updatedProfile: StudentSupportProfile = {
+              ...p,
+              lastInviteSentAt: new Date().toISOString(),
+              inviteWhatsAppStatus: "success",
+            };
+            await onSaveProfile(updatedProfile);
+          }
+        }
+        setSelectedStudentIds([]);
+      },
+    });
   };
 
   // Send WhatsApp to Single Student (Direct & Immediate)
@@ -1027,28 +1098,19 @@ export default function StudentHealthTracker({
         </div>
 
         <div className="flex items-center gap-2 mr-auto">
-          {/* Active Anti-Ban badge summary */}
-          <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 text-xs">
-            <Clock className="w-3.5 h-3.5 text-teal-600" />
-            <span>الفاصل: <strong>{baseDelaySecs}ث</strong></span>
-            {enableJitter && (
-              <span className="text-[11px] text-teal-700 font-mono font-bold">(±{jitterRangeSecs}ث تفاوت)</span>
-            )}
-          </div>
-
-          {/* Trigger Batch Send Button */}
-          <button
-            onClick={() => handleStartBatchWhatsApp()}
+          {/* Standardized Dual Campaign Launch Buttons */}
+          <CampaignLaunchButtons
+            count={selectedStudentIds.length}
+            recipientLabel="طالب"
+            intervalSeconds={baseDelaySecs}
+            onLaunchModal={() => setIsHealthModalOpen(true)}
+            onLaunchOfficialCampaign={handleLaunchHealthOfficialCampaign}
             disabled={selectedStudentIds.length === 0}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer ${
-              selectedStudentIds.length > 0
-                ? "bg-teal-600 hover:bg-teal-700 text-white shadow-teal-600/20"
-                : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-            }`}
-          >
-            <Send className="w-4 h-4" />
-            <span>إرسال الرابط للمحددين ({selectedStudentIds.length})</span>
-          </button>
+            customModalLabel={`إرسال حملة جماعية (${selectedStudentIds.length} طالب) - بفاصل ${baseDelaySecs}ث`}
+            customOfficialLabel="نظام الحملات الجماعية"
+            modalButtonId="btn-batch-send-health-modal"
+            officialButtonId="btn-batch-send-health-official"
+          />
         </div>
       </div>
 
@@ -1638,6 +1700,31 @@ export default function StudentHealthTracker({
           }}
         />
       )}
+
+      {/* Standardized Batch Sending Progress Modal for Student Health Form */}
+      <UnifiedCampaignModal
+        isOpen={isHealthModalOpen}
+        onClose={() => setIsHealthModalOpen(false)}
+        title="إرسال رابط استمارة الدعم الصحي والنفسي عبر الواتساب"
+        subtitle={`سيتم إرسال رابط استمارة الدعم المخصصة إلى (${modalHealthRecipients.length}) ولي أمر بفاصل أمان ذكي ${baseDelaySecs} ثانية.`}
+        recipients={modalHealthRecipients}
+        intervalSeconds={baseDelaySecs}
+        onItemSuccess={async (item) => {
+          const p = mergedStudentProfiles.find((x) => x.studentId === item.id);
+          if (p) {
+            const updatedProfile: StudentSupportProfile = {
+              ...p,
+              lastInviteSentAt: new Date().toISOString(),
+              inviteWhatsAppStatus: "success",
+            };
+            await onSaveProfile(updatedProfile);
+          }
+          setSelectedStudentIds((prev) => prev.filter((id) => id !== item.id));
+        }}
+        onComplete={() => {
+          // Finished
+        }}
+      />
     </div>
   );
 }

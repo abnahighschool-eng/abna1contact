@@ -362,8 +362,8 @@ export default function AttendanceSystem({
             });
           }
         }
-      } catch (err) {
-        console.error("Error fetching initial attendance from server:", err);
+      } catch {
+        // Attendance will rely on localStorage cache until network connection stabilizes
       }
     };
     fetchServerAttendance();
