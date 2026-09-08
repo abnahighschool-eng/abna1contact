@@ -84,6 +84,27 @@ export interface ParentCouncilConfig {
   surveyClosedMessage?: string;
 }
 
+export interface ParentCouncilInvite {
+  studentId: string;
+  studentName: string;
+  studentGrade: string;
+  studentClass: string;
+  guardianPhone: string;
+  guardianName?: string;
+  code: string;
+  token: string;
+  isSent?: boolean;
+  sentAt?: string;
+  createdAt?: string;
+  hasOpened?: boolean;
+  openedAt?: string;
+  lastOpenedAt?: string;
+  openCount?: number;
+  isSubmitted?: boolean;
+  submittedAt?: string;
+  applicationId?: string;
+}
+
 /**
  * خوارزمية الفرز الآلي والتقييم النظامي لطلبات مجالس أولياء الأمور
  */

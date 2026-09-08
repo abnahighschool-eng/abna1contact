@@ -373,11 +373,21 @@ export default function ParentCouncilStudentInvites({
         throw new Error(data.error || "فشل الإرسال عبر الخادم");
       }
     } catch (err: any) {
-      // Fallback: open WhatsApp web directly
+      // Fallback: open WhatsApp web directly and record invite as sent
+      const updatedInvites = {
+        ...invites,
+        [student.id]: {
+          ...invite,
+          isSent: true,
+          sentAt: new Date().toISOString(),
+        },
+      };
+      onUpdateInvites(updatedInvites);
+
       const cleanP = sPhone.replace(/\D/g, "");
       const finalP = cleanP.startsWith("05") ? "966" + cleanP.substring(1) : cleanP;
       window.open(`https://api.whatsapp.com/send?phone=${finalP}&text=${encodeURIComponent(message)}`, "_blank");
-      showToast(`تم فتح تطبيق واتساب لإرسال الرسالة يدوياً.`);
+      showToast(`تم فتح تطبيق واتساب لإرسال الرسالة وتسجيلها في سجل الرسائل المرسلة.`);
     }
   };
 

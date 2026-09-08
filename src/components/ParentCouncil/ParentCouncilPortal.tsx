@@ -162,11 +162,12 @@ export default function ParentCouncilPortal({
   students: propStudents,
   onExit,
 }: ParentCouncilPortalProps) {
-  // Verification states - must require entering code first
-  const [activationCodeInput, setActivationCodeInput] = useState(initialCode || "");
+  // Verification states - strictly manual entry by guardian
+  const [activationCodeInput, setActivationCodeInput] = useState("");
   const [isCodeVerified, setIsCodeVerified] = useState(false);
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // School signatories and info
   const [signatories, setSignatories] = useState<SchoolSignatories>(
@@ -257,6 +258,84 @@ export default function ParentCouncilPortal({
     }
   };
 
+  // Comprehensive field validator with smooth auto-scroll to invalid field and inline red alerts
+  const validateStep = (stepNumber: number): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (stepNumber === 1) {
+      if (!fullName.trim()) {
+        errors.fullName = "يرجى استكمال هذا الحقل الإلزامي: الاسم الرباعي لولي الأمر كما في الهوية";
+      }
+      if (!nationalId.trim()) {
+        errors.nationalId = "يرجى استكمال هذا الحقل الإلزامي: رقم الهوية الوطنية لولي الأمر";
+      } else if (!validateNationalId(nationalId)) {
+        errors.nationalId = "رقم الهوية الوطنية غير صالح (يجب أن يتكون من 10 أرقام تبدأ بـ 1 أو 2)";
+      }
+      if (!phone.trim()) {
+        errors.phone = "يرجى استكمال هذا الحقل الإلزامي: رقم الجوال للتواصل";
+      } else if (!validateSaudiPhone(phone)) {
+        errors.phone = "رقم الجوال غير صالح (يجب أن يتكون من 10 أرقام يبدأ بـ 05)";
+      }
+      if (!email.trim()) {
+        errors.email = "يرجى استكمال هذا الحقل الإلزامي: البريد الإلكتروني";
+      } else if (!validateEmail(email)) {
+        errors.email = "صيغة البريد الإلكتروني غير صحيحة (مثال: name@example.com)";
+      }
+      if (!studentName.trim()) {
+        errors.studentName = "يرجى استكمال هذا الحقل الإلزامي: اسم الطالب الرباعي";
+      }
+      if (!studentGrade.trim()) {
+        errors.studentGrade = "يرجى استكمال هذا الحقل الإلزامي: الصف الدراسي";
+      }
+      if (!studentClass.trim()) {
+        errors.studentClass = "يرجى استكمال هذا الحقل الإلزامي: الشعبة أو الفصل";
+      }
+    } else if (stepNumber === 4) {
+      if (!pledgeAccepted) {
+        errors.pledgeAccepted = "يرجى الموافقة على التعهد النظامي المعتمد للمتابعة واعتماد الاستمارة";
+      }
+      if (!signature.trim() && !fullName.trim()) {
+        errors.signature = "يرجى استكمال هذا الحقل الإلزامي: كتابة الاسم أو التوقيع المعتمد";
+      }
+    }
+
+    setFieldErrors(errors);
+
+    const errorKeys = Object.keys(errors);
+    if (errorKeys.length > 0) {
+      const fieldPriority = [
+        "fullName",
+        "nationalId",
+        "phone",
+        "email",
+        "studentName",
+        "studentGrade",
+        "studentClass",
+        "pledgeAccepted",
+        "signature",
+      ];
+      const firstInvalid = fieldPriority.find((k) => errors[k]) || errorKeys[0];
+
+      // Smooth scroll to the invalid field and focus it immediately
+      setTimeout(() => {
+        const el = document.getElementById(`field-${firstInvalid}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          const inputEl = el.querySelector("input, select, textarea") as HTMLElement | null;
+          if (inputEl && typeof inputEl.focus === "function") {
+            inputEl.focus();
+          } else if (typeof (el as HTMLElement).focus === "function") {
+            (el as HTMLElement).focus();
+          }
+        }
+      }, 80);
+
+      return false;
+    }
+
+    return true;
+  };
+
   // Switch relationship & auto-recognize father
   const handleSelectRelation = (
     relId: "father" | "mother" | "brother" | "guardian" | "other",
@@ -330,12 +409,7 @@ export default function ParentCouncilPortal({
       const paramClass = params.get("class") || params.get("student_class");
       const paramPhone = params.get("phone");
       const paramGuardian = params.get("parent_name") || params.get("guardian");
-      const paramCode = params.get("code") || params.get("council_code");
-
-      if (paramCode) {
-        setActivationCodeInput(paramCode);
-        // Do NOT set isCodeVerified(true); user must click verify or enter code!
-      }
+      // Activation code is never auto-filled; guardian must type it manually from the message
 
       // Try matching student in roster
       let matched: any = undefined;
@@ -393,9 +467,35 @@ export default function ParentCouncilPortal({
       }
     }
 
-    // 4. Fetch server data for this token if available
-    if (token) {
-      fetch(`/api/parent-councils/token/${token}`)
+    // 4. Track Link Opening & Fetch server data for this token if available
+    const effectiveToken = token || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") : null);
+    const effectiveStudentId = studentId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("student_id") : null);
+
+    // Track open immediately
+    if (effectiveToken || effectiveStudentId) {
+      fetch("/api/parent-councils/track-open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: effectiveToken || undefined, studentId: effectiveStudentId || undefined }),
+      }).catch(() => {});
+    }
+
+    // Check local storage directly for already submitted application to skip code gate immediately
+    try {
+      const localApps = JSON.parse(localStorage.getItem("parent_councils_apps") || "{}");
+      const foundSubmitted = Object.values(localApps).find((a: any) =>
+        (effectiveToken && (a.activationToken === effectiveToken || a.token === effectiveToken)) ||
+        (effectiveStudentId && a.studentId === effectiveStudentId)
+      );
+      if (foundSubmitted && (foundSubmitted as any).status !== "draft") {
+        setAlreadySubmittedApplication(foundSubmitted as ParentCouncilApplication);
+        setIsCodeVerified(true);
+        return;
+      }
+    } catch (e) {}
+
+    if (effectiveToken) {
+      fetch(`/api/parent-councils/token/${effectiveToken}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (!data) return;
@@ -407,7 +507,14 @@ export default function ParentCouncilPortal({
             setIsExpired(true);
             return;
           }
-          // Note: Even if already submitted or has data, gate requires entering the activation code first!
+
+          // If parent has already submitted the form, directly display the completed message without asking for code!
+          if (data.alreadySubmitted && data.application) {
+            setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
+            setIsCodeVerified(true);
+            return;
+          }
+
           if (data.invite) {
             if (data.invite.studentName && !studentName) {
               setStudentName(data.invite.studentName);
@@ -420,9 +527,6 @@ export default function ParentCouncilPortal({
             if (data.invite.studentClass && !studentClass) setStudentClass(data.invite.studentClass);
             if (data.invite.guardianPhone && !phone) setPhone(data.invite.guardianPhone);
             if (data.invite.studentId && !studentId) setStudentId(data.invite.studentId);
-            if (data.invite.code && !activationCodeInput) {
-              setActivationCodeInput(data.invite.code);
-            }
           }
           if (data.application) {
             const app = data.application as ParentCouncilApplication;
@@ -441,7 +545,17 @@ export default function ParentCouncilPortal({
             if (app.relationLabel) setRelationLabel(app.relationLabel);
             if (app.additionalStudents) setDetectedSiblings(app.additionalStudents);
             if (app.signature) setSignature(app.signature);
-            if (app.activationCode && !activationCodeInput) setActivationCodeInput(app.activationCode);
+          }
+        })
+        .catch(() => {});
+    } else if (effectiveStudentId) {
+      // Check if this student already has a submitted application
+      fetch(`/api/parent-councils/check-submission?studentId=${encodeURIComponent(effectiveStudentId)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.alreadySubmitted && data?.application) {
+            setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
+            setIsCodeVerified(true);
           }
         })
         .catch(() => {});
@@ -564,38 +678,12 @@ export default function ParentCouncilPortal({
     e.preventDefault();
     setSubmitError(null);
 
-    if (!fullName.trim()) {
-      setSubmitError("يرجى كتابة الاسم الرباعي لولي الأمر");
+    if (!validateStep(1)) {
       setStep(1);
       return;
     }
 
-    if (!nationalId.trim() || !validateNationalId(nationalId)) {
-      setSubmitError("رقم الهوية الوطنية يجب أن يتكون من 10 أرقام صحيحة");
-      setStep(1);
-      return;
-    }
-
-    if (!phone.trim() || !validateSaudiPhone(phone)) {
-      setSubmitError("رقم الجوال يجب أن يتكون من 10 أرقام تبدأ بـ 05");
-      setStep(1);
-      return;
-    }
-
-    if (!email.trim() || !validateEmail(email)) {
-      setSubmitError("يرجى إدخال بريد إلكتروني صالح (مثال: name@example.com)");
-      setStep(1);
-      return;
-    }
-
-    if (!studentName.trim()) {
-      setSubmitError("يرجى كتابة اسم الطالب");
-      setStep(1);
-      return;
-    }
-
-    if (!pledgeAccepted) {
-      setSubmitError("يجب الموافقة على التعهد النظامي المعتمد لإتمام طلب الترشيح");
+    if (!validateStep(4)) {
       setStep(4);
       return;
     }
@@ -644,13 +732,57 @@ export default function ParentCouncilPortal({
         throw new Error(data.error || "تعذر حفظ الاستمارة، يرجى المحاولة مرة أخرى");
       }
 
-      setSubmittedApplication(data.application || newApp);
+      const finalSavedApp = data.application || newApp;
+      setSubmittedApplication(finalSavedApp);
+
+      // Sync to local storage immediately
+      try {
+        const localSaved = JSON.parse(localStorage.getItem("parent_councils_apps") || "{}");
+        localSaved[finalSavedApp.id] = finalSavedApp;
+        localStorage.setItem("parent_councils_apps", JSON.stringify(localSaved));
+
+        // Update local invites store
+        const localInvites = JSON.parse(localStorage.getItem("parent_councils_invites") || "{}");
+        if (finalSavedApp.studentId && localInvites[finalSavedApp.studentId]) {
+          localInvites[finalSavedApp.studentId].isSubmitted = true;
+          localInvites[finalSavedApp.studentId].submittedAt = finalSavedApp.submittedAt;
+          localInvites[finalSavedApp.studentId].hasOpened = true;
+          localInvites[finalSavedApp.studentId].applicationId = finalSavedApp.id;
+          localStorage.setItem("parent_councils_invites", JSON.stringify(localInvites));
+        }
+
+        // Broadcast to other tabs / admin dashboard
+        try {
+          const bc = new BroadcastChannel("parent_councils_channel");
+          bc.postMessage({ type: "APPLICATION_SUBMITTED", application: finalSavedApp });
+          bc.close();
+        } catch (e) {}
+
+        window.dispatchEvent(new CustomEvent("parent_councils_data_changed", { detail: finalSavedApp }));
+      } catch (e) {}
     } catch (err: any) {
       // Fallback: save locally in localStorage so work is never lost
       try {
         const localSaved = JSON.parse(localStorage.getItem("parent_councils_apps") || "{}");
         localSaved[newApp.id] = newApp;
         localStorage.setItem("parent_councils_apps", JSON.stringify(localSaved));
+
+        const localInvites = JSON.parse(localStorage.getItem("parent_councils_invites") || "{}");
+        if (newApp.studentId && localInvites[newApp.studentId]) {
+          localInvites[newApp.studentId].isSubmitted = true;
+          localInvites[newApp.studentId].submittedAt = newApp.submittedAt;
+          localInvites[newApp.studentId].hasOpened = true;
+          localInvites[newApp.studentId].applicationId = newApp.id;
+          localStorage.setItem("parent_councils_invites", JSON.stringify(localInvites));
+        }
+
+        try {
+          const bc = new BroadcastChannel("parent_councils_channel");
+          bc.postMessage({ type: "APPLICATION_SUBMITTED", application: newApp });
+          bc.close();
+        } catch (e) {}
+
+        window.dispatchEvent(new CustomEvent("parent_councils_data_changed", { detail: newApp }));
         setSubmittedApplication(newApp);
       } catch (e) {
         setSubmitError(err.message || "حدث خطأ أثناء إرسال الاستمارة");
@@ -1039,7 +1171,12 @@ export default function ParentCouncilPortal({
                     <button
                       key={s.num}
                       type="button"
-                      onClick={() => setStep(s.num as any)}
+                      onClick={() => {
+                        if (s.num > step) {
+                          if (!validateStep(step)) return;
+                        }
+                        setStep(s.num as any);
+                      }}
                       className={`text-center py-2 px-1 rounded-xl transition-all cursor-pointer min-h-[44px] flex flex-col items-center justify-center ${
                         isActive
                           ? "bg-teal-700 text-white font-black shadow-xs"
@@ -1197,7 +1334,7 @@ export default function ParentCouncilPortal({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     
                     {/* Full Name of Guardian */}
-                    <div className="sm:col-span-2 space-y-1.5">
+                    <div id="field-fullName" className="sm:col-span-2 space-y-1.5 scroll-mt-24">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
                           <span>الاسم الرباعي لمقدم الطلب / ولي الأمر</span>
@@ -1227,14 +1364,32 @@ export default function ParentCouncilPortal({
                         type="text"
                         required
                         value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
+                        onChange={(e) => {
+                          setFullName(e.target.value);
+                          if (fieldErrors.fullName) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.fullName;
+                              return copy;
+                            });
+                          }
+                        }}
                         placeholder="أدخل الاسم الرباعي لولي الأمر كما في الهوية"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-base sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden transition-all ${
-                          isEditingGuardianName
-                            ? "border-teal-500 bg-white ring-2 ring-teal-100"
-                            : "border-slate-300 bg-white"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-base sm:text-sm font-bold focus:outline-hidden transition-all ${
+                          fieldErrors.fullName
+                            ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                            : isEditingGuardianName
+                            ? "border-teal-500 bg-white text-slate-900 ring-2 ring-teal-100"
+                            : "border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-teal-600"
                         }`}
                       />
+
+                      {fieldErrors.fullName && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl animate-shake">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.fullName}</span>
+                        </div>
+                      )}
 
                       {/* Notice banner for editable guardian name */}
                       <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-center gap-2">
@@ -1248,8 +1403,8 @@ export default function ParentCouncilPortal({
                     </div>
 
                     {/* National ID */}
-                    <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                    <div id="field-nationalId" className="scroll-mt-24 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-slate-700">
                         رقم الهوية الوطنية لولي الأمر <span className="text-rose-600">*</span>
                       </label>
                       <input
@@ -1257,70 +1412,159 @@ export default function ParentCouncilPortal({
                         required
                         maxLength={10}
                         value={nationalId}
-                        onChange={(e) => setNationalId(e.target.value)}
+                        onChange={(e) => {
+                          setNationalId(e.target.value);
+                          if (fieldErrors.nationalId) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.nationalId;
+                              return copy;
+                            });
+                          }
+                        }}
                         placeholder="10 أرقام تبدأ بـ 1 أو 2"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-mono font-bold focus:outline-hidden transition-all ${
+                          fieldErrors.nationalId
+                            ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                            : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                        }`}
                         dir="ltr"
                       />
+                      {fieldErrors.nationalId && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.nationalId}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Mobile Number */}
-                    <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                    <div id="field-phone" className="scroll-mt-24 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-slate-700">
                         رقم الجوال <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="tel"
                         required
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
+                        onChange={(e) => {
+                          setPhone(e.target.value);
+                          if (fieldErrors.phone) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.phone;
+                              return copy;
+                            });
+                          }
+                        }}
                         placeholder="05xxxxxxxx"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-mono font-bold focus:outline-hidden transition-all ${
+                          fieldErrors.phone
+                            ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                            : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                        }`}
                         dir="ltr"
                       />
+                      {fieldErrors.phone && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.phone}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Email */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                    <div id="field-email" className="sm:col-span-2 scroll-mt-24 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-slate-700">
                         البريد الإلكتروني <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="email"
                         required
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          if (fieldErrors.email) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.email;
+                              return copy;
+                            });
+                          }
+                        }}
                         placeholder="example@domain.com"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-mono text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-mono focus:outline-hidden transition-all ${
+                          fieldErrors.email
+                            ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                            : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                        }`}
                         dir="ltr"
                       />
+                      {fieldErrors.email && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.email}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Student Name */}
-                    <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                    <div id="field-studentName" className="scroll-mt-24 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-slate-700">
                         اسم الطالب <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="text"
                         required
                         value={studentName}
-                        onChange={(e) => setStudentName(e.target.value)}
+                        onChange={(e) => {
+                          setStudentName(e.target.value);
+                          if (fieldErrors.studentName) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.studentName;
+                              return copy;
+                            });
+                          }
+                        }}
                         placeholder="اسم الطالب المسجل بالمدرسة"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-bold focus:outline-hidden transition-all ${
+                          fieldErrors.studentName
+                            ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                            : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                        }`}
                       />
+                      {fieldErrors.studentName && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.studentName}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Grade & Section */}
-                    <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                    <div id="field-studentGrade" className="scroll-mt-24 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-slate-700">
                         الصف الدراسي والشعبة <span className="text-rose-600">*</span>
                       </label>
                       <div className="grid grid-cols-2 gap-2">
                         <select
                           value={studentGrade}
-                          onChange={(e) => setStudentGrade(e.target.value)}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden bg-white"
+                          onChange={(e) => {
+                            setStudentGrade(e.target.value);
+                            if (fieldErrors.studentGrade) {
+                              setFieldErrors((prev) => {
+                                const copy = { ...prev };
+                                delete copy.studentGrade;
+                                return copy;
+                              });
+                            }
+                          }}
+                          className={`w-full px-3 py-2.5 rounded-xl border text-xs font-bold focus:outline-hidden bg-white ${
+                            fieldErrors.studentGrade
+                              ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                              : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                          }`}
                         >
                           <option value="الأول ثانوي">الأول ثانوي</option>
                           <option value="الثاني ثانوي">الثاني ثانوي</option>
@@ -1328,14 +1572,35 @@ export default function ParentCouncilPortal({
                           <option value="المرحلة المتوسطة">المرحلة المتوسطة</option>
                           <option value="المرحلة الابتدائية">المرحلة الابتدائية</option>
                         </select>
-                        <input
-                          type="text"
-                          value={studentClass}
-                          onChange={(e) => setStudentClass(e.target.value)}
-                          placeholder="الشعبة (مثال: 1)"
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
-                        />
+                        <div id="field-studentClass">
+                          <input
+                            type="text"
+                            value={studentClass}
+                            onChange={(e) => {
+                              setStudentClass(e.target.value);
+                              if (fieldErrors.studentClass) {
+                                setFieldErrors((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy.studentClass;
+                                  return copy;
+                                });
+                              }
+                            }}
+                            placeholder="الشعبة (مثال: 1)"
+                            className={`w-full px-3 py-2.5 rounded-xl border text-xs font-bold focus:outline-hidden ${
+                              fieldErrors.studentClass
+                                ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                                : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                            }`}
+                          />
+                        </div>
                       </div>
+                      {(fieldErrors.studentGrade || fieldErrors.studentClass) && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.studentGrade || fieldErrors.studentClass}</span>
+                        </div>
+                      )}
                     </div>
 
                   </div>
@@ -1361,28 +1626,8 @@ export default function ParentCouncilPortal({
                     <button
                       type="button"
                       onClick={() => {
-                        if (!fullName.trim()) {
-                          setSubmitError("يرجى إدخال الاسم الرباعي لولي الأمر");
-                          return;
-                        }
-                        if (!nationalId.trim() || !validateNationalId(nationalId)) {
-                          setSubmitError("رقم الهوية الوطنية يجب أن يتكون من 10 أرقام صحيحة");
-                          return;
-                        }
-                        if (!phone.trim() || !validateSaudiPhone(phone)) {
-                          setSubmitError("رقم الجوال يجب أن يتكون من 10 أرقام تبدأ بـ 05");
-                          return;
-                        }
-                        if (!email.trim() || !validateEmail(email)) {
-                          setSubmitError("يرجى إدخال بريد إلكتروني صالح (مثال: name@example.com)");
-                          return;
-                        }
-                        if (!studentName.trim()) {
-                          setSubmitError("يرجى كتابة اسم الطالب");
-                          return;
-                        }
-                        setSubmitError(null);
-                        setStep(2);
+                        if (!validateStep(1)) return;
+                        goToStep(2);
                       }}
                       className="px-6 py-2.5 bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
                     >
@@ -1875,12 +2120,28 @@ export default function ParentCouncilPortal({
                   </div>
 
                   {/* Official Pledge Box (مطابق لنص الصورة 1) */}
-                  <div className="p-5 bg-teal-50/70 border-2 border-teal-600/30 rounded-2xl">
+                  <div
+                    id="field-pledgeAccepted"
+                    className={`p-5 rounded-2xl border-2 transition-all scroll-mt-24 ${
+                      fieldErrors.pledgeAccepted
+                        ? "bg-rose-50/80 border-rose-400 ring-2 ring-rose-200"
+                        : "bg-teal-50/70 border-teal-600/30"
+                    }`}
+                  >
                     <label className="flex items-start gap-3 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={pledgeAccepted}
-                        onChange={(e) => setPledgeAccepted(e.target.checked)}
+                        onChange={(e) => {
+                          setPledgeAccepted(e.target.checked);
+                          if (fieldErrors.pledgeAccepted) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.pledgeAccepted;
+                              return copy;
+                            });
+                          }
+                        }}
                         className="w-5 h-5 rounded text-teal-600 focus:ring-teal-500 mt-0.5"
                       />
                       <div>
@@ -1892,22 +2153,47 @@ export default function ParentCouncilPortal({
                         </span>
                       </div>
                     </label>
+                    {fieldErrors.pledgeAccepted && (
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-2.5 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                        <span>{fieldErrors.pledgeAccepted}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Signature and Hijri Date */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                    <div id="field-signature" className="scroll-mt-24 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-slate-700">
                         التوقيع المعتمد (الاسم أو التوقيع الرقمي) <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="text"
                         required
                         value={signature || fullName}
-                        onChange={(e) => setSignature(e.target.value)}
+                        onChange={(e) => {
+                          setSignature(e.target.value);
+                          if (fieldErrors.signature) {
+                            setFieldErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy.signature;
+                              return copy;
+                            });
+                          }
+                        }}
                         placeholder="اكتب اسمك الكامل كتوقيع إلكتروني رسمي"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                        className={`w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-bold focus:outline-hidden transition-all ${
+                          fieldErrors.signature
+                            ? "border-rose-500 bg-rose-50/30 text-rose-900 ring-2 ring-rose-200 focus:ring-rose-500"
+                            : "border-slate-300 text-slate-900 focus:ring-2 focus:ring-teal-600"
+                        }`}
                       />
+                      {fieldErrors.signature && (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{fieldErrors.signature}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div>

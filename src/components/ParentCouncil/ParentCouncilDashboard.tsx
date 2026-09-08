@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Users,
   Award,
@@ -29,16 +29,20 @@ import {
   School,
   Settings,
   HelpCircle,
+  Save,
 } from "lucide-react";
 import {
   ParentCouncilApplication,
   ParentCouncilConfig,
+  ParentCouncilInvite,
   evaluateParentCouncilApplication,
 } from "../../types/parentCouncil";
 import { SchoolSignatories, Student } from "../../types";
 import ParentCouncilPrintSheet from "./ParentCouncilPrintSheet";
 import CouncilFormationPrintSheet from "./CouncilFormationPrintSheet";
 import ParentCouncilStudentInvites from "./ParentCouncilStudentInvites";
+import ParentCouncilSentMessagesLog from "./ParentCouncilSentMessagesLog";
+import SentMessagesReportPrintSheet from "./SentMessagesReportPrintSheet";
 
 interface ParentCouncilDashboardProps {
   students: Student[];
@@ -58,7 +62,7 @@ export default function ParentCouncilDashboard({
   onOpenSignatoriesModal,
 }: ParentCouncilDashboardProps) {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<"smart_screening" | "all_applications" | "links_and_wa">("smart_screening");
+  const [activeTab, setActiveTab] = useState<"smart_screening" | "all_applications" | "links_and_wa" | "sent_invites">("smart_screening");
 
   // Main state
   const [applications, setApplications] = useState<Record<string, ParentCouncilApplication>>({});
@@ -67,13 +71,34 @@ export default function ParentCouncilDashboard({
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
     generalActivationCode: "202601",
-    seatsCount: 7,
-    reserveSeatsCount: 2,
+    seatsCount: 9,
+    reserveSeatsCount: 4,
     formationApproved: false,
     selectedMemberIds: [],
     reserveMemberIds: [],
   });
   const [loading, setLoading] = useState(true);
+  const [isRealtimeRefreshing, setIsRealtimeRefreshing] = useState(false);
+
+  // Seat configuration editing state
+  const [seatsCountInput, setSeatsCountInput] = useState<number>(9);
+  const [reserveSeatsCountInput, setReserveSeatsCountInput] = useState<number>(4);
+  const [activationCodeInput, setActivationCodeInput] = useState<string>("202601");
+  const [isSavingSeats, setIsSavingSeats] = useState(false);
+  const [seatsSavedSuccess, setSeatsSavedSuccess] = useState(false);
+
+  // Sync inputs when config is loaded or updated
+  useEffect(() => {
+    if (config.seatsCount !== undefined) {
+      setSeatsCountInput(config.seatsCount);
+    }
+    if (config.reserveSeatsCount !== undefined) {
+      setReserveSeatsCountInput(config.reserveSeatsCount);
+    }
+    if (config.generalActivationCode !== undefined) {
+      setActivationCodeInput(config.generalActivationCode);
+    }
+  }, [config.seatsCount, config.reserveSeatsCount, config.generalActivationCode]);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,6 +108,7 @@ export default function ParentCouncilDashboard({
   // Modals & Preview Sheets
   const [selectedAppForPrint, setSelectedAppForPrint] = useState<ParentCouncilApplication | null>(null);
   const [showFormationPrint, setShowFormationPrint] = useState(false);
+  const [showSentReportPrint, setShowSentReportPrint] = useState(false);
   const [showSwapModal, setShowSwapModal] = useState<string | null>(null); // holds candidate id to swap
   const [copiedLink, setCopiedLink] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -99,51 +125,144 @@ export default function ParentCouncilDashboard({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Initial Load from Server or Local Storage
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true);
-        const res = await fetch("/api/parent-councils/data");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success) {
-            setApplications(data.applications || {});
-            if (data.config) setConfig((prev) => ({ ...prev, ...data.config }));
-            if (data.invites) setInvites(data.invites);
-            return;
+  // Handler to explicitly save seats and general activation configuration
+  const handleSaveSeats = async (customSeats?: number, customReserve?: number) => {
+    const finalSeats = customSeats !== undefined ? customSeats : (Number(seatsCountInput) > 0 ? Number(seatsCountInput) : 9);
+    const finalReserve = customReserve !== undefined ? customReserve : (Number(reserveSeatsCountInput) >= 0 ? Number(reserveSeatsCountInput) : 4);
+    const finalCode = (activationCodeInput && activationCodeInput.trim()) || config.generalActivationCode || "202601";
+
+    setIsSavingSeats(true);
+    const updated: ParentCouncilConfig = {
+      ...config,
+      seatsCount: finalSeats,
+      reserveSeatsCount: finalReserve,
+      generalActivationCode: finalCode,
+    };
+
+    await syncUpdates(applications, updated);
+    setIsSavingSeats(false);
+    setSeatsSavedSuccess(true);
+    showToast(`تم حفظ تحديد المقاعد بنجاح: ${finalSeats} مقاعد للمجلس، و ${finalReserve} مقاعد للاحتياط.`);
+    setTimeout(() => setSeatsSavedSuccess(false), 3000);
+  };
+
+  // Real-time Fetcher for instantaneous updates across tabs
+  const fetchLatestData = useCallback(async (silent = false) => {
+    if (!silent) setIsRealtimeRefreshing(true);
+    try {
+      const res = await fetch("/api/parent-councils/data");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          if (data.applications) setApplications(data.applications);
+          if (data.invites) setInvites(data.invites);
+          if (data.config) {
+            setConfig((prev) => ({
+              ...prev,
+              ...data.config,
+              seatsCount: data.config.seatsCount === 7 ? 9 : (data.config.seatsCount ?? prev.seatsCount),
+              reserveSeatsCount: data.config.reserveSeatsCount === 2 ? 4 : (data.config.reserveSeatsCount ?? prev.reserveSeatsCount),
+            }));
           }
         }
-      } catch (e) {
-        console.error("Error loading parent councils data:", e);
-      } finally {
-        setLoading(false);
       }
-
+    } catch (e) {
       // Local storage fallback
-      const savedApps = localStorage.getItem("parent_councils_apps");
-      const savedConfig = localStorage.getItem("parent_councils_config");
-      const savedInvites = localStorage.getItem("parent_councils_invites");
-      if (savedApps) {
-        try {
-          setApplications(JSON.parse(savedApps));
-        } catch (e) {}
-      }
-      if (savedConfig) {
-        try {
-          setConfig(JSON.parse(savedConfig));
-        } catch (e) {}
-      }
-      if (savedInvites) {
-        try {
-          setInvites(JSON.parse(savedInvites));
-        } catch (e) {}
-      }
+      try {
+        const savedApps = localStorage.getItem("parent_councils_apps");
+        if (savedApps) setApplications(JSON.parse(savedApps));
+        const savedInvites = localStorage.getItem("parent_councils_invites");
+        if (savedInvites) setInvites(JSON.parse(savedInvites));
+      } catch (err) {}
+    } finally {
+      if (!silent) setIsRealtimeRefreshing(false);
       setLoading(false);
     }
+  }, []);
 
-    loadData();
-  }, [students]);
+  // Initial Load from Server or Local Storage + Real-time sync listeners
+  useEffect(() => {
+    fetchLatestData(false);
+
+    // 1. Polling every 3.5 seconds for instant updates
+    const pollInterval = setInterval(() => {
+      fetchLatestData(true);
+    }, 3500);
+
+    // 2. BroadcastChannel for zero-latency cross-tab synchronization
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("parent_councils_channel");
+      bc.onmessage = () => {
+        fetchLatestData(true);
+      };
+    } catch (e) {}
+
+    // 3. Window event listeners
+    const handleEventSync = () => fetchLatestData(true);
+    window.addEventListener("parent_councils_data_changed", handleEventSync);
+    window.addEventListener("storage", handleEventSync);
+    window.addEventListener("focus", handleEventSync);
+
+    return () => {
+      clearInterval(pollInterval);
+      bc?.close();
+      window.removeEventListener("parent_councils_data_changed", handleEventSync);
+      window.removeEventListener("storage", handleEventSync);
+      window.removeEventListener("focus", handleEventSync);
+    };
+  }, [fetchLatestData]);
+
+  // Consolidated Sent Invites List & Count
+  const sentList: ParentCouncilInvite[] = useMemo(() => {
+    const list: ParentCouncilInvite[] = [];
+    const seenIds = new Set<string>();
+
+    Object.values(invites || {}).forEach((inv: any) => {
+      if (inv && (inv.isSent || inv.sentAt)) {
+        seenIds.add(inv.studentId);
+        const matchedApp = inv.studentId ? applications[inv.studentId] : null;
+        list.push({
+          ...inv,
+          isSubmitted: inv.isSubmitted || !!matchedApp,
+          submittedAt: inv.submittedAt || matchedApp?.submittedAt,
+          hasOpened: inv.hasOpened || !!matchedApp,
+          applicationId: inv.applicationId || matchedApp?.id,
+        });
+      }
+    });
+
+    Object.values(applications || {}).forEach((app: ParentCouncilApplication) => {
+      if (app.studentId && !seenIds.has(app.studentId)) {
+        seenIds.add(app.studentId);
+        list.push({
+          studentId: app.studentId,
+          studentName: app.studentName,
+          studentGrade: app.studentGrade,
+          studentClass: app.studentClass || "1",
+          guardianPhone: app.phone,
+          guardianName: app.fullName,
+          code: app.activationCode || "202601",
+          token: app.activationToken || `tok_${app.studentId}`,
+          isSent: true,
+          sentAt: app.submittedAt,
+          hasOpened: true,
+          openedAt: app.submittedAt,
+          isSubmitted: true,
+          submittedAt: app.submittedAt,
+          applicationId: app.id,
+        });
+      }
+    });
+
+    return list.sort((a, b) => {
+      const timeA = new Date(a.sentAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.sentAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [invites, applications]);
+
+  const sentCount = sentList.length;
 
   // Handler to update student invites across state, storage, and server
   const handleUpdateInvites = async (newInvites: Record<string, any>) => {
@@ -443,8 +562,8 @@ export default function ParentCouncilDashboard({
       academicYear: "1447 - 1448 هـ",
       councilTerm: "العام الدراسي 2026 - 2027",
       generalActivationCode: "202601",
-      seatsCount: 7,
-      reserveSeatsCount: 2,
+      seatsCount: 9,
+      reserveSeatsCount: 4,
       formationApproved: false,
       selectedMemberIds: [app1.id, app2.id, app3.id, app5.id],
       reserveMemberIds: [app6.id],
@@ -892,6 +1011,24 @@ export default function ParentCouncilDashboard({
           <Share2 className="w-4 h-4 text-emerald-500" />
           <span>تحديد الطلاب وإرسال دعوات الترشح عبر واتساب</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab("sent_invites")}
+          id="tab-sent-invites"
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all cursor-pointer ${
+            activeTab === "sent_invites"
+              ? "bg-teal-700 text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Send className="w-4 h-4 text-emerald-400" />
+          <span>الدعوات والرسائل المرسلة</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+            activeTab === "sent_invites" ? "bg-teal-900/40 text-teal-100" : "bg-emerald-100 text-emerald-800"
+          }`}>
+            {sentCount}
+          </span>
+        </button>
       </div>
 
       {/* TAB 1: نظام فرز وترشيح المجلس */}
@@ -932,6 +1069,84 @@ export default function ParentCouncilDashboard({
                 <Check className="w-3.5 h-3.5" />
                 <span>{config.formationApproved ? "تم اعتماد التشكيل" : "اعتماد تشكيل المجلس"}</span>
               </button>
+            </div>
+          </div>
+
+          {/* Seats Configuration Card with Save button */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-4 sm:p-5">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center shrink-0">
+                  <Settings className="w-5 h-5 text-teal-700" />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-slate-900">
+                    تحديد عدد أفراد المجلس والاحتياط
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    حدد العدد المطلوب لمقاعد المجلس ومقاعد الاحتياط ثم اضغط زر الحفظ لاعتمادها في الفرز الآلي
+                  </p>
+                </div>
+              </div>
+
+              {/* Inputs & Save button */}
+              <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                  <label htmlFor="tab1-seats-count" className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                    عدد مقاعد المجلس:
+                  </label>
+                  <input
+                    id="tab1-seats-count"
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={seatsCountInput}
+                    onChange={(e) => setSeatsCountInput(Number(e.target.value) || 0)}
+                    className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-lg text-center font-bold font-mono text-sm text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                  />
+                  <span className="text-[11px] text-slate-500 font-bold">مقاعد</span>
+                </div>
+
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                  <label htmlFor="tab1-reserve-seats-count" className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                    عدد مقاعد الاحتياط:
+                  </label>
+                  <input
+                    id="tab1-reserve-seats-count"
+                    type="number"
+                    min={0}
+                    max={15}
+                    value={reserveSeatsCountInput}
+                    onChange={(e) => setReserveSeatsCountInput(Number(e.target.value) || 0)}
+                    className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-lg text-center font-bold font-mono text-sm text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                  />
+                  <span className="text-[11px] text-slate-500 font-bold">مقاعد</span>
+                </div>
+
+                <button
+                  id="btn-save-seats-tab1"
+                  type="button"
+                  onClick={() => handleSaveSeats()}
+                  disabled={isSavingSeats}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white font-extrabold text-xs transition-all shadow-sm cursor-pointer active:scale-95 ${
+                    seatsSavedSuccess
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-teal-700 hover:bg-teal-800"
+                  }`}
+                >
+                  {seatsSavedSuccess ? (
+                    <>
+                      <Check className="w-4 h-4 text-white" />
+                      <span>تم حفظ التحديد</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 text-white" />
+                      <span>{isSavingSeats ? "جارٍ الحفظ..." : "حفظ التحديد"}</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1429,13 +1644,9 @@ export default function ParentCouncilDashboard({
                 </label>
                 <input
                   type="text"
-                  value={config.generalActivationCode}
-                  onChange={(e) => {
-                    const updated = { ...config, generalActivationCode: e.target.value };
-                    setConfig(updated);
-                    localStorage.setItem("parent_councils_config", JSON.stringify(updated));
-                  }}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-mono font-bold tracking-wider text-slate-900"
+                  value={activationCodeInput}
+                  onChange={(e) => setActivationCodeInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-center font-mono font-bold tracking-wider text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
                   dir="ltr"
                 />
               </div>
@@ -1446,15 +1657,11 @@ export default function ParentCouncilDashboard({
                 </label>
                 <input
                   type="number"
-                  min={3}
-                  max={15}
-                  value={config.seatsCount}
-                  onChange={(e) => {
-                    const updated = { ...config, seatsCount: Number(e.target.value) || 7 };
-                    setConfig(updated);
-                    localStorage.setItem("parent_councils_config", JSON.stringify(updated));
-                  }}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold font-mono text-slate-900"
+                  min={1}
+                  max={25}
+                  value={seatsCountInput}
+                  onChange={(e) => setSeatsCountInput(Number(e.target.value) || 0)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold font-mono text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
                 />
               </div>
 
@@ -1464,20 +1671,55 @@ export default function ParentCouncilDashboard({
                 </label>
                 <input
                   type="number"
-                  min={1}
-                  max={10}
-                  value={config.reserveSeatsCount}
-                  onChange={(e) => {
-                    const updated = { ...config, reserveSeatsCount: Number(e.target.value) || 2 };
-                    setConfig(updated);
-                    localStorage.setItem("parent_councils_config", JSON.stringify(updated));
-                  }}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold font-mono text-slate-900"
+                  min={0}
+                  max={15}
+                  value={reserveSeatsCountInput}
+                  onChange={(e) => setReserveSeatsCountInput(Number(e.target.value) || 0)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold font-mono text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
                 />
               </div>
             </div>
+
+            <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+              <button
+                id="btn-save-settings-tab3"
+                type="button"
+                onClick={() => handleSaveSeats()}
+                disabled={isSavingSeats}
+                className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-white font-extrabold text-xs transition-all shadow-sm cursor-pointer active:scale-95 ${
+                  seatsSavedSuccess
+                    ? "bg-emerald-600 hover:bg-emerald-700"
+                    : "bg-teal-700 hover:bg-teal-800"
+                }`}
+              >
+                {seatsSavedSuccess ? (
+                  <>
+                    <Check className="w-4 h-4 text-white" />
+                    <span>تم حفظ التحديد والإعدادات</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 text-white" />
+                    <span>{isSavingSeats ? "جارٍ الحفظ..." : "حفظ تحديد المقاعد والإعدادات"}</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 4: الدعوات والرسائل المرسلة */}
+      {activeTab === "sent_invites" && (
+        <ParentCouncilSentMessagesLog
+          invites={invites}
+          applications={applications}
+          students={students}
+          onRefreshData={() => fetchLatestData(false)}
+          isRefreshing={isRealtimeRefreshing}
+          onOpenPrintReport={() => setShowSentReportPrint(true)}
+          onViewApplication={(app) => setSelectedAppForPrint(app)}
+        />
       )}
 
       {/* SWAP CANDIDATE MODAL */}
@@ -1539,6 +1781,20 @@ export default function ParentCouncilDashboard({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Official Sent Messages Report Print Sheet */}
+      {showSentReportPrint && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <SentMessagesReportPrintSheet
+            invitesList={sentList}
+            applications={applications}
+            signatories={schoolSignatories}
+            academicYear={config.academicYear}
+            councilTerm={config.councilTerm}
+            onClose={() => setShowSentReportPrint(false)}
+          />
         </div>
       )}
 

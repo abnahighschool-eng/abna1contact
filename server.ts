@@ -481,8 +481,8 @@ let parentCouncilsStore: {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
     generalActivationCode: "202601",
-    seatsCount: 7,
-    reserveSeatsCount: 2,
+    seatsCount: 9,
+    reserveSeatsCount: 4,
     formationApproved: false,
     selectedMemberIds: [],
     reserveMemberIds: [],
@@ -1756,8 +1756,8 @@ app.get("/api/parent-councils/data", (req, res) => {
       academicYear: "1447 - 1448 هـ",
       councilTerm: "العام الدراسي 2026 - 2027",
       generalActivationCode: "202601",
-      seatsCount: 7,
-      reserveSeatsCount: 2,
+      seatsCount: 9,
+      reserveSeatsCount: 4,
       formationApproved: false,
       selectedMemberIds: [],
       reserveMemberIds: [],
@@ -1828,6 +1828,27 @@ app.get("/api/parent-councils/token/:token", (req, res) => {
     }
   }
 
+  // Track opening of link
+  if (invite) {
+    invite.hasOpened = true;
+    if (!invite.openedAt) {
+      invite.openedAt = new Date().toISOString();
+    }
+    invite.lastOpenedAt = new Date().toISOString();
+    invite.openCount = (invite.openCount || 0) + 1;
+    if (invite.studentId && parentCouncilsStore.invites?.[invite.studentId]) {
+      parentCouncilsStore.invites[invite.studentId].hasOpened = true;
+      parentCouncilsStore.invites[invite.studentId].openedAt = invite.openedAt;
+      parentCouncilsStore.invites[invite.studentId].openCount = invite.openCount;
+    }
+    if (existingApp) {
+      invite.isSubmitted = true;
+      invite.submittedAt = existingApp.submittedAt || invite.submittedAt || new Date().toISOString();
+      invite.applicationId = existingApp.id;
+    }
+    saveParentCouncilsStore();
+  }
+
   // Check 3 days expiration for unsubmitted invites
   let isExpired = false;
   if (!existingApp && invite && (invite.sentAt || invite.createdAt)) {
@@ -1846,6 +1867,30 @@ app.get("/api/parent-councils/token/:token", (req, res) => {
     application: existingApp || null,
     invite: invite || null,
   });
+});
+
+// 2.5 Track link opening explicitly
+app.post("/api/parent-councils/track-open", (req, res) => {
+  const { token, studentId } = req.body || {};
+  let invite = Object.values(parentCouncilsStore.invites || {}).find(
+    (inv: any) => (token && inv.token === token) || (studentId && inv.studentId === studentId)
+  );
+  const now = new Date().toISOString();
+  if (invite) {
+    invite.hasOpened = true;
+    if (!invite.openedAt) invite.openedAt = now;
+    invite.lastOpenedAt = now;
+    invite.openCount = (invite.openCount || 0) + 1;
+    if (invite.studentId && parentCouncilsStore.invites?.[invite.studentId]) {
+      parentCouncilsStore.invites[invite.studentId].hasOpened = true;
+      if (!parentCouncilsStore.invites[invite.studentId].openedAt) {
+        parentCouncilsStore.invites[invite.studentId].openedAt = now;
+      }
+      parentCouncilsStore.invites[invite.studentId].openCount = invite.openCount;
+    }
+    saveParentCouncilsStore();
+  }
+  res.json({ success: true, hasOpened: true });
 });
 
 // 3. Check Submission Status
@@ -2022,10 +2067,15 @@ app.post("/api/parent-councils/submit", (req, res) => {
 
   parentCouncilsStore.applications[id] = finalApp;
 
-  // Mark invite as submitted if exists
+  // Mark invite as submitted & opened if exists
   if (application.studentId && parentCouncilsStore.invites?.[application.studentId]) {
     parentCouncilsStore.invites[application.studentId].isSubmitted = true;
     parentCouncilsStore.invites[application.studentId].submittedAt = now;
+    parentCouncilsStore.invites[application.studentId].hasOpened = true;
+    if (!parentCouncilsStore.invites[application.studentId].openedAt) {
+      parentCouncilsStore.invites[application.studentId].openedAt = now;
+    }
+    parentCouncilsStore.invites[application.studentId].applicationId = id;
   }
   if (application.token) {
     const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
@@ -2034,11 +2084,16 @@ app.post("/api/parent-councils/submit", (req, res) => {
     if (matchedInvite) {
       matchedInvite.isSubmitted = true;
       matchedInvite.submittedAt = now;
+      matchedInvite.hasOpened = true;
+      if (!matchedInvite.openedAt) {
+        matchedInvite.openedAt = now;
+      }
+      matchedInvite.applicationId = id;
     }
   }
 
   saveParentCouncilsStore();
-  res.json({ success: true, application: finalApp });
+  res.json({ success: true, application: finalApp, invites: parentCouncilsStore.invites });
 });
 
 // 6. Admin Dashboard Sync (Applications & Config)
@@ -2065,10 +2120,24 @@ app.post("/api/parent-councils/sync", (req, res) => {
 app.post("/api/parent-councils/invites", (req, res) => {
   const { invites } = req.body || {};
   if (invites && typeof invites === "object") {
-    parentCouncilsStore.invites = {
-      ...(parentCouncilsStore.invites || {}),
-      ...invites,
-    };
+    const merged = { ...(parentCouncilsStore.invites || {}) };
+    Object.keys(invites).forEach((key) => {
+      const existing = merged[key] || {};
+      const incoming = invites[key] || {};
+      merged[key] = {
+        ...existing,
+        ...incoming,
+        // Preserve interaction states if existing has them
+        hasOpened: incoming.hasOpened !== undefined ? incoming.hasOpened : (existing.hasOpened || false),
+        openedAt: incoming.openedAt || existing.openedAt,
+        lastOpenedAt: incoming.lastOpenedAt || existing.lastOpenedAt,
+        openCount: incoming.openCount !== undefined ? incoming.openCount : existing.openCount,
+        isSubmitted: incoming.isSubmitted !== undefined ? incoming.isSubmitted : (existing.isSubmitted || false),
+        submittedAt: incoming.submittedAt || existing.submittedAt,
+        applicationId: incoming.applicationId || existing.applicationId,
+      };
+    });
+    parentCouncilsStore.invites = merged;
     saveParentCouncilsStore();
   }
   res.json({ success: true, invites: parentCouncilsStore.invites });
@@ -2082,8 +2151,8 @@ app.post("/api/parent-councils/reset", (req, res) => {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
     generalActivationCode: "202601",
-    seatsCount: 7,
-    reserveSeatsCount: 2,
+    seatsCount: 9,
+    reserveSeatsCount: 4,
     formationApproved: false,
     selectedMemberIds: [],
     reserveMemberIds: [],
