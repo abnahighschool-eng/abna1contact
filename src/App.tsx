@@ -252,6 +252,9 @@ export default function App() {
     return null;
   });
 
+  // Track if a public portal user finished and closed the form
+  const [isPublicSessionEnded, setIsPublicSessionEnded] = useState(false);
+
   const [supportProfiles, setSupportProfiles] = useState<Record<string, StudentSupportProfile>>(() => {
     const saved = localStorage.getItem("abna_support_profiles");
     if (saved) {
@@ -853,6 +856,9 @@ export default function App() {
         onExit={() => {
           setParentCouncilPortalData({ isOpen: false, token: null, code: null });
           window.history.replaceState({}, document.title, window.location.pathname);
+          if (!currentUser) {
+            setIsPublicSessionEnded(true);
+          }
         }}
       />
     );
@@ -866,8 +872,48 @@ export default function App() {
         onExit={() => {
           setParentSurveyToken(null);
           window.history.replaceState({}, document.title, window.location.pathname);
+          if (!currentUser) {
+            setIsPublicSessionEnded(true);
+          }
         }}
       />
+    );
+  }
+
+  // Final Session Termination for Parents (لا عودة للموقع أو تسجيل الدخول)
+  if (isPublicSessionEnded && !currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white font-sans flex items-center justify-center p-4" dir="rtl">
+        <div className="max-w-md w-full bg-slate-800/95 border border-slate-700/80 rounded-3xl p-6 sm:p-8 text-center shadow-2xl space-y-6 backdrop-blur-xs">
+          <div className="w-20 h-20 bg-emerald-500/10 border-2 border-emerald-500/30 rounded-full flex items-center justify-center mx-auto text-emerald-400 shadow-inner">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl sm:text-2xl font-black text-white">
+              تم إغلاق الاستمارة بنجاح
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed">
+              شكراً لتعاونكم ومشاركتكم في مجالس أولياء الأمور. تم تسجيل وتوثيق طلبكم بنجاح.
+            </p>
+          </div>
+          <div className="bg-slate-700/50 rounded-2xl p-4 border border-slate-600/50 text-xs text-slate-300">
+            يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح بأمان.
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  window.close();
+                } catch (e) {}
+              }}
+              className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 active:scale-98 text-slate-200 rounded-xl font-bold text-xs cursor-pointer transition-all border border-slate-600"
+            >
+              إغلاق النافذة
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 

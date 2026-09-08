@@ -162,6 +162,18 @@ export default function ParentCouncilPortal({
   students: propStudents,
   onExit,
 }: ParentCouncilPortalProps) {
+  // Final session completion & closed state (no returning to main site or login screen)
+  const [isPageClosed, setIsPageClosed] = useState(false);
+
+  const handleFinalClose = () => {
+    setIsPageClosed(true);
+    try {
+      window.close();
+    } catch (e) {
+      // Ignored if browser restricts script window closing
+    }
+  };
+
   // Verification states - strictly manual entry by guardian
   const [activationCodeInput, setActivationCodeInput] = useState("");
   const [isCodeVerified, setIsCodeVerified] = useState(false);
@@ -792,6 +804,53 @@ export default function ParentCouncilPortal({
     }
   };
 
+  // View 0: Completed and Closed Page (لا عودة للموقع أو رابط الدخول)
+  if (isPageClosed) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white font-sans flex items-center justify-center p-4" dir="rtl">
+        <div className="max-w-md w-full bg-slate-800/95 border border-slate-700/80 rounded-3xl p-6 sm:p-8 text-center shadow-2xl space-y-6 backdrop-blur-xs">
+          <div className="w-20 h-20 bg-emerald-500/10 border-2 border-emerald-500/30 rounded-full flex items-center justify-center mx-auto text-emerald-400 shadow-inner">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-xl sm:text-2xl font-black text-white">
+              تم إغلاق الاستمارة بنجاح
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed">
+              شكراً لتعاونكم ومشاركتكم في مجالس أولياء الأمور بـ{" "}
+              <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>.
+            </p>
+          </div>
+
+          <div className="bg-slate-700/50 rounded-2xl p-4 border border-slate-600/50 text-xs text-slate-300 space-y-1.5 text-center">
+            <div className="font-bold text-emerald-400 flex items-center justify-center gap-1.5">
+              <ShieldCheck className="w-4 h-4" />
+              <span>تم حفظ وتوثيق استمارتكم في سجلات المدرسة</span>
+            </div>
+            <p className="text-[11px] text-slate-400 pt-0.5">
+              يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح بأمان.
+            </p>
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  window.close();
+                } catch (e) {}
+              }}
+              className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 active:scale-98 text-slate-200 rounded-xl font-bold text-xs cursor-pointer transition-all border border-slate-600"
+            >
+              إغلاق النافذة
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // View: Print Official Form Modal
   if (showPrintModal && (submittedApplication || alreadySubmittedApplication)) {
     return (
@@ -878,13 +937,7 @@ export default function ParentCouncilPortal({
             <div className="pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (onExit) {
-                    onExit();
-                  } else {
-                    window.location.href = "about:blank";
-                  }
-                }}
+                onClick={handleFinalClose}
                 className="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 min-h-[46px]"
               >
                 <span>إغلاق الاستمارة</span>
@@ -1037,13 +1090,7 @@ export default function ParentCouncilPortal({
             <div className="pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (onExit) {
-                    onExit();
-                  } else {
-                    window.location.href = "about:blank";
-                  }
-                }}
+                onClick={handleFinalClose}
                 className="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 min-h-[46px]"
               >
                 <span>إغلاق الاستمارة</span>
@@ -1076,14 +1123,12 @@ export default function ParentCouncilPortal({
             </div>
           </div>
 
-          {onExit && (
-            <button
-              onClick={onExit}
-              className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
-            >
-              خروج
-            </button>
-          )}
+          <button
+            onClick={handleFinalClose}
+            className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+          >
+            إغلاق
+          </button>
 
         </div>
       </header>
