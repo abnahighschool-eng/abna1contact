@@ -17,8 +17,7 @@ import {
   Check,
   X,
   Fingerprint,
-  RefreshCw,
-  Clock
+  RefreshCw
 } from "lucide-react";
 import { AppUser, SchoolSignatories } from "../types";
 
@@ -27,8 +26,6 @@ interface LoginScreenProps {
   signatories: SchoolSignatories;
   onLoginSuccess: (user: AppUser) => void;
   onUpdateUsers?: (users: AppUser[]) => void;
-  sessionTimeoutNotice?: string | null;
-  onClearTimeoutNotice?: () => void;
 }
 
 export default function LoginScreen({
@@ -36,8 +33,6 @@ export default function LoginScreen({
   signatories,
   onLoginSuccess,
   onUpdateUsers,
-  sessionTimeoutNotice,
-  onClearTimeoutNotice,
 }: LoginScreenProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -277,26 +272,6 @@ export default function LoginScreen({
               <ShieldCheck className="w-5 h-5" />
             </div>
           </div>
-
-          {/* Session Timeout Notice */}
-          {sessionTimeoutNotice && (
-            <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs font-semibold flex items-start justify-between gap-2.5 animate-fadeIn" id="login-session-timeout-notice">
-              <div className="flex items-start gap-2.5">
-                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div className="leading-relaxed">{sessionTimeoutNotice}</div>
-              </div>
-              {onClearTimeoutNotice && (
-                <button
-                  type="button"
-                  onClick={onClearTimeoutNotice}
-                  className="text-amber-500 hover:text-amber-800 p-1 cursor-pointer transition-colors"
-                  title="إغلاق التنبيه"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          )}
 
           {/* Error Alert Message */}
           {errorMsg && (

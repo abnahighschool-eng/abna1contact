@@ -287,7 +287,6 @@ export default function App() {
   // Inactivity tracking state: Auto-logout after 5 minutes with 30-second warning
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
   const [inactivitySecondsLeft, setInactivitySecondsLeft] = useState(30);
-  const [sessionTimeoutNotice, setSessionTimeoutNotice] = useState<string | null>(null);
   const lastActivityTimeRef = useRef<number>(Date.now());
 
   // Clear specific or all local state sections
@@ -533,9 +532,8 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: AppUser) => {
-    // Reset inactivity tracking and clear notices on login
+    // Reset inactivity tracking on login
     lastActivityTimeRef.current = Date.now();
-    setSessionTimeoutNotice(null);
     setShowInactivityWarning(false);
 
     // Update lastLogin
@@ -600,7 +598,6 @@ export default function App() {
         setCurrentUser(null);
         localStorage.removeItem("abna_auth_current_user");
         setMainSection("messages");
-        setSessionTimeoutNotice("تم تسجيل خروجك تلقائياً بعد مرور 5 دقائق من عدم وجود نشاط، وذلك لحماية وسرية بيانات النظام والطلاب.");
       } else if (elapsed >= INACTIVITY_THRESHOLD_MS) {
         // Last 30 seconds -> Show countdown modal
         const remainingSec = Math.max(1, Math.ceil((INACTIVITY_LIMIT_MS - elapsed) / 1000));
@@ -944,8 +941,6 @@ export default function App() {
         signatories={signatories}
         onLoginSuccess={handleLoginSuccess}
         onUpdateUsers={handleSaveUsers}
-        sessionTimeoutNotice={sessionTimeoutNotice}
-        onClearTimeoutNotice={() => setSessionTimeoutNotice(null)}
       />
     );
   }
@@ -1243,6 +1238,8 @@ export default function App() {
 
               <div className={activeTab === "individual" ? "block" : "hidden"}>
                 <IndividualSender 
+                  students={students}
+                  teachers={teachers}
                   isWhatsAppConnected={isWhatsAppConnected} 
                   onNavigateToConnection={() => setActiveTab("connection")}
                 />
