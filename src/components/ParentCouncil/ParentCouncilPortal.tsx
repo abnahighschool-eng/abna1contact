@@ -167,11 +167,60 @@ export default function ParentCouncilPortal({
 
   const handleFinalClose = () => {
     setIsPageClosed(true);
+
+    // 1. Mark session as permanently closed so browser cannot re-enter portal
+    try {
+      sessionStorage.setItem("parent_council_session_closed", "true");
+      if (token) {
+        localStorage.setItem(`pc_submitted_${token}`, "true");
+      }
+    } catch (e) {}
+
+    // 2. Lock history so back button cannot return to school or unclosed portal
+    try {
+      window.history.pushState(null, "", window.location.href);
+      window.onpopstate = () => {
+        window.history.pushState(null, "", window.location.href);
+        try { window.close(); } catch (e) {}
+      };
+    } catch (e) {}
+
+    // 3. Multi-strategy attempt to close browser window across all platforms (Mobile Safari, Chrome, Desktop, Tablets)
     try {
       window.close();
-    } catch (e) {
-      // Ignored if browser restricts script window closing
-    }
+    } catch (e) {}
+
+    try {
+      window.open("", "_self", "");
+      window.close();
+    } catch (e) {}
+
+    try {
+      if ((window as any).opener) {
+        (window as any).opener = null;
+        window.open("", "_self");
+        window.close();
+      }
+    } catch (e) {}
+
+    try {
+      if ((window as any).WeixinJSBridge) {
+        (window as any).WeixinJSBridge.call("closeWindow");
+      }
+    } catch (e) {}
+
+    try {
+      if (window.top && window.top !== window) {
+        window.top.close();
+      }
+    } catch (e) {}
+
+    // Secondary delayed attempt for asynchronous mobile browsers
+    setTimeout(() => {
+      try {
+        window.close();
+      } catch (e) {}
+    }, 200);
   };
 
   // Verification states - strictly manual entry by guardian
@@ -413,16 +462,16 @@ export default function ParentCouncilPortal({
     }
 
     // 3. Inspect URL query parameters for student pre-filling
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const paramStudentId = params.get("student_id") || params.get("studentId");
-      const paramStudentName = params.get("student_name") || params.get("studentName");
-      const paramGrade = params.get("grade") || params.get("student_grade");
-      const paramClass = params.get("class") || params.get("student_class");
-      const paramPhone = params.get("phone");
-      const paramGuardian = params.get("parent_name") || params.get("guardian");
-      // Activation code is never auto-filled; guardian must type it manually from the message
+    const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const paramStudentId = searchParams.get("student_id") || searchParams.get("studentId");
+    const paramStudentName = searchParams.get("student_name") || searchParams.get("studentName");
+    const paramGrade = searchParams.get("grade") || searchParams.get("student_grade");
+    const paramClass = searchParams.get("class") || searchParams.get("student_class");
+    const paramPhone = searchParams.get("phone");
+    const paramGuardian = searchParams.get("parent_name") || searchParams.get("guardian");
+    // Activation code is never auto-filled; guardian must type it manually from the message
 
+    if (typeof window !== "undefined") {
       // Try matching student in roster
       let matched: any = undefined;
       if (paramStudentId && loadedStudents.length > 0) {
@@ -480,8 +529,15 @@ export default function ParentCouncilPortal({
     }
 
     // 4. Track Link Opening & Fetch server data for this token if available
-    const effectiveToken = token || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") : null);
-    const effectiveStudentId = studentId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("student_id") : null);
+    const effectiveToken = token || searchParams.get("council_token") || searchParams.get("token") || null;
+    const effectiveCode = initialCode || searchParams.get("council_code") || searchParams.get("code") || null;
+    let effectiveStudentId = studentId || searchParams.get("student_id") || searchParams.get("studentId") || null;
+    if (!effectiveStudentId && effectiveToken && effectiveToken.startsWith("pc_")) {
+      const parts = effectiveToken.split("_");
+      if (parts[1]) effectiveStudentId = parts[1];
+    }
+    const effectivePhone = searchParams.get("phone");
+    const effectiveNationalId = searchParams.get("national_id") || searchParams.get("nationalId");
 
     // Track open immediately
     if (effectiveToken || effectiveStudentId) {
@@ -492,22 +548,53 @@ export default function ParentCouncilPortal({
       }).catch(() => {});
     }
 
-    // Check local storage directly for already submitted application to skip code gate immediately
+    // Check local storage directly for already submitted application to show thank you screen immediately
     try {
       const localApps = JSON.parse(localStorage.getItem("parent_councils_apps") || "{}");
-      const foundSubmitted = Object.values(localApps).find((a: any) =>
-        (effectiveToken && (a.activationToken === effectiveToken || a.token === effectiveToken)) ||
-        (effectiveStudentId && a.studentId === effectiveStudentId)
-      );
-      if (foundSubmitted && (foundSubmitted as any).status !== "draft") {
+      const foundSubmitted = Object.values(localApps).find((a: any) => {
+        if (!a || a.status === "draft") return false;
+        if (effectiveToken && (a.activationToken === effectiveToken || a.token === effectiveToken || a.id === effectiveToken || a.id === `app_${effectiveToken}`)) return true;
+        if (effectiveStudentId && String(a.studentId) === String(effectiveStudentId)) return true;
+        if (effectivePhone && a.phone && String(a.phone).replace(/\D/g, "") === String(effectivePhone).replace(/\D/g, "")) return true;
+        if (effectiveNationalId && a.nationalId && String(a.nationalId).trim() === String(effectiveNationalId).trim()) return true;
+        return false;
+      });
+
+      const isMarkedSubmittedLocally =
+        (effectiveToken && localStorage.getItem(`pc_submitted_${effectiveToken}`) === "true") ||
+        (effectiveStudentId && localStorage.getItem(`pc_submitted_student_${effectiveStudentId}`) === "true");
+
+      if (foundSubmitted) {
         setAlreadySubmittedApplication(foundSubmitted as ParentCouncilApplication);
+        setIsCodeVerified(true);
+        return;
+      } else if (isMarkedSubmittedLocally) {
+        // Synthesize minimal submitted application record so parent is never prompted to re-fill
+        const syntheticApp: any = {
+          id: effectiveToken ? `app_${effectiveToken}` : `app_${effectiveStudentId}`,
+          fullName: paramGuardian || "ولي أمر الطالب",
+          studentName: paramStudentName || "الطالب",
+          studentGrade: paramGrade || "المرحلة الثانوية",
+          studentClass: paramClass || "1",
+          phone: paramPhone || "",
+          submissionDateHijri: "1447/03/15هـ",
+          submittedAt: new Date().toISOString(),
+          status: "submitted",
+        };
+        setAlreadySubmittedApplication(syntheticApp);
         setIsCodeVerified(true);
         return;
       }
     } catch (e) {}
 
+    const queryParams = new URLSearchParams();
+    if (effectiveStudentId) queryParams.set("studentId", effectiveStudentId);
+    if (effectivePhone) queryParams.set("phone", effectivePhone);
+    if (effectiveNationalId) queryParams.set("nationalId", effectiveNationalId);
+    if (effectiveCode) queryParams.set("code", effectiveCode);
+
     if (effectiveToken) {
-      fetch(`/api/parent-councils/token/${effectiveToken}`)
+      fetch(`/api/parent-councils/token/${encodeURIComponent(effectiveToken)}?${queryParams.toString()}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (!data) return;
@@ -520,10 +607,16 @@ export default function ParentCouncilPortal({
             return;
           }
 
-          // If parent has already submitted the form, directly display the completed message without asking for code!
+          // If parent has already submitted the form, directly display the thank you & already submitted message!
           if (data.alreadySubmitted && data.application) {
             setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
             setIsCodeVerified(true);
+            try {
+              localStorage.setItem(`pc_submitted_${effectiveToken}`, "true");
+              if (data.application.studentId) {
+                localStorage.setItem(`pc_submitted_student_${data.application.studentId}`, "true");
+              }
+            } catch (e) {}
             return;
           }
 
@@ -562,12 +655,17 @@ export default function ParentCouncilPortal({
         .catch(() => {});
     } else if (effectiveStudentId) {
       // Check if this student already has a submitted application
-      fetch(`/api/parent-councils/check-submission?studentId=${encodeURIComponent(effectiveStudentId)}`)
+      fetch(`/api/parent-councils/check-submission?${queryParams.toString()}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data?.alreadySubmitted && data?.application) {
             setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
             setIsCodeVerified(true);
+            try {
+              if (effectiveStudentId) {
+                localStorage.setItem(`pc_submitted_student_${effectiveStudentId}`, "true");
+              }
+            } catch (e) {}
           }
         })
         .catch(() => {});
@@ -763,6 +861,19 @@ export default function ParentCouncilPortal({
           localStorage.setItem("parent_councils_invites", JSON.stringify(localInvites));
         }
 
+        if (finalSavedApp.token) {
+          localStorage.setItem(`pc_submitted_${finalSavedApp.token}`, "true");
+        }
+        if (finalSavedApp.activationToken) {
+          localStorage.setItem(`pc_submitted_${finalSavedApp.activationToken}`, "true");
+        }
+        if (token) {
+          localStorage.setItem(`pc_submitted_${token}`, "true");
+        }
+        if (finalSavedApp.studentId) {
+          localStorage.setItem(`pc_submitted_student_${finalSavedApp.studentId}`, "true");
+        }
+
         // Broadcast to other tabs / admin dashboard
         try {
           const bc = new BroadcastChannel("parent_councils_channel");
@@ -786,6 +897,16 @@ export default function ParentCouncilPortal({
           localInvites[newApp.studentId].hasOpened = true;
           localInvites[newApp.studentId].applicationId = newApp.id;
           localStorage.setItem("parent_councils_invites", JSON.stringify(localInvites));
+        }
+
+        if ((newApp as any).token || newApp.activationToken) {
+          localStorage.setItem(`pc_submitted_${(newApp as any).token || newApp.activationToken}`, "true");
+        }
+        if (token) {
+          localStorage.setItem(`pc_submitted_${token}`, "true");
+        }
+        if (newApp.studentId) {
+          localStorage.setItem(`pc_submitted_student_${newApp.studentId}`, "true");
         }
 
         try {
@@ -819,17 +940,17 @@ export default function ParentCouncilPortal({
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed">
               شكراً لتعاونكم ومشاركتكم في مجالس أولياء الأمور بـ{" "}
-              <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>.
+              <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>. تم حفظ وتوثيق استمارتكم بنجاح في سجلات المدرسة.
             </p>
           </div>
 
           <div className="bg-slate-700/50 rounded-2xl p-4 border border-slate-600/50 text-xs text-slate-300 space-y-1.5 text-center">
             <div className="font-bold text-emerald-400 flex items-center justify-center gap-1.5">
               <ShieldCheck className="w-4 h-4" />
-              <span>تم حفظ وتوثيق استمارتكم في سجلات المدرسة</span>
+              <span>تم إنهاء الجلسة والخروج بأمان</span>
             </div>
             <p className="text-[11px] text-slate-400 pt-0.5">
-              يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح بأمان.
+              يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح.
             </p>
           </div>
 
@@ -837,13 +958,29 @@ export default function ParentCouncilPortal({
             <button
               type="button"
               onClick={() => {
+                try { window.close(); } catch (e) {}
+                try { window.open("", "_self", ""); window.close(); } catch (e) {}
                 try {
-                  window.close();
+                  if ((window as any).opener) {
+                    (window as any).opener = null;
+                    window.open("", "_self");
+                    window.close();
+                  }
+                } catch (e) {}
+                try {
+                  if ((window as any).WeixinJSBridge) {
+                    (window as any).WeixinJSBridge.call("closeWindow");
+                  }
+                } catch (e) {}
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.close();
+                  }
                 } catch (e) {}
               }}
-              className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 active:scale-98 text-slate-200 rounded-xl font-bold text-xs cursor-pointer transition-all border border-slate-600"
+              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white rounded-xl font-black text-xs sm:text-sm cursor-pointer transition-all shadow-lg"
             >
-              إغلاق النافذة
+              إغلاق المتصفح الآن
             </button>
           </div>
         </div>
@@ -1030,20 +1167,20 @@ export default function ParentCouncilPortal({
               <CheckCircle2 className="w-10 h-10 text-teal-300" />
             </div>
             <h1 className="text-lg sm:text-2xl font-black mb-2">
-              تنبيه: تمت تعبئة الاستبيان مسبقاً
+              شكراً لتقديمكم الاستبيان — لقد قمتم بتعبئة الاستبيان مسبقاً
             </h1>
             <p className="text-xs sm:text-sm text-slate-200 font-medium leading-relaxed max-w-md mx-auto">
-              المكرم ولي الأمر، نود تذكيركم بأنكم قمتم بتعبئة استبيان الترشح لعضوية مجلس أولياء الأمور مسبقاً، وستتواصل معكم إدارة المدرسة في حال ترشيحكم لعضوية المجلس. نشكركم على حسن تعاونكم واهتمامكم.
+              المكرم ولي الأمر، نشكركم جزيل الشكر والتقدير على تقديمكم الاستبيان ومشاركتكم في مجالس أولياء الأمور بـ <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>. نود إفادتكم بأنكم قمتم بتعبئة الاستبيان مسبقاً بنجاح، وبياناتكم مسجلة وموثقة رسمياً في سجلات المدرسة، وستتواصل معكم إدارة المدرسة في حال ترشيحكم.
             </p>
           </div>
 
           <div className="p-5 sm:p-8 space-y-5">
             <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-teal-950 text-xs font-bold leading-relaxed flex items-center gap-3">
-              <Lock className="w-6 h-6 text-teal-700 shrink-0" />
+              <ShieldCheck className="w-6 h-6 text-teal-700 shrink-0" />
               <div>
-                <span className="font-black block text-sm">الاستمارة مقفلة رسمياً</span>
+                <span className="font-black block text-sm">تم استلام وتوثيق استبيانكم مسبقاً بنجاح</span>
                 <span className="text-slate-600 font-medium text-xs">
-                  طلبكم مسجل بالفعل في قاعدة بيانات المدرسة وقيد المراجعة والمفاضلة من قبل لجنة التوجيه الطلابي.
+                  لقد قمتم بتعبئة الاستبيان بالفعل، وطلبكم مسجل ومحفوظ في قاعدة بيانات المدرسة ولا حاجة لإعادة التعبئة.
                 </span>
               </div>
             </div>

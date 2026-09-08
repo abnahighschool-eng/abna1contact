@@ -218,6 +218,7 @@ export default function App() {
         params.get("portal") === "parent-council" ||
         params.get("parent_council") === "true" ||
         params.get("council") === "true" ||
+        params.get("page") === "parent_council_portal" ||
         !!params.get("council_token") ||
         (token !== null && token.startsWith("pc_"));
 
@@ -225,7 +226,7 @@ export default function App() {
         return {
           isOpen: true,
           token: token,
-          code: null,
+          code: params.get("council_code") || params.get("code") || null,
         };
       }
     }
@@ -856,9 +857,7 @@ export default function App() {
         onExit={() => {
           setParentCouncilPortalData({ isOpen: false, token: null, code: null });
           window.history.replaceState({}, document.title, window.location.pathname);
-          if (!currentUser) {
-            setIsPublicSessionEnded(true);
-          }
+          setIsPublicSessionEnded(true);
         }}
       />
     );
@@ -872,16 +871,14 @@ export default function App() {
         onExit={() => {
           setParentSurveyToken(null);
           window.history.replaceState({}, document.title, window.location.pathname);
-          if (!currentUser) {
-            setIsPublicSessionEnded(true);
-          }
+          setIsPublicSessionEnded(true);
         }}
       />
     );
   }
 
-  // Final Session Termination for Parents (لا عودة للموقع أو تسجيل الدخول)
-  if (isPublicSessionEnded && !currentUser) {
+  // Final Session Termination for Parents (لا عودة للموقع أو تسجيل الدخول نهائياً)
+  if (isPublicSessionEnded) {
     return (
       <div className="min-h-screen bg-slate-900 text-white font-sans flex items-center justify-center p-4" dir="rtl">
         <div className="max-w-md w-full bg-slate-800/95 border border-slate-700/80 rounded-3xl p-6 sm:p-8 text-center shadow-2xl space-y-6 backdrop-blur-xs">
@@ -893,23 +890,45 @@ export default function App() {
               تم إغلاق الاستمارة بنجاح
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed">
-              شكراً لتعاونكم ومشاركتكم في مجالس أولياء الأمور. تم تسجيل وتوثيق طلبكم بنجاح.
+              شكراً لتعاونكم ومشاركتكم في مجالس أولياء الأمور بـ{" "}
+              <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>. تم حفظ وتوثيق استمارتكم بنجاح في سجلات المدرسة.
             </p>
           </div>
-          <div className="bg-slate-700/50 rounded-2xl p-4 border border-slate-600/50 text-xs text-slate-300">
-            يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح بأمان.
+          <div className="bg-slate-700/50 rounded-2xl p-4 border border-slate-600/50 text-xs text-slate-300 space-y-1">
+            <div className="font-bold text-emerald-400 flex items-center justify-center gap-1.5">
+              <span>تم إنهاء الجلسة والخروج بأمان</span>
+            </div>
+            <p className="text-[11px] text-slate-400 pt-0.5">
+              يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح.
+            </p>
           </div>
           <div className="pt-2">
             <button
               type="button"
               onClick={() => {
+                try { window.close(); } catch (e) {}
+                try { window.open("", "_self", ""); window.close(); } catch (e) {}
                 try {
-                  window.close();
+                  if ((window as any).opener) {
+                    (window as any).opener = null;
+                    window.open("", "_self");
+                    window.close();
+                  }
+                } catch (e) {}
+                try {
+                  if ((window as any).WeixinJSBridge) {
+                    (window as any).WeixinJSBridge.call("closeWindow");
+                  }
+                } catch (e) {}
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.close();
+                  }
                 } catch (e) {}
               }}
-              className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 active:scale-98 text-slate-200 rounded-xl font-bold text-xs cursor-pointer transition-all border border-slate-600"
+              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white rounded-xl font-bold text-xs sm:text-sm cursor-pointer transition-all shadow-md"
             >
-              إغلاق النافذة
+              إغلاق المتصفح الآن
             </button>
           </div>
         </div>

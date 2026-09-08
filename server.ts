@@ -1862,46 +1862,68 @@ function getStableTokenForStudent(studentId: string | number): string {
 
 // 2. Token / Student Lookup
 app.get("/api/parent-councils/token/:token", (req, res) => {
-  const token = req.params.token;
+  const token = String(req.params.token || "").trim();
+  const queryStudentId = String(req.query.studentId || "").trim();
+  const queryPhone = String(req.query.phone || "").replace(/\D/g, "");
+  const queryNationalId = String(req.query.nationalId || "").trim();
   const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
 
-  let existingApp = Object.values(parentCouncilsStore.applications || {}).find(
-    (a: any) =>
-      a.activationToken === token ||
-      a.token === token ||
-      a.studentId === token ||
-      a.id === token
-  );
+  // Extract studentId if token is in the format pc_{studentId}_{hash}
+  let candidateStudentId = queryStudentId;
+  if (!candidateStudentId && token && token.startsWith("pc_")) {
+    const parts = token.split("_");
+    if (parts[1]) candidateStudentId = parts[1];
+  }
 
+  // 1. Locate invite
   let invite: any =
     parentCouncilsStore.invites?.[token] ||
     Object.values(parentCouncilsStore.invites || {}).find(
-      (inv: any) => inv.token === token || inv.studentId === token
+      (inv: any) =>
+        inv.token === token ||
+        (token.startsWith("pc_") && inv.token?.startsWith(token)) ||
+        inv.studentId === token ||
+        (candidateStudentId && String(inv.studentId) === candidateStudentId)
     );
 
   // If invite not found in store but token starts with pc_, synthesize stable invite
-  if (!invite && token && token.startsWith("pc_")) {
-    const parts = token.split("_");
-    const extractedStudentId = parts[1];
-    if (extractedStudentId) {
-      invite = {
-        studentId: extractedStudentId,
-        studentName: "",
-        studentGrade: "",
-        studentClass: "",
-        guardianPhone: "",
-        code: getStableCodeForStudent(extractedStudentId),
-        token: token,
-        isSent: false,
-        createdAt: new Date().toISOString(),
-      };
-      if (!existingApp) {
-        existingApp = Object.values(parentCouncilsStore.applications || {}).find(
-          (a: any) => a.studentId === extractedStudentId
-        );
-      }
-    }
+  if (!invite && candidateStudentId) {
+    invite = {
+      studentId: candidateStudentId,
+      studentName: "",
+      studentGrade: "",
+      studentClass: "",
+      guardianPhone: "",
+      code: getStableCodeForStudent(candidateStudentId),
+      token: token,
+      isSent: false,
+      createdAt: new Date().toISOString(),
+    };
   }
+
+  // 2. Locate existing submitted application
+  let existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+    (a: any) => {
+      if (!a) return false;
+      if (a.activationToken === token || a.token === token) return true;
+      if (a.id === token || a.id === `app_${token}` || (token.startsWith("app_") && a.id === token.replace(/^app_/, ''))) return true;
+      if (candidateStudentId && String(a.studentId) === candidateStudentId) return true;
+      if (a.studentId && (String(a.studentId) === token || token === `pc_${a.studentId}`)) return true;
+      if (invite?.studentId && String(a.studentId) === String(invite.studentId)) return true;
+      if (invite?.applicationId && (a.id === invite.applicationId || a.id === `app_${invite.applicationId}`)) return true;
+      if (queryNationalId && a.nationalId && String(a.nationalId).trim() === queryNationalId) return true;
+      if (queryPhone && a.phone) {
+        const cleanP = String(a.phone).replace(/\D/g, "");
+        if (cleanP && (cleanP === queryPhone || cleanP.endsWith(queryPhone) || queryPhone.endsWith(cleanP))) return true;
+      }
+      if (invite?.guardianPhone && a.phone) {
+        const invP = String(invite.guardianPhone).replace(/\D/g, "");
+        const appP = String(a.phone).replace(/\D/g, "");
+        if (invP && appP && (invP === appP || invP.endsWith(appP) || appP.endsWith(invP))) return true;
+      }
+      return false;
+    }
+  );
 
   // Track opening of link
   if (invite) {
@@ -1973,11 +1995,24 @@ app.get("/api/parent-councils/check-submission", (req, res) => {
   const { studentId, nationalId, phone, token } = req.query;
   const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
 
+  const cleanPhone = phone ? String(phone).replace(/\D/g, "") : "";
+  const cleanNationalId = nationalId ? String(nationalId).trim() : "";
+  const tokenStr = token ? String(token).trim() : "";
+  let candidateStudentId = studentId ? String(studentId).trim() : "";
+  if (!candidateStudentId && tokenStr && tokenStr.startsWith("pc_")) {
+    const parts = tokenStr.split("_");
+    if (parts[1]) candidateStudentId = parts[1];
+  }
+
   const existingApp = Object.values(parentCouncilsStore.applications || {}).find((a: any) => {
-    if (studentId && a.studentId === studentId) return true;
-    if (token && (a.activationToken === token || a.token === token)) return true;
-    if (nationalId && a.nationalId === nationalId) return true;
-    if (phone && a.phone === phone) return true;
+    if (!a) return false;
+    if (tokenStr && (a.activationToken === tokenStr || a.token === tokenStr || a.id === tokenStr || a.id === `app_${tokenStr}`)) return true;
+    if (candidateStudentId && String(a.studentId) === candidateStudentId) return true;
+    if (cleanNationalId && a.nationalId && String(a.nationalId).trim() === cleanNationalId) return true;
+    if (cleanPhone && a.phone) {
+      const p = String(a.phone).replace(/\D/g, "");
+      if (p && (p === cleanPhone || p.endsWith(cleanPhone) || cleanPhone.endsWith(p))) return true;
+    }
     return false;
   });
 
@@ -2046,8 +2081,9 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
     const existingApp = Object.values(parentCouncilsStore.applications || {}).find(
       (a: any) =>
-        (token && (a.activationToken === token || a.token === token)) ||
-        (invite && invite.studentId && a.studentId === invite.studentId)
+        (token && (a.activationToken === token || a.token === token || a.id === `app_${token}`)) ||
+        (invite && invite.studentId && String(a.studentId) === String(invite.studentId)) ||
+        (candidateStudentId && String(a.studentId) === candidateStudentId)
     );
     return res.json({
       success: true,
@@ -2062,8 +2098,9 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   if (invite && String(invite.code || "").trim() === cleanedCode) {
     const existingForStudent = Object.values(parentCouncilsStore.applications || {}).find(
       (a: any) =>
-        (invite.studentId && a.studentId === invite.studentId) ||
-        (token && (a.activationToken === token || a.token === token))
+        (invite.studentId && String(a.studentId) === String(invite.studentId)) ||
+        (token && (a.activationToken === token || a.token === token || a.id === `app_${token}`)) ||
+        (candidateStudentId && String(a.studentId) === candidateStudentId)
     );
     return res.json({
       success: true,
@@ -2078,8 +2115,8 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   // Check existing application codes
   const existing = Object.values(parentCouncilsStore.applications || {}).find(
     (a: any) =>
-      (token && (a.activationToken === token || a.token === token)) ||
-      (studentId && a.studentId === studentId) ||
+      (token && (a.activationToken === token || a.token === token || a.id === `app_${token}`)) ||
+      (studentId && String(a.studentId) === String(studentId)) ||
       (a.activationCode && String(a.activationCode).trim() === cleanedCode)
   );
   if (existing && String(existing.activationCode || "").trim() === cleanedCode) {
@@ -2122,7 +2159,8 @@ app.post("/api/parent-councils/submit", (req, res) => {
     });
   }
 
-  const id = application.id || `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const effectiveToken = application.token || application.activationToken || (application.studentId ? `pc_${application.studentId}` : null);
+  const id = application.id || (effectiveToken ? `app_${effectiveToken}` : `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
   const now = new Date().toISOString();
 
   // Run official smart evaluation engine
@@ -2131,6 +2169,9 @@ app.post("/api/parent-councils/submit", (req, res) => {
   const finalApp = {
     ...application,
     id,
+    token: effectiveToken || application.token || application.activationToken,
+    activationToken: effectiveToken || application.activationToken || application.token,
+    studentId: application.studentId || (effectiveToken && effectiveToken.startsWith("pc_") ? effectiveToken.split("_")[1] : undefined),
     fullName: application.fullName || application.guardianName,
     nationalId: application.nationalId || application.guardianNationalId,
     phone: application.phone || application.guardianPhone,
@@ -2143,18 +2184,18 @@ app.post("/api/parent-councils/submit", (req, res) => {
   parentCouncilsStore.applications[id] = finalApp;
 
   // Mark invite as submitted & opened if exists
-  if (application.studentId && parentCouncilsStore.invites?.[application.studentId]) {
-    parentCouncilsStore.invites[application.studentId].isSubmitted = true;
-    parentCouncilsStore.invites[application.studentId].submittedAt = now;
-    parentCouncilsStore.invites[application.studentId].hasOpened = true;
-    if (!parentCouncilsStore.invites[application.studentId].openedAt) {
-      parentCouncilsStore.invites[application.studentId].openedAt = now;
+  if (finalApp.studentId && parentCouncilsStore.invites?.[finalApp.studentId]) {
+    parentCouncilsStore.invites[finalApp.studentId].isSubmitted = true;
+    parentCouncilsStore.invites[finalApp.studentId].submittedAt = now;
+    parentCouncilsStore.invites[finalApp.studentId].hasOpened = true;
+    if (!parentCouncilsStore.invites[finalApp.studentId].openedAt) {
+      parentCouncilsStore.invites[finalApp.studentId].openedAt = now;
     }
-    parentCouncilsStore.invites[application.studentId].applicationId = id;
+    parentCouncilsStore.invites[finalApp.studentId].applicationId = id;
   }
-  if (application.token) {
+  if (finalApp.token) {
     const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
-      (inv: any) => inv.token === application.token
+      (inv: any) => inv.token === finalApp.token
     );
     if (matchedInvite) {
       matchedInvite.isSubmitted = true;
