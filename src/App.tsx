@@ -223,7 +223,7 @@ export default function App() {
         return {
           isOpen: true,
           token: token,
-          code: params.get("council_code") || params.get("code") || null,
+          code: null,
         };
       }
     }

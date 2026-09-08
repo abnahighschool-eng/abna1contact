@@ -221,7 +221,7 @@ export default function ParentCouncilStudentInvites({
   // Helper to construct invite link
   const buildInviteUrl = (token: string, code: string) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/?portal=parent-council&parent_council=true&council_token=${token}&token=${token}&code=${code}&council_code=${code}`;
+    return `${origin}/?portal=parent-council&parent_council=true&council_token=${token}&token=${token}`;
   };
 
   // Filter students based on user selection

@@ -1924,7 +1924,19 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
 
   // Allow general council code
   if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
-    return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
+    const existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+      (a: any) =>
+        (token && (a.activationToken === token || a.token === token)) ||
+        (invite && invite.studentId && a.studentId === invite.studentId)
+    );
+    return res.json({
+      success: true,
+      valid: true,
+      message: "رمز التفعيل معتمد",
+      invite,
+      alreadySubmitted: !!existingApp,
+      application: existingApp || null,
+    });
   }
 
   if (invite && String(invite.code || "").trim() === cleanedCode) {
@@ -1947,10 +1959,17 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   const existing = Object.values(parentCouncilsStore.applications || {}).find(
     (a: any) =>
       (token && (a.activationToken === token || a.token === token)) ||
-      (studentId && a.studentId === studentId)
+      (studentId && a.studentId === studentId) ||
+      (a.activationCode && String(a.activationCode).trim() === cleanedCode)
   );
   if (existing && String(existing.activationCode || "").trim() === cleanedCode) {
-    return res.json({ success: true, valid: true, message: "رمز التفعيل معتمد" });
+    return res.json({
+      success: true,
+      valid: true,
+      message: "رمز التفعيل معتمد",
+      alreadySubmitted: true,
+      application: existing,
+    });
   }
 
   // If studentId provided, accept matching 6-digit numeric PIN
