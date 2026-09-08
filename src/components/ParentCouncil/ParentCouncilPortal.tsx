@@ -164,6 +164,12 @@ export default function ParentCouncilPortal({
 }: ParentCouncilPortalProps) {
   // Final session completion & closed state (no returning to main site or login screen)
   const [isPageClosed, setIsPageClosed] = useState(false);
+  const isPortalMode = Boolean(
+    token ||
+    (typeof window !== "undefined" &&
+      (new URLSearchParams(window.location.search).get("token") ||
+        window.location.pathname.includes("/parent-council")))
+  );
 
   const handleFinalClose = () => {
     setIsPageClosed(true);
@@ -618,6 +624,16 @@ export default function ParentCouncilPortal({
               }
             } catch (e) {}
             return;
+          } else {
+            // Application is not submitted or was deleted by administration - clear stale local flags
+            setAlreadySubmittedApplication(null);
+            try {
+              localStorage.removeItem(`pc_submitted_${effectiveToken}`);
+              const targetStudentId = data?.invite?.studentId || data?.studentId;
+              if (targetStudentId) {
+                localStorage.removeItem(`pc_submitted_student_${targetStudentId}`);
+              }
+            } catch (e) {}
           }
 
           if (data.invite) {
@@ -711,21 +727,14 @@ export default function ParentCouncilPortal({
       if (data.alreadySubmitted && data.application) {
         setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
         return;
+      } else {
+        // Not submitted or application was deleted from dashboard
+        setAlreadySubmittedApplication(null);
+        try {
+          if (token) localStorage.removeItem(`pc_submitted_${token}`);
+          if (studentId) localStorage.removeItem(`pc_submitted_student_${studentId}`);
+        } catch (e) {}
       }
-
-      // Check local storage for submitted application
-      try {
-        const localSaved = JSON.parse(localStorage.getItem("parent_councils_apps") || "{}");
-        const foundLocal = Object.values(localSaved).find((a: any) => 
-          (token && (a.activationToken === token || a.token === token)) ||
-          (a.activationCode && String(a.activationCode).trim() === cleanCode) ||
-          (studentId && a.studentId === studentId)
-        );
-        if (foundLocal && ((foundLocal as any).status === "submitted" || (foundLocal as any).status === "approved" || (foundLocal as any).status === "disqualified")) {
-          setAlreadySubmittedApplication(foundLocal as ParentCouncilApplication);
-          return;
-        }
-      } catch (e) {}
 
       // If invite data is returned, prefill
       if (data.invite) {
@@ -828,7 +837,7 @@ export default function ParentCouncilPortal({
     // Calculate evaluation immediately
     const evaluation = evaluateParentCouncilApplication(newApp);
     newApp.smartEvaluation = evaluation;
-    newApp.status = evaluation.isEligible ? "submitted" : "disqualified";
+    newApp.status = "submitted";
 
     try {
       const res = await fetch("/api/parent-councils/submit", {
@@ -1010,10 +1019,10 @@ export default function ParentCouncilPortal({
               <CheckCircle2 className="w-10 h-10 text-emerald-300" />
             </div>
             <h1 className="text-lg sm:text-2xl font-black mb-2">
-              شكراً لكم على تعبئة استمارة الترشح
+              شكراً لكم على إكمال استمارة الترشح
             </h1>
             <p className="text-xs sm:text-sm text-teal-100 font-medium leading-relaxed max-w-md mx-auto">
-              تم استلام استمارتكم بنجاح وإقفالها رسمياً، وسيتم مراجعة جميع الطلبات والمفاضلة، وستتواصل معكم إدارة المدرسة في حال ترشيحكم لعضوية مجلس أولياء الأمور.
+              تم استلام استمارتكم بنجاح، وستتواصل إدارة المدرسة مع المرشحين لعضوية مجلس أولياء الأمور.
             </p>
           </div>
 
@@ -1022,9 +1031,9 @@ export default function ParentCouncilPortal({
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-900 text-xs font-bold leading-relaxed flex items-center gap-3">
               <ShieldCheck className="w-6 h-6 text-emerald-700 shrink-0" />
               <div>
-                <span className="font-black block text-sm">تم إقفال الاستمارة وتسليمها بنجاح</span>
+                <span className="font-black block text-sm">تم إكمال الاستمارة واستلامها بنجاح</span>
                 <span className="text-slate-600 font-medium text-xs">
-                  تم تسجيل ترشيحكم رسمياً، ولا حاجة لإعادة تعبئة الاستمارة.
+                  تم تسجيل ترشيحكم وتوثيقه رسمياً، وستتواصل إدارة المدرسة مع المرشحين.
                 </span>
               </div>
             </div>
@@ -1032,7 +1041,7 @@ export default function ParentCouncilPortal({
             {/* Summary Data */}
             <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
               <div className="text-xs font-black text-slate-600 border-b border-slate-200 pb-2 flex items-center justify-between">
-                <span>بيانات الترشيح المعتمدة:</span>
+                <span>بيانات الترشيح المستلمة:</span>
                 <span className="text-[11px] font-mono text-teal-800">
                   {submittedApplication.id}
                 </span>
@@ -1064,21 +1073,20 @@ export default function ParentCouncilPortal({
                   <span className="text-slate-500 block text-[11px]">حالة الطلب:</span>
                   <span className="inline-flex items-center gap-1 font-bold text-emerald-800">
                     <Check className="w-3.5 h-3.5" />
-                    <span>مستلم ومعتمد</span>
+                    <span>مكتمل ومستلم بنجاح</span>
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Close Button (No View Form) */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleFinalClose}
-                className="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 min-h-[46px]"
-              >
-                <span>إغلاق الاستمارة</span>
-              </button>
+            {/* Instructions: Browser tab close only - NO BUTTONS to return to site or form */}
+            <div className="p-4 bg-slate-100 rounded-2xl border border-slate-200 text-center space-y-1.5">
+              <div className="text-xs sm:text-sm font-black text-slate-800">
+                فضلاً قم بإغلاق المتصفح الآن
+              </div>
+              <p className="text-[11px] sm:text-xs text-slate-500 font-medium leading-relaxed">
+                تم حفظ وتوثيق بياناتكم بأمان، ولا توجد أي خطوات أخرى مطلوبة منكم. يرجى إغلاق نافذة أو علامة تبويب المتصفح.
+              </p>
             </div>
           </div>
         </div>
@@ -1167,10 +1175,10 @@ export default function ParentCouncilPortal({
               <CheckCircle2 className="w-10 h-10 text-teal-300" />
             </div>
             <h1 className="text-lg sm:text-2xl font-black mb-2">
-              شكراً لتقديمكم الاستبيان — لقد قمتم بتعبئة الاستبيان مسبقاً
+              تم تعبئة الاستمارة من قبل
             </h1>
             <p className="text-xs sm:text-sm text-slate-200 font-medium leading-relaxed max-w-md mx-auto">
-              المكرم ولي الأمر، نشكركم جزيل الشكر والتقدير على تقديمكم الاستبيان ومشاركتكم في مجالس أولياء الأمور بـ <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>. نود إفادتكم بأنكم قمتم بتعبئة الاستبيان مسبقاً بنجاح، وبياناتكم مسجلة وموثقة رسمياً في سجلات المدرسة، وستتواصل معكم إدارة المدرسة في حال ترشيحكم.
+              المكرم ولي الأمر، نود إشعاركم بأنه قد تم تعبئة استمارة الترشح لعضوية مجلس أولياء الأمور مسبقاً، وبياناتكم مسجلة ومحفوظة لدى إدارة المدرسة، وستتواصل إدارة المدرسة مع المرشحين.
             </p>
           </div>
 
@@ -1178,9 +1186,9 @@ export default function ParentCouncilPortal({
             <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-teal-950 text-xs font-bold leading-relaxed flex items-center gap-3">
               <ShieldCheck className="w-6 h-6 text-teal-700 shrink-0" />
               <div>
-                <span className="font-black block text-sm">تم استلام وتوثيق استبيانكم مسبقاً بنجاح</span>
+                <span className="font-black block text-sm">تم استلام استمارتكم وتوثيقها مسبقاً</span>
                 <span className="text-slate-600 font-medium text-xs">
-                  لقد قمتم بتعبئة الاستبيان بالفعل، وطلبكم مسجل ومحفوظ في قاعدة بيانات المدرسة ولا حاجة لإعادة التعبئة.
+                  لقد تم تسجيل بياناتكم في النظام ولا يمكن إعادة تعبئة الاستمارة، وستتواصل المدرسة مع المرشحين.
                 </span>
               </div>
             </div>
@@ -1188,7 +1196,7 @@ export default function ParentCouncilPortal({
             {/* Summary Box */}
             <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
               <div className="text-xs font-black text-slate-600 border-b border-slate-200 pb-2 flex items-center justify-between">
-                <span>بيانات الترشيح المسجلة:</span>
+                <span>بيانات الاستمارة المعبأة مسبقاً:</span>
                 <span className="text-[11px] font-mono text-teal-800">
                   {alreadySubmittedApplication.id}
                 </span>
@@ -1218,20 +1226,19 @@ export default function ParentCouncilPortal({
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[11px]">الحالة:</span>
-                  <span className="font-bold text-emerald-800">مكتمل ومغلق</span>
+                  <span className="font-bold text-emerald-800">معبأة ومكتملة مسبقاً</span>
                 </div>
               </div>
             </div>
 
-            {/* Close Button (No View Form) */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleFinalClose}
-                className="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 min-h-[46px]"
-              >
-                <span>إغلاق الاستمارة</span>
-              </button>
+            {/* Instructions: Browser tab close only - NO BUTTONS */}
+            <div className="p-4 bg-slate-100 rounded-2xl border border-slate-200 text-center space-y-1.5">
+              <div className="text-xs sm:text-sm font-black text-slate-800">
+                فضلاً قم بإغلاق المتصفح الآن
+              </div>
+              <p className="text-[11px] sm:text-xs text-slate-500 font-medium leading-relaxed">
+                بياناتكم مسجلة مسبقاً ولا توجد خطوات إضافية مطلوبة منكم. يرجى إغلاق نافذة أو علامة تبويب المتصفح.
+              </p>
             </div>
           </div>
         </div>
@@ -1260,12 +1267,14 @@ export default function ParentCouncilPortal({
             </div>
           </div>
 
-          <button
-            onClick={handleFinalClose}
-            className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
-          >
-            إغلاق
-          </button>
+          {!isPortalMode && onExit && (
+            <button
+              onClick={onExit}
+              className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+            >
+              إغلاق المعاينة
+            </button>
+          )}
 
         </div>
       </header>

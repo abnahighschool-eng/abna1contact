@@ -473,7 +473,7 @@ export default function ParentCouncilDashboard({
       signature: "عبدالله الشهري",
       submissionDateHijri: "1447/03/14هـ",
       submittedAt: new Date(Date.now() - 3600000 * 15).toISOString(),
-      status: "disqualified",
+      status: "submitted",
     };
     app4.smartEvaluation = evaluateParentCouncilApplication(app4);
     samples[app4.id] = app4;
@@ -614,19 +614,18 @@ export default function ParentCouncilDashboard({
     const appsList = Object.values(applications) as ParentCouncilApplication[];
     const updatedApps: Record<string, ParentCouncilApplication> = { ...applications };
 
-    // 1. Re-evaluate all applications against criteria and Article 3
+    // Re-evaluate all applications for smart ranking
     appsList.forEach((app) => {
       const evalRes = evaluateParentCouncilApplication(app);
       updatedApps[app.id] = {
         ...app,
         smartEvaluation: evalRes,
-        status: evalRes.isEligible ? (app.status === "disqualified" ? "submitted" : app.status) : "disqualified",
+        status: app.status === "approved" || app.status === "reserve" ? app.status : "submitted",
       };
     });
 
-    // 2. Save evaluated applications (system sorts them by score for display)
     syncUpdates(updatedApps, config);
-    showToast("تم فرز وترتيب المتقدمين بنجاح حسب معايير الاستحقاق. قم الآن بوضع علامة (✓) على من ترغب بترشيحه.");
+    showToast("تم فرز وترتيب أولياء الأمور بنجاح وفق التقييم الذكي. الترتيب استرشادي ويمكنك اختيار أي ولي أمر.");
   };
 
   // Action: Toggle Nomination Mark on Candidate (وضع علامة على من يتم ترشيحه)
@@ -669,17 +668,16 @@ export default function ParentCouncilDashboard({
     }
   };
 
-  // Helper: Quick-mark top N candidates based on smart rank
+  // Helper: Quick-mark top N candidates based on smart rank (الترتيب استرشادي)
   const handleSelectTopCandidates = () => {
     const appsList = Object.values(applications) as ParentCouncilApplication[];
-    const eligible = appsList
-      .filter((a) => a.smartEvaluation?.isEligible && !a.isManuallyExcluded && a.status !== "disqualified")
-      .sort((a, b) => {
-        const scoreA = a.smartEvaluation?.overallScore || 0;
-        const scoreB = b.smartEvaluation?.overallScore || 0;
-        return scoreB - scoreA;
-      });
-    const topIds = eligible.slice(0, config.seatsCount).map((a) => a.id);
+    const sorted = [...appsList].sort((a, b) => {
+      const scoreA = a.smartEvaluation?.overallScore || 0;
+      const scoreB = b.smartEvaluation?.overallScore || 0;
+      return scoreB - scoreA;
+    });
+    const seats = config.seatsCount || 9;
+    const topIds = sorted.slice(0, seats).map((a) => a.id);
     const updatedApps = { ...applications };
     topIds.forEach((id) => {
       if (updatedApps[id]) {
@@ -693,7 +691,7 @@ export default function ParentCouncilDashboard({
       ...config,
       selectedMemberIds: topIds,
     });
-    showToast(`تم وضع علامة الترشيح على أعلى ${topIds.length} مرشحين استحقاقاً في الترتيب.`);
+    showToast(`تم تحديد أعلى ${topIds.length} في الترتيب كأعضاء أساسيين تلقائياً.`);
   };
 
   // Action: Toggle Survey Closed / Open globally
@@ -711,17 +709,81 @@ export default function ParentCouncilDashboard({
     }
   };
 
-  // Action: Disqualify candidate manually (with reason)
-  const handleExcludeCandidate = (appId: string) => {
+  // Action: Delete application so parent can refill it
+  const handleDeleteApplication = async (appId: string, applicantName: string) => {
+    const confirmDelete = window.confirm(
+      `هل أنت متأكد من حذف استمارة الترشح لولي الأمر: "${applicantName}"؟\n\n` +
+      `عند الحذف:\n` +
+      `1. سيتم حذف الاستمارة نهائياً من النظام.\n` +
+      `2. سيتمكن ولي الأمر من الدخول وتعبئة الاستمارة مرة أخرى.\n` +
+      `3. سيتم إلغاء اعتماده من مقاعد المجلس أو الاحتياط إن كان محدداً.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      const res = await fetch("/api/parent-councils/delete-application", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: appId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "تعذر حذف الاستمارة");
+      }
+
+      const newApps = { ...applications };
+      delete newApps[appId];
+      setApplications(newApps);
+
+      const newConfig: ParentCouncilConfig = {
+        ...config,
+        selectedMemberIds: (config.selectedMemberIds || []).filter((id) => id !== appId),
+        reserveMemberIds: (config.reserveMemberIds || []).filter((id) => id !== appId),
+      };
+      setConfig(newConfig);
+
+      if (data.studentId && invites[data.studentId]) {
+        setInvites((prev) => ({
+          ...prev,
+          [data.studentId]: {
+            ...prev[data.studentId],
+            isSubmitted: false,
+            submittedAt: undefined,
+            applicationId: undefined,
+          },
+        }));
+      }
+
+      showToast(`تم حذف استمارة (${applicantName}) بنجاح، ويمكن لولي الأمر الآن تعبئتها مرة أخرى.`);
+    } catch (err: any) {
+      console.error("Error deleting application:", err);
+      // Fallback local deletion
+      const newApps = { ...applications };
+      delete newApps[appId];
+      setApplications(newApps);
+      const newConfig: ParentCouncilConfig = {
+        ...config,
+        selectedMemberIds: (config.selectedMemberIds || []).filter((id) => id !== appId),
+        reserveMemberIds: (config.reserveMemberIds || []).filter((id) => id !== appId),
+      };
+      setConfig(newConfig);
+      syncUpdates(newApps, newConfig);
+      showToast(`تم حذف الاستمارة بنجاح، ويمكن لولي الأمر تعبئتها مرة أخرى.`);
+    }
+  };
+
+  // Action: Remove candidate from council (resets status to submitted in ranked pool)
+  const handleRemoveFromCouncil = (appId: string) => {
     const app = applications[appId];
     if (!app) return;
 
     const newApps = { ...applications };
     newApps[appId] = {
       ...app,
-      status: "disqualified",
-      isManuallyExcluded: true,
+      status: "submitted",
       assignedRole: undefined,
+      isManuallySelected: false,
+      isManuallyExcluded: false,
     };
 
     const newSelected = config.selectedMemberIds.filter((id) => id !== appId);
@@ -733,8 +795,11 @@ export default function ParentCouncilDashboard({
       reserveMemberIds: newReserve,
     });
 
-    showToast(`تم استبعاد المرشح: ${app.fullName} من تشكيل المجلس`);
+    showToast(`تم إلغاء اعتماد ولي الأمر: ${app.fullName} من تشكيل المجلس.`);
   };
+
+  // Keep handleExcludeCandidate as alias for backward compatibility
+  const handleExcludeCandidate = handleRemoveFromCouncil;
 
   // Action: Add/Select candidate into council
   const handleSelectCandidate = (appId: string, role?: any) => {
@@ -866,16 +931,14 @@ export default function ParentCouncilDashboard({
 
   // Filtered applications list
   const appsList = Object.values(applications) as ParentCouncilApplication[];
-  const eligibleApps = appsList.filter((a) => a.smartEvaluation?.isEligible);
-  const disqualifiedApps = appsList.filter((a) => !a.smartEvaluation?.isEligible || a.status === "disqualified");
   const selectedApps = config.selectedMemberIds.map((id) => applications[id]).filter(Boolean);
   const reserveApps = config.reserveMemberIds.map((id) => applications[id]).filter(Boolean);
 
-  const sortedEligibleApps = useMemo(() => {
-    return [...eligibleApps].sort(
+  const sortedAllApps = useMemo(() => {
+    return [...appsList].sort(
       (a, b) => (b.smartEvaluation?.overallScore || 0) - (a.smartEvaluation?.overallScore || 0)
     );
-  }, [eligibleApps]);
+  }, [appsList]);
 
   const filteredApplications = appsList.filter((app) => {
     const matchesSearch =
@@ -887,9 +950,8 @@ export default function ParentCouncilDashboard({
 
     const matchesStatus =
       statusFilter === "all" ||
-      (statusFilter === "eligible" && app.smartEvaluation?.isEligible) ||
-      (statusFilter === "disqualified" && (!app.smartEvaluation?.isEligible || app.status === "disqualified")) ||
-      (statusFilter === "selected" && config.selectedMemberIds.includes(app.id));
+      (statusFilter === "selected" && config.selectedMemberIds.includes(app.id)) ||
+      (statusFilter === "reserve" && config.reserveMemberIds.includes(app.id));
 
     const matchesGrade = gradeFilter === "all" || app.studentGrade.includes(gradeFilter);
 
@@ -1002,38 +1064,40 @@ export default function ParentCouncilDashboard({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-100">
           
           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-            <div className="text-[11px] font-bold text-slate-500">إجمالي طلبات الترشيح</div>
+            <div className="text-[11px] font-bold text-slate-500">إجمالي المتقدمين</div>
             <div className="text-xl font-black text-slate-900 mt-0.5 font-mono">{appsList.length}</div>
             <div className="text-[10px] text-slate-400 mt-1">استمارة ترشيح مسجلة</div>
           </div>
 
-          <div className="p-3.5 bg-emerald-50/70 rounded-2xl border border-emerald-200/80">
-            <div className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
-              <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>المطابقون للشروط</span>
+          <div className="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-200/80">
+            <div className="text-[11px] font-bold text-amber-800 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <span>الفرز والترتيب الذكي</span>
             </div>
-            <div className="text-xl font-black text-emerald-900 mt-0.5 font-mono">{eligibleApps.length}</div>
-            <div className="text-[10px] text-emerald-700 mt-1">استوفوا المادة (الثالثة)</div>
-          </div>
-
-          <div className="p-3.5 bg-rose-50/70 rounded-2xl border border-rose-200/80">
-            <div className="text-[11px] font-bold text-rose-800 flex items-center gap-1">
-              <UserX className="w-3.5 h-3.5 text-rose-600" />
-              <span>المستبعدون نظامياً</span>
-            </div>
-            <div className="text-xl font-black text-rose-900 mt-0.5 font-mono">{disqualifiedApps.length}</div>
-            <div className="text-[10px] text-rose-700 mt-1">بموجب ضوابط المادة (3)</div>
+            <div className="text-xl font-black text-amber-900 mt-0.5 font-mono">{sortedAllApps.length}</div>
+            <div className="text-[10px] text-amber-700 mt-1">مرتبين استرشادياً للجنة</div>
           </div>
 
           <div className="p-3.5 bg-teal-50 rounded-2xl border border-teal-200/80">
             <div className="text-[11px] font-bold text-teal-800 flex items-center gap-1">
               <Award className="w-3.5 h-3.5 text-teal-600" />
-              <span>المعتمدون في المجلس</span>
+              <span>أعضاء المجلس المختارون</span>
             </div>
             <div className="text-xl font-black text-teal-900 mt-0.5 font-mono">
-              {config.selectedMemberIds.length} <span className="text-xs font-normal text-teal-700">/ {config.seatsCount}</span>
+              {config.selectedMemberIds.length} <span className="text-xs font-normal text-teal-700">/ {config.seatsCount} أعضاء</span>
             </div>
-            <div className="text-[10px] text-teal-700 mt-1">+{config.reserveMemberIds.length} احتياط</div>
+            <div className="text-[10px] text-teal-700 mt-1">تم اعتمادهم للمجلس</div>
+          </div>
+
+          <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200/80">
+            <div className="text-[11px] font-bold text-indigo-800 flex items-center gap-1">
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span>الأعضاء الاحتياط</span>
+            </div>
+            <div className="text-xl font-black text-indigo-900 mt-0.5 font-mono">
+              {config.reserveMemberIds.length} <span className="text-xs font-normal text-indigo-700">/ {config.reserveSeatsCount || 4} احتياط</span>
+            </div>
+            <div className="text-[10px] text-indigo-700 mt-1">قائمة الاحتياط المعتمدة</div>
           </div>
 
         </div>
@@ -1053,7 +1117,7 @@ export default function ParentCouncilDashboard({
           <Sparkles className="w-4 h-4 text-amber-300" />
           <span>فرز وترتيب المتقدمين الذكي</span>
           <span className="text-[10px] bg-teal-900/40 text-teal-100 px-2 py-0.5 rounded-full font-mono">
-            {eligibleApps.length} مؤهلين
+            {sortedAllApps.length} متقدم
           </span>
         </button>
 
@@ -1235,29 +1299,33 @@ export default function ParentCouncilDashboard({
             </div>
           </div>
 
-          {/* Section 1: نتائج الفرز الذكي وترتيب المتقدمين المؤهلين */}
+          {/* Section 1: نتائج الفرز والترتيب الذكي لجميع المتقدمين */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-amber-500" />
-                  <span>نتائج الفرز الذكي وترتيب المتقدمين المؤهلين ({sortedEligibleApps.length} متقدماً)</span>
+                  <span>نتائج الفرز والترتيب الذكي لجميع المتقدمين ({sortedAllApps.length} ولي أمر)</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  تم ترتيب المتقدمين تنازلياً وفق معايير المفاضلة ونقاط التقييم. ضع علامة (✓) على من ترغب بترشيحه لتتكون قائمة الاعتماد في القسم المستقل.
+                <p className="text-xs text-slate-500 mt-0.5 max-w-2xl leading-relaxed">
+                  يظهر جميع أولياء الأمور الذين عبأوا الاستمارة مرتبين وفق الفرز والترتيب الذكي لمعاونة اللجنة في الاختيار، ويتم اختيار 9 أعضاء أساسيين مع الاحتياط، مع إمكانية اختيار أي ولي أمر بغض النظر عن ترتيبه (فالترتيب استرشادي ولا يلزم به).
                 </p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold text-teal-900 bg-teal-50 px-3 py-1.5 rounded-full border border-teal-200">
-                  المحدد للترشيح: {config.selectedMemberIds.length} من {config.seatsCount} مقاعد
+                  الأساسيون: {config.selectedMemberIds.length} من {config.seatsCount}
+                </span>
+
+                <span className="text-xs font-bold text-indigo-900 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-200">
+                  الاحتياط: {config.reserveMemberIds.length}
                 </span>
 
                 <button
                   type="button"
                   onClick={handleSelectTopCandidates}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-colors cursor-pointer"
-                  title={`تحديد أعلى ${config.seatsCount} في الترتيب كمرشحين تلقائياً`}
+                  title={`تحديد أعلى ${config.seatsCount} في الترتيب كمرشحين أساسيين تلقائياً`}
                 >
                   <CheckSquare className="w-3.5 h-3.5 text-amber-700" />
                   <span>تحديد أعلى {config.seatsCount} تلقائياً</span>
@@ -1265,13 +1333,13 @@ export default function ParentCouncilDashboard({
               </div>
             </div>
 
-            {sortedEligibleApps.length === 0 ? (
+            {sortedAllApps.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-xs">
-                لا يوجد متقدمون مؤهلون حتى الآن. اضغط على "تشغيل فرز وترتيب المتقدمين ذكياً" للبدء بعد استلام الاستمارات.
+                لا يوجد طلبات ترشيح حتى الآن. عند تعبئة أولياء الأمور للاستمارات ستظهر هنا مرتبة بالفرز الذكي فوراً.
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {sortedEligibleApps.map((app, index) => {
+                {sortedAllApps.map((app, index) => {
                   const isNominated = config.selectedMemberIds.includes(app.id);
                   const isReserve = config.reserveMemberIds.includes(app.id);
                   const isTopSeat = index < config.seatsCount;
@@ -1295,7 +1363,7 @@ export default function ParentCouncilDashboard({
                               ? "bg-amber-500 text-slate-950 ring-2 ring-amber-300"
                               : "bg-slate-800 text-white"
                           }`}
-                          title={`الترتيب الاستحقاقي: المركز ${index + 1}`}
+                          title={`الترتيب الاسترشادي: المركز ${index + 1}`}
                         >
                           #{index + 1}
                         </div>
@@ -1307,13 +1375,13 @@ export default function ParentCouncilDashboard({
                             {isNominated && (
                               <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-teal-700 text-white flex items-center gap-1">
                                 <Check className="w-3 h-3 text-emerald-300" />
-                                مرشح بالقائمة
+                                عضو أساسي بالمجلس
                               </span>
                             )}
 
                             {isReserve && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
-                                احتياط
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-300">
+                                عضو احتياط
                               </span>
                             )}
 
@@ -1354,10 +1422,10 @@ export default function ParentCouncilDashboard({
                       </div>
 
                       {/* Score & Actions */}
-                      <div className="flex items-center gap-2.5 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-2.5 lg:pt-0 border-slate-100">
+                      <div className="flex items-center gap-2.5 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-2.5 lg:pt-0 border-slate-100 flex-wrap">
                         {/* Smart score badge */}
                         <div className="text-center px-3 py-1 bg-white rounded-xl border border-slate-200 shadow-2xs">
-                          <div className="text-[10px] font-bold text-slate-500">درجة التقييم</div>
+                          <div className="text-[10px] font-bold text-slate-500">درجة التقييم الذكي</div>
                           <div className="text-sm font-black font-mono text-teal-800">
                             {app.smartEvaluation?.overallScore || 85}%
                           </div>
@@ -1381,7 +1449,7 @@ export default function ParentCouncilDashboard({
                           ) : (
                             <>
                               <Square className="w-4 h-4 text-slate-400" />
-                              <span>وضع علامة ترشيح</span>
+                              <span>ترشيح كعضو أساسي</span>
                             </>
                           )}
                         </button>
@@ -1391,12 +1459,12 @@ export default function ParentCouncilDashboard({
                           onClick={() => handleMoveToReserve(app.id)}
                           className={`px-2.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
                             isReserve
-                              ? "bg-amber-100 text-amber-900 border-amber-300"
+                              ? "bg-indigo-100 text-indigo-900 border-indigo-300"
                               : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
                           }`}
                           title="ترشيح للاحتياط"
                         >
-                          احتياط
+                          {isReserve ? "✓ احتياط" : "احتياط"}
                         </button>
 
                         <button
@@ -1407,78 +1475,20 @@ export default function ParentCouncilDashboard({
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+
+                        {/* Delete Application Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteApplication(app.id, app.fullName)}
+                          className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer border border-rose-200"
+                          title="حذف الاستمارة ليتمكن ولي الأمر من تعبئتها مرة أخرى"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-
-          {/* Section 3: المستبعدون نظامياً بموجب المادة (الثالثة) */}
-          <div className="bg-white rounded-3xl border border-rose-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4 border-b border-rose-100 pb-3">
-              <div>
-                <h3 className="text-sm sm:text-base font-black text-rose-900 flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-rose-600" />
-                  <span>المستبعدون نظامياً بموجب المادة (الثالثة) لضوابط العضوية ({disqualifiedApps.length})</span>
-                </h3>
-                <p className="text-xs text-rose-700 mt-0.5">
-                  تم استبعادهم تلقائياً لعدم استيفاء الشروط والضوابط المنصوص عليها في لائحة مجالس أولياء الأمور
-                </p>
-              </div>
-            </div>
-
-            {disqualifiedApps.length === 0 ? (
-              <div className="text-center py-6 text-slate-400 text-xs font-bold">
-                لا يوجد مرشحون مستبعدون حالياً، جميع المتقدمين استوفوا الضوابط النظامية.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {disqualifiedApps.map((app) => (
-                  <div
-                    key={app.id}
-                    className="p-4 bg-rose-50/50 rounded-2xl border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-xs sm:text-sm text-rose-950">{app.fullName}</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300">
-                          مستبعد نظامياً
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-600 mt-1">
-                        الطالب: {app.studentName} ({app.studentGrade}) • جوال: <span dir="ltr">{app.phone}</span>
-                      </div>
-                      <div className="mt-2 space-y-1">
-                        {(app.smartEvaluation?.disqualificationReasons || ["لم يستوفِ شروط المادة (3)"]).map((reason, rIdx) => (
-                          <div key={rIdx} className="text-[11px] font-bold text-rose-700 flex items-start gap-1.5">
-                            <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
-                            <span>{reason}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAppForPrint(app)}
-                        className="px-3 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-900 hover:bg-rose-50 text-xs font-bold cursor-pointer"
-                      >
-                        معاينة الاستمارة
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectCandidate(app.id)}
-                        className="px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold cursor-pointer"
-                        title="إعادة قبول المرشح استثنائياً"
-                      >
-                        إعادة قبول استثنائي
-                      </button>
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </div>
@@ -1868,10 +1878,9 @@ export default function ParentCouncilDashboard({
                 onChange={(e) => setStatusFilter(e.target.value as any)}
                 className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 cursor-pointer focus:bg-white"
               >
-                <option value="all">جميع الحالات ({appsList.length})</option>
+                <option value="all">جميع المتقدمين ({appsList.length})</option>
                 <option value="selected">المعتمدون في المجلس ({selectedApps.length})</option>
-                <option value="eligible">المطابقون للشروط ({eligibleApps.length})</option>
-                <option value="disqualified">المستبعدون ({disqualifiedApps.length})</option>
+                <option value="reserve">قائمة الاحتياط ({reserveApps.length})</option>
               </select>
 
               <select
@@ -1948,15 +1957,15 @@ export default function ParentCouncilDashboard({
                       <td className="p-3 text-center">
                         {isSelected ? (
                           <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-teal-100 text-teal-900 border border-teal-300">
-                            معتمد بالمجلس
+                            عضو أساسي
                           </span>
-                        ) : isDisqualified ? (
-                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 text-rose-900 border border-rose-300">
-                            مستبعد
+                        ) : config.reserveMemberIds.includes(app.id) ? (
+                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-300">
+                            عضو احتياط
                           </span>
                         ) : (
                           <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                            مؤهل
+                            متقدم
                           </span>
                         )}
                       </td>
@@ -1966,7 +1975,7 @@ export default function ParentCouncilDashboard({
                       </td>
 
                       <td className="p-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
                           <button
                             type="button"
                             onClick={() => setSelectedAppForPrint(app)}
@@ -1980,21 +1989,44 @@ export default function ParentCouncilDashboard({
                             <button
                               type="button"
                               onClick={() => handleSelectCandidate(app.id)}
-                              className="px-2 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-[10px] cursor-pointer"
-                              title="إضافة إلى المجلس"
+                              className="px-2 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-[10px] cursor-pointer shadow-2xs"
+                              title="اختيار واعتماد كعضو بالمجلس"
                             >
                               اختيار
                             </button>
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleExcludeCandidate(app.id)}
-                              className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] cursor-pointer"
-                              title="استبعاد من المجلس"
+                              onClick={() => handleRemoveFromCouncil(app.id)}
+                              className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[10px] cursor-pointer border border-amber-200"
+                              title="إلغاء الاعتماد من المجلس"
                             >
-                              استبعاد
+                              إلغاء الاعتماد
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleMoveToReserve(app.id)}
+                            className={`px-2 py-1 rounded-lg font-bold text-[10px] cursor-pointer border ${
+                              config.reserveMemberIds.includes(app.id)
+                                ? "bg-indigo-100 text-indigo-900 border-indigo-300"
+                                : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                            }`}
+                            title="ترشيح للاحتياط"
+                          >
+                            احتياط
+                          </button>
+
+                          {/* Delete Application Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteApplication(app.id, app.fullName)}
+                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold transition-colors cursor-pointer border border-rose-200"
+                            title="حذف الاستمارة ليتمكن ولي الأمر من تعبئتها مرة أخرى"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>

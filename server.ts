@@ -2175,7 +2175,7 @@ app.post("/api/parent-councils/submit", (req, res) => {
     fullName: application.fullName || application.guardianName,
     nationalId: application.nationalId || application.guardianNationalId,
     phone: application.phone || application.guardianPhone,
-    status: application.status || (smartEvaluation.isEligible ? "submitted" : "disqualified"),
+    status: application.status === "approved" || application.status === "reserve" ? application.status : "submitted",
     smartEvaluation,
     submittedAt: application.submittedAt || now,
     lastUpdated: now,
@@ -2229,6 +2229,78 @@ app.post("/api/parent-councils/sync", (req, res) => {
     success: true,
     count: Object.keys(parentCouncilsStore.applications).length,
     config: parentCouncilsStore.config,
+  });
+});
+
+// 6.5 Delete Application and Reset Invite (Allows parent to refill the form)
+app.post("/api/parent-councils/delete-application", (req, res) => {
+  const { id, applicationId } = req.body || {};
+  const targetId = String(id || applicationId || "").trim();
+
+  if (!targetId) {
+    return res.status(400).json({ success: false, message: "معرف الاستمارة مطلوب لحذفها" });
+  }
+
+  const existingApp = parentCouncilsStore.applications[targetId] ||
+    Object.values(parentCouncilsStore.applications || {}).find((a: any) => a && (a.id === targetId || a.id === `app_${targetId}`));
+
+  const appId = existingApp ? existingApp.id : targetId;
+  const studentId = existingApp?.studentId;
+  const token = existingApp?.token || existingApp?.activationToken;
+
+  // 1. Remove from applications
+  if (parentCouncilsStore.applications[appId]) {
+    delete parentCouncilsStore.applications[appId];
+  }
+  if (parentCouncilsStore.applications[targetId]) {
+    delete parentCouncilsStore.applications[targetId];
+  }
+
+  // 2. Remove from selected / reserve member lists in config
+  if (parentCouncilsStore.config) {
+    parentCouncilsStore.config.selectedMemberIds = (parentCouncilsStore.config.selectedMemberIds || []).filter(
+      (mId: string) => mId !== appId && mId !== targetId
+    );
+    parentCouncilsStore.config.reserveMemberIds = (parentCouncilsStore.config.reserveMemberIds || []).filter(
+      (mId: string) => mId !== appId && mId !== targetId
+    );
+  }
+
+  // 3. Reset matched invite so parent can refill the form
+  if (studentId && parentCouncilsStore.invites?.[studentId]) {
+    parentCouncilsStore.invites[studentId].isSubmitted = false;
+    delete parentCouncilsStore.invites[studentId].submittedAt;
+    delete parentCouncilsStore.invites[studentId].applicationId;
+  }
+  if (token) {
+    const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
+      (inv: any) => inv.token === token
+    );
+    if (matchedInvite) {
+      matchedInvite.isSubmitted = false;
+      delete matchedInvite.submittedAt;
+      delete matchedInvite.applicationId;
+    }
+  }
+  Object.values(parentCouncilsStore.invites || {}).forEach((inv: any) => {
+    if (inv && (inv.applicationId === appId || inv.applicationId === targetId)) {
+      inv.isSubmitted = false;
+      delete inv.submittedAt;
+      delete inv.applicationId;
+    }
+  });
+
+  saveParentCouncilsStore(true);
+
+  res.json({
+    success: true,
+    message: "تم حذف الاستمارة بنجاح، ويمكن لولي الأمر الآن تعبئتها مرة أخرى.",
+    deletedId: appId,
+    studentId,
+    token,
+    applications: parentCouncilsStore.applications,
+    config: parentCouncilsStore.config,
+    invites: parentCouncilsStore.invites,
   });
 });
 
