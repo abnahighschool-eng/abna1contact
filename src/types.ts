@@ -197,6 +197,9 @@ export interface Teacher {
   specialty?: string; // التخصص
   nationalId?: string; // رقم الهوية الوطنية
   notes?: string;
+  isArchived?: boolean; // تم حفظه وأرشفته تلقائياً عند تحديث كشف المعلمين لحفظ كامل سجلاته
+  archivedAt?: string;
+  archivedReason?: string;
 }
 
 export interface ScheduleAssignment {

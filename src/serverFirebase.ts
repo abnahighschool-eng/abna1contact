@@ -219,6 +219,16 @@ export async function forceFlushServerStateToFirestore(additionalState?: Record<
       lastUpdated: new Date().toISOString(),
     });
     await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
+    
+    // Dedicated backup doc for parent councils
+    const pcData = additionalState?.parentCouncils || pendingServerState.parentCouncils;
+    if (pcData) {
+      setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"), sanitizePayload({
+        ...pcData,
+        lastUpdated: new Date().toISOString(),
+      }), { merge: true }).catch(() => {});
+    }
+
     lastSyncedServerHash = JSON.stringify(payload);
     pendingServerState = {};
     return true;
@@ -492,6 +502,19 @@ export async function loadServerStateFromFirestore(): Promise<any> {
           }
           if (scData.savedTemplate && !combinedState.activeTemplate) {
             combinedState.activeTemplate = scData.savedTemplate;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 8. Fetch parent_councils_data if parentCouncils is empty or missing
+    if (!combinedState.parentCouncils || Object.keys(combinedState.parentCouncils.applications || {}).length === 0) {
+      try {
+        const pcSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"));
+        if (pcSnap.exists()) {
+          const pcData = pcSnap.data();
+          if (pcData && (pcData.applications || pcData.config || pcData.invites)) {
+            combinedState.parentCouncils = pcData;
           }
         }
       } catch (e) {}

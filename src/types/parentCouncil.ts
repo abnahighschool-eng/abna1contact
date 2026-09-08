@@ -61,7 +61,7 @@ export interface ParentCouncilApplication {
   submissionDateHijri: string;
   submittedAt: string;
   status: "submitted" | "approved" | "reserve" | "disqualified";
-  assignedRole?: "رئيس المجلس" | "نائب الرئيس" | "أمين السر" | "عضو مجلس" | "عضو احتياط";
+  assignedRole?: "رئيس المجلس" | "نائب الرئيس" | "أمين السر" | "عضو مجلس" | "عضو احتياط" | string;
   smartEvaluation?: SmartEvaluationResult;
   adminNotes?: string;
   isManuallySelected?: boolean;

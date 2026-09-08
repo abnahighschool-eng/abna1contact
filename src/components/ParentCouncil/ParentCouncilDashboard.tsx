@@ -30,6 +30,12 @@ import {
   Settings,
   HelpCircle,
   Save,
+  PenLine,
+  CheckSquare,
+  Square,
+  ClipboardCheck,
+  ArrowRight,
+  ArrowLeft,
 } from "lucide-react";
 import {
   ParentCouncilApplication,
@@ -62,7 +68,9 @@ export default function ParentCouncilDashboard({
   onOpenSignatoriesModal,
 }: ParentCouncilDashboardProps) {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<"smart_screening" | "all_applications" | "links_and_wa" | "sent_invites">("smart_screening");
+  const [activeTab, setActiveTab] = useState<
+    "smart_screening" | "approved_council" | "all_applications" | "links_and_wa" | "sent_invites"
+  >("smart_screening");
 
   // Main state
   const [applications, setApplications] = useState<Record<string, ParentCouncilApplication>>({});
@@ -332,7 +340,7 @@ export default function ParentCouncilDashboard({
       submissionDateHijri: "1447/03/12هـ",
       submittedAt: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
       status: "approved",
-      assignedRole: "نائب الرئيس",
+      assignedRole: "",
     };
     app1.smartEvaluation = evaluateParentCouncilApplication(app1);
     samples[app1.id] = app1;
@@ -378,7 +386,7 @@ export default function ParentCouncilDashboard({
       submissionDateHijri: "1447/03/13هـ",
       submittedAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
       status: "approved",
-      assignedRole: "أمين السر",
+      assignedRole: "",
     };
     app2.smartEvaluation = evaluateParentCouncilApplication(app2);
     samples[app2.id] = app2;
@@ -422,7 +430,7 @@ export default function ParentCouncilDashboard({
       submissionDateHijri: "1447/03/14هـ",
       submittedAt: new Date(Date.now() - 3600000 * 20).toISOString(),
       status: "approved",
-      assignedRole: "عضو مجلس",
+      assignedRole: "",
     };
     app3.smartEvaluation = evaluateParentCouncilApplication(app3);
     samples[app3.id] = app3;
@@ -508,7 +516,7 @@ export default function ParentCouncilDashboard({
       submissionDateHijri: "1447/03/15هـ",
       submittedAt: new Date(Date.now() - 3600000 * 10).toISOString(),
       status: "approved",
-      assignedRole: "عضو مجلس",
+      assignedRole: "",
     };
     app5.smartEvaluation = evaluateParentCouncilApplication(app5);
     samples[app5.id] = app5;
@@ -599,12 +607,12 @@ export default function ParentCouncilDashboard({
     }
   };
 
-  // AI / Smart Re-Sort Action
+  // AI / Smart Sort Action: Sorts and Ranks applicants only without auto-selecting
   const handleRunSmartSort = () => {
     const appsList = Object.values(applications) as ParentCouncilApplication[];
     const updatedApps: Record<string, ParentCouncilApplication> = { ...applications };
 
-    // 1. Re-evaluate all applications
+    // 1. Re-evaluate all applications against criteria and Article 3
     appsList.forEach((app) => {
       const evalRes = evaluateParentCouncilApplication(app);
       updatedApps[app.id] = {
@@ -614,40 +622,76 @@ export default function ParentCouncilDashboard({
       };
     });
 
-    // 2. Filter eligible and sort descending by overallScore
-    const eligible = (Object.values(updatedApps) as ParentCouncilApplication[])
-      .filter((a) => a.smartEvaluation?.isEligible)
-      .sort((a, b) => (b.smartEvaluation?.overallScore || 0) - (a.smartEvaluation?.overallScore || 0));
+    // 2. Save evaluated applications (system sorts them by score for display)
+    syncUpdates(updatedApps, config);
+    showToast("تم فرز وترتيب المتقدمين بنجاح حسب معايير الاستحقاق. قم الآن بوضع علامة (✓) على من ترغب بترشيحه.");
+  };
 
-    // 3. Propose selection (e.g. top config.seatsCount members + top reserveSeatsCount reserve)
-    const proposedSelectedIds: string[] = [];
-    const proposedReserveIds: string[] = [];
+  // Action: Toggle Nomination Mark on Candidate (وضع علامة على من يتم ترشيحه)
+  const handleToggleNomination = (appId: string) => {
+    const isSelected = config.selectedMemberIds.includes(appId);
+    if (isSelected) {
+      // Unmark / remove from council
+      const newSelected = config.selectedMemberIds.filter((id) => id !== appId);
+      const updatedApps = { ...applications };
+      if (updatedApps[appId]) {
+        updatedApps[appId] = {
+          ...updatedApps[appId],
+          status: "submitted",
+          assignedRole: "",
+        };
+      }
+      syncUpdates(updatedApps, {
+        ...config,
+        selectedMemberIds: newSelected,
+      });
+      showToast(`تم إلغاء علامة الترشيح عن المرشح: ${applications[appId]?.fullName || ""}`);
+    } else {
+      // Mark / add to council
+      const app = applications[appId];
+      if (!app) return;
+      const newSelected = [...config.selectedMemberIds, appId];
+      const newReserve = config.reserveMemberIds.filter((id) => id !== appId);
+      const updatedApps = { ...applications };
+      updatedApps[appId] = {
+        ...app,
+        status: "approved",
+        assignedRole: app.assignedRole || "",
+      };
+      syncUpdates(updatedApps, {
+        ...config,
+        selectedMemberIds: newSelected,
+        reserveMemberIds: newReserve,
+      });
+      showToast(`تم وضع علامة الترشيح لـ (${app.fullName}) وإضافته إلى قائمة الاعتماد.`);
+    }
+  };
 
-    eligible.forEach((app, idx) => {
-      if (idx < config.seatsCount) {
-        proposedSelectedIds.push(app.id);
-        updatedApps[app.id].status = "approved";
-        if (!updatedApps[app.id].assignedRole) {
-          updatedApps[app.id].assignedRole = app.smartEvaluation?.suggestedRole || "عضو مجلس";
+  // Helper: Quick-mark top N candidates based on smart rank
+  const handleSelectTopCandidates = () => {
+    const appsList = Object.values(applications) as ParentCouncilApplication[];
+    const eligible = appsList
+      .filter((a) => a.smartEvaluation?.isEligible && !a.isManuallyExcluded && a.status !== "disqualified")
+      .sort((a, b) => {
+        const scoreA = a.smartEvaluation?.overallScore || 0;
+        const scoreB = b.smartEvaluation?.overallScore || 0;
+        return scoreB - scoreA;
+      });
+    const topIds = eligible.slice(0, config.seatsCount).map((a) => a.id);
+    const updatedApps = { ...applications };
+    topIds.forEach((id) => {
+      if (updatedApps[id]) {
+        updatedApps[id].status = "approved";
+        if (updatedApps[id].assignedRole === undefined) {
+          updatedApps[id].assignedRole = "";
         }
-      } else if (idx < config.seatsCount + config.reserveSeatsCount) {
-        proposedReserveIds.push(app.id);
-        updatedApps[app.id].status = "reserve";
-        updatedApps[app.id].assignedRole = "عضو احتياط";
-      } else {
-        updatedApps[app.id].status = "submitted";
       }
     });
-
-    const newConfig = {
+    syncUpdates(updatedApps, {
       ...config,
-      selectedMemberIds: proposedSelectedIds,
-      reserveMemberIds: proposedReserveIds,
-      formationApproved: false,
-    };
-
-    syncUpdates(updatedApps, newConfig);
-    showToast("تم إجراء الفرز الآلي وتوزيع المقاعد والاحتياط بنجاح.");
+      selectedMemberIds: topIds,
+    });
+    showToast(`تم وضع علامة الترشيح على أعلى ${topIds.length} مرشحين استحقاقاً في الترتيب.`);
   };
 
   // Action: Toggle Survey Closed / Open globally
@@ -699,7 +743,7 @@ export default function ParentCouncilDashboard({
     newApps[appId] = {
       ...app,
       status: "approved",
-      assignedRole: role || app.assignedRole || "عضو مجلس",
+      assignedRole: role !== undefined ? role : (app.assignedRole || ""),
       isManuallySelected: true,
       isManuallyExcluded: false,
     };
@@ -774,10 +818,26 @@ export default function ParentCouncilDashboard({
     showToast(`تم استبدال (${currentApp.fullName}) بالمرشح (${targetApp.fullName}) بنجاح`);
   };
 
+  // Action: Manually update role of candidate
+  const handleUpdateRole = (appId: string, role: string) => {
+    const app = applications[appId];
+    if (!app) return;
+
+    const newApps = {
+      ...applications,
+      [appId]: {
+        ...app,
+        assignedRole: role,
+      },
+    };
+
+    syncUpdates(newApps, config);
+  };
+
   // Action: Approve Council Formation officially
   const handleApproveFormation = () => {
     if (config.selectedMemberIds.length === 0) {
-      alert("يجب اختيار عضو واحد على الأقل لاعتماد تشكيل المجلس.");
+      showToast("تنبيه: يجب وضع علامة على عضو واحد على الأقل في قائمة الاعتماد لاعتماد تشكيل المجلس.");
       return;
     }
 
@@ -808,6 +868,12 @@ export default function ParentCouncilDashboard({
   const disqualifiedApps = appsList.filter((a) => !a.smartEvaluation?.isEligible || a.status === "disqualified");
   const selectedApps = config.selectedMemberIds.map((id) => applications[id]).filter(Boolean);
   const reserveApps = config.reserveMemberIds.map((id) => applications[id]).filter(Boolean);
+
+  const sortedEligibleApps = useMemo(() => {
+    return [...eligibleApps].sort(
+      (a, b) => (b.smartEvaluation?.overallScore || 0) - (a.smartEvaluation?.overallScore || 0)
+    );
+  }, [eligibleApps]);
 
   const filteredApplications = appsList.filter((app) => {
     const matchesSearch =
@@ -846,6 +912,7 @@ export default function ParentCouncilDashboard({
         applications={applications}
         signatories={schoolSignatories}
         onClose={() => setShowFormationPrint(false)}
+        onUpdateRole={handleUpdateRole}
       />
     );
   }
@@ -972,7 +1039,7 @@ export default function ParentCouncilDashboard({
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 flex-wrap">
         <button
           onClick={() => setActiveTab("smart_screening")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all cursor-pointer ${
@@ -982,9 +1049,27 @@ export default function ParentCouncilDashboard({
           }`}
         >
           <Sparkles className="w-4 h-4 text-amber-300" />
-          <span>نظام فرز وترشيح المجلس</span>
+          <span>فرز وترتيب المتقدمين الذكي</span>
           <span className="text-[10px] bg-teal-900/40 text-teal-100 px-2 py-0.5 rounded-full font-mono">
-            {config.selectedMemberIds.length}
+            {eligibleApps.length} مؤهلين
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("approved_council")}
+          id="tab-approved-council"
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all cursor-pointer ${
+            activeTab === "approved_council"
+              ? "bg-teal-700 text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Award className="w-4 h-4 text-amber-300" />
+          <span>قائمة الاعتماد واعتماد المجلس</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+            activeTab === "approved_council" ? "bg-teal-900/40 text-teal-100" : "bg-emerald-100 text-emerald-800"
+          }`}>
+            {config.selectedMemberIds.length} / {config.seatsCount}
           </span>
         </button>
 
@@ -1040,10 +1125,10 @@ export default function ParentCouncilDashboard({
             <div>
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-amber-300" />
-                <h2 className="text-base font-black">نظام فرز واختيار أعضاء المجلس</h2>
+                <h2 className="text-base font-black">نظام فرز وترتيب المتقدمين الذكي</h2>
               </div>
               <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                يقوم النظام بدراسة الاستمارات وفحص امتلاك المهارات الإدارية والتطوعية وتطبيق ضوابط المادة (الثالثة)، واقتراح التشكيل الأنسب للمجلس مع إمكانية استبعاد أو استبدال أي مرشح يدوياً.
+                يقوم النظام بترتيب المتقدمين فقط وفق معايير الاستحقاق والكفاءة وضوابط المادة (الثالثة). بعد الفرز والترتيب، يضع مدير النظام علامة (✓) على من يتم ترشيحه لتتكون قائمة الاعتماد في القسم المستقل.
               </p>
             </div>
 
@@ -1051,23 +1136,21 @@ export default function ParentCouncilDashboard({
               <button
                 type="button"
                 onClick={handleRunSmartSort}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition-transform active:scale-95 cursor-pointer shadow-sm"
-                title="إعادة الفرز التلقائي لجميع الطلبات"
+                id="btn-run-smart-sort"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition-transform active:scale-95 cursor-pointer shadow-md"
+                title="ترتيب المتقدمين فقط بناءً على نقاط التقييم والاستحقاق"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>إجراء الفرز الآلي</span>
+                <Sparkles className="w-4 h-4 text-slate-950" />
+                <span>تشغيل فرز وترتيب المتقدمين ذكياً</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleApproveFormation}
-                disabled={config.formationApproved}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-black text-xs transition-transform active:scale-95 cursor-pointer shadow-sm ${
-                  config.formationApproved ? "bg-emerald-600 cursor-default" : "bg-teal-600 hover:bg-teal-500"
-                }`}
+                onClick={() => setActiveTab("approved_council")}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition-transform active:scale-95 cursor-pointer shadow-md"
               >
-                <Check className="w-3.5 h-3.5" />
-                <span>{config.formationApproved ? "تم اعتماد التشكيل" : "اعتماد تشكيل المجلس"}</span>
+                <ClipboardCheck className="w-4 h-4 text-emerald-200" />
+                <span>قائمة الاعتماد ({config.selectedMemberIds.length}) ←</span>
               </button>
             </div>
           </div>
@@ -1150,193 +1233,182 @@ export default function ParentCouncilDashboard({
             </div>
           </div>
 
-          {/* Section 1: التشكيل المعتمد / المقترح للمجلس (الأساسيون) */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+          {/* Section 1: نتائج الفرز الذكي وترتيب المتقدمين المؤهلين */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
-                  <Award className="w-5 h-5 text-teal-700" />
-                  <span>التشكيل المقترح والمعتمد للمجلس ({selectedApps.length} من {config.seatsCount} مقاعد)</span>
+                  <Sparkles className="w-5 h-5 text-amber-500" />
+                  <span>نتائج الفرز الذكي وترتيب المتقدمين المؤهلين ({sortedEligibleApps.length} متقدماً)</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  المرشحون الأساسيون الذين تم اختيارهم بناءً على أعلى درجات التقييم والمهارات والتنوع الصفي
+                  تم ترتيب المتقدمين تنازلياً وفق معايير المفاضلة ونقاط التقييم. ضع علامة (✓) على من ترغب بترشيحه لتتكون قائمة الاعتماد في القسم المستقل.
                 </p>
               </div>
 
-              <span className="text-xs font-bold text-teal-800 bg-teal-50 px-3 py-1 rounded-full border border-teal-200">
-                المتبقي: {Math.max(0, config.seatsCount - selectedApps.length)} مقاعد
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-teal-900 bg-teal-50 px-3 py-1.5 rounded-full border border-teal-200">
+                  المحدد للترشيح: {config.selectedMemberIds.length} من {config.seatsCount} مقاعد
+                </span>
+
+                <button
+                  type="button"
+                  onClick={handleSelectTopCandidates}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-colors cursor-pointer"
+                  title={`تحديد أعلى ${config.seatsCount} في الترتيب كمرشحين تلقائياً`}
+                >
+                  <CheckSquare className="w-3.5 h-3.5 text-amber-700" />
+                  <span>تحديد أعلى {config.seatsCount} تلقائياً</span>
+                </button>
+              </div>
             </div>
 
-            {selectedApps.length === 0 ? (
+            {sortedEligibleApps.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-xs">
-                لا يوجد أعضاء في التشكيل حتى الآن. اضغط على "إجراء الفرز الآلي" لاقتراح التشكيل بعد استلام الاستمارات.
+                لا يوجد متقدمون مؤهلون حتى الآن. اضغط على "تشغيل فرز وترتيب المتقدمين ذكياً" للبدء بعد استلام الاستمارات.
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {selectedApps.map((app, index) => (
-                  <div
-                    key={app.id}
-                    className="py-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 hover:bg-slate-50/70 p-3 rounded-2xl transition-colors"
-                  >
-                    {/* Member Info */}
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-teal-700 text-white font-mono font-black text-sm flex items-center justify-center shrink-0">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-extrabold text-sm text-slate-900">{app.fullName}</span>
-                          <span className="text-[11px] font-black px-2 py-0.5 rounded-lg bg-teal-100 text-teal-900 border border-teal-300">
-                            {app.assignedRole || "عضو مجلس"}
-                          </span>
-                          <span className="text-xs font-bold text-slate-600">
-                            (ولي أمر الطالب: {app.studentName} - {app.studentGrade})
-                          </span>
+                {sortedEligibleApps.map((app, index) => {
+                  const isNominated = config.selectedMemberIds.includes(app.id);
+                  const isReserve = config.reserveMemberIds.includes(app.id);
+                  const isTopSeat = index < config.seatsCount;
+
+                  return (
+                    <div
+                      key={app.id}
+                      className={`py-4 px-3 sm:px-4 rounded-2xl transition-colors flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 ${
+                        isNominated
+                          ? "bg-teal-50/60 border border-teal-200/80 shadow-2xs"
+                          : isReserve
+                          ? "bg-amber-50/50 border border-amber-200/60"
+                          : "hover:bg-slate-50/70 border border-transparent"
+                      }`}
+                    >
+                      {/* Member Info */}
+                      <div className="flex items-start gap-3 w-full lg:w-auto">
+                        <div
+                          className={`w-9 h-9 rounded-xl font-mono font-black text-sm flex items-center justify-center shrink-0 shadow-xs ${
+                            isTopSeat
+                              ? "bg-amber-500 text-slate-950 ring-2 ring-amber-300"
+                              : "bg-slate-800 text-white"
+                          }`}
+                          title={`الترتيب الاستحقاقي: المركز ${index + 1}`}
+                        >
+                          #{index + 1}
                         </div>
 
-                        {/* Verified skills badges */}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                          {app.skills.organizationalManagement && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200" title={app.skills.organizationalDetails}>
-                              تنظيم وإدارة ✓
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-sm text-slate-900">{app.fullName}</span>
+                            
+                            {isNominated && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-teal-700 text-white flex items-center gap-1">
+                                <Check className="w-3 h-3 text-emerald-300" />
+                                مرشح بالقائمة
+                              </span>
+                            )}
+
+                            {isReserve && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
+                                احتياط
+                              </span>
+                            )}
+
+                            <span className="text-xs text-slate-600">
+                              (طالب: {app.studentName} - {app.studentGrade}) • جوال: <span dir="ltr">{app.phone}</span>
                             </span>
-                          )}
-                          {app.skills.volunteerExperience && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded border border-emerald-200" title={app.skills.volunteerDetails}>
-                              عمل تطوعي ✓
-                            </span>
-                          )}
-                          {app.skills.reportingAndDoc && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-800 rounded border border-purple-200" title={app.skills.reportingDetails}>
-                              توثيق وتقارير ✓
-                            </span>
-                          )}
-                          {app.skills.digitalPlatforms && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-900 rounded border border-amber-200" title={app.skills.digitalPlatformsDetails}>
-                              منصات رقمية ✓
-                            </span>
-                          )}
-                          {app.skills.previousCommittees && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-800 rounded border border-indigo-200" title={app.skills.committeeDetails}>
-                              لجان سابقة ✓
-                            </span>
-                          )}
+                          </div>
+
+                          {/* Verified skills badges */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                            {app.skills.organizationalManagement && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200">
+                                تنظيم وإدارة ✓
+                              </span>
+                            )}
+                            {app.skills.volunteerExperience && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded border border-emerald-200">
+                                عمل تطوعي ✓
+                              </span>
+                            )}
+                            {app.skills.reportingAndDoc && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-800 rounded border border-purple-200">
+                                توثيق وتقارير ✓
+                              </span>
+                            )}
+                            {app.skills.digitalPlatforms && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-900 rounded border border-amber-200">
+                                منصات رقمية ✓
+                              </span>
+                            )}
+                            {app.skills.previousCommittees && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">
+                                لجان سابقة ✓
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Score & Actions */}
-                    <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-100">
-                      
-                      {/* Smart score badge */}
-                      <div className="text-center px-3 py-1 bg-slate-100 rounded-xl border border-slate-200">
-                        <div className="text-[10px] font-bold text-slate-500">تقييم النظام</div>
-                        <div className="text-sm font-black font-mono text-teal-800">
-                          {app.smartEvaluation?.overallScore || 85}%
+                      {/* Score & Actions */}
+                      <div className="flex items-center gap-2.5 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-2.5 lg:pt-0 border-slate-100">
+                        {/* Smart score badge */}
+                        <div className="text-center px-3 py-1 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                          <div className="text-[10px] font-bold text-slate-500">درجة التقييم</div>
+                          <div className="text-sm font-black font-mono text-teal-800">
+                            {app.smartEvaluation?.overallScore || 85}%
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-1.5">
+                        {/* Nomination Checkbox / Toggle Button */}
                         <button
                           type="button"
-                          onClick={() => setSelectedAppForPrint(app)}
-                          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                          title="معاينة وطباعة الاستمارة الرسمية A4"
+                          onClick={() => handleToggleNomination(app.id)}
+                          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95 ${
+                            isNominated
+                              ? "bg-teal-700 text-white ring-2 ring-teal-400"
+                              : "bg-white hover:bg-teal-50 text-slate-800 border-2 border-slate-300 hover:border-teal-600"
+                          }`}
                         >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setShowSwapModal(app.id)}
-                          className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold transition-colors cursor-pointer"
-                          title="استبدال بمرشح آخر من الاحتياط أو المتقدمين"
-                        >
-                          استبدال
+                          {isNominated ? (
+                            <>
+                              <CheckSquare className="w-4 h-4 text-emerald-300" />
+                              <span>✓ تم ترشيحه للمجلس</span>
+                            </>
+                          ) : (
+                            <>
+                              <Square className="w-4 h-4 text-slate-400" />
+                              <span>وضع علامة ترشيح</span>
+                            </>
+                          )}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => handleMoveToReserve(app.id)}
-                          className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                          title="نقله إلى قائمة الأعضاء الاحتياط"
+                          className={`px-2.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                            isReserve
+                              ? "bg-amber-100 text-amber-900 border-amber-300"
+                              : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+                          }`}
+                          title="ترشيح للاحتياط"
                         >
-                          للاحتياط
+                          احتياط
                         </button>
 
                         <button
                           type="button"
-                          onClick={() => handleExcludeCandidate(app.id)}
-                          className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer"
-                          title="استبعاد من المجلس"
+                          onClick={() => setSelectedAppForPrint(app)}
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                          title="معاينة الاستمارة الرسمية A4"
                         >
-                          <UserX className="w-4 h-4" />
+                          <Eye className="w-4 h-4" />
                         </button>
                       </div>
-
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Section 2: الأعضاء الاحتياط (Reserve Members) */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-amber-600" />
-                  <span>قائمة الأعضاء الاحتياط ({reserveApps.length} أعضاء)</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  مرشحون مؤهلون ومستوفون للشروط يمكن تصعيد أي منهم للمجلس الأساسي بنقرة زر
-                </p>
-              </div>
-            </div>
-
-            {reserveApps.length === 0 ? (
-              <div className="text-center py-6 text-slate-400 text-xs font-bold">
-                لا يوجد أعضاء احتياط حالياً.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {reserveApps.map((app) => (
-                  <div
-                    key={app.id}
-                    className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <div className="font-extrabold text-xs text-slate-900">{app.fullName}</div>
-                      <div className="text-[11px] text-slate-500">
-                        طالب: {app.studentName} ({app.studentGrade})
-                      </div>
-                      <div className="text-[10px] font-mono font-bold text-teal-800 mt-0.5">
-                        درجة التقييم: {app.smartEvaluation?.overallScore || "—"}%
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectCandidate(app.id)}
-                        className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs cursor-pointer shadow-xs transition-transform active:scale-95"
-                      >
-                        تصعيد للمجلس
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAppForPrint(app)}
-                        className="p-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer"
-                        title="معاينة الاستمارة الرسمية"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1409,6 +1481,364 @@ export default function ParentCouncilDashboard({
             )}
           </div>
 
+        </div>
+      )}
+
+      {/* TAB: قائمة الاعتماد واعتماد المجلس (قسم مستقل) */}
+      {activeTab === "approved_council" && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-linear-to-r from-teal-900 via-teal-800 to-slate-900 text-white p-6 rounded-3xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Award className="w-6 h-6 text-amber-300" />
+                <h2 className="text-lg font-black">قائمة الاعتماد النهائي لتشكيل مجلس أولياء الأمور</h2>
+              </div>
+              <p className="text-xs text-slate-200 mt-1.5 max-w-2xl leading-relaxed">
+                يضم هذا القسم المستقل المرشحين الذين قام مدير النظام بوضع علامة الترشيح عليهم من نتائج الفرز الذكي. يمكنك هنا إدخال الصفة في المجلس يدوياً لكل مرشح أو تركها فارغة، ثم استعراض وطباعة محضر الاعتماد النهائي.
+              </p>
+              <div className="flex items-center gap-3 mt-3 flex-wrap">
+                <span className="text-xs font-bold px-3 py-1 rounded-full bg-teal-800/80 text-teal-100 border border-teal-600">
+                  المقاعد المعتمدة: {selectedApps.length} من {config.seatsCount}
+                </span>
+                <span className="text-xs font-bold px-3 py-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/40">
+                  الأعضاء الاحتياط: {reserveApps.length}
+                </span>
+                {config.formationApproved && (
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/30 text-emerald-200 border border-emerald-400/50 flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5 text-emerald-300" />
+                    المجلس معتمد رسمياً
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => setShowFormationPrint(true)}
+                id="btn-print-approved-council"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition-transform active:scale-95 cursor-pointer shadow-md"
+                title="معاينة وطباعة محضر تشكيل واعتماد المجلس النهائي A4"
+              >
+                <Printer className="w-4 h-4 text-slate-950" />
+                <span>طباعة محضر الاعتماد النهائي A4</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleApproveFormation}
+                disabled={config.formationApproved}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-white font-black text-xs transition-transform active:scale-95 cursor-pointer shadow-md ${
+                  config.formationApproved ? "bg-emerald-600 cursor-default" : "bg-teal-600 hover:bg-teal-500"
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                <span>{config.formationApproved ? "تم اعتماد التشكيل رسمياً" : "اعتماد تشكيل المجلس رسمياً"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("smart_screening")}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer border border-slate-700"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>العودة لفرز المتقدمين</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Members List Section */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3 flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-teal-700" />
+                  <span>الأعضاء المعتمدون في المجلس الأساسي ({selectedApps.length} من {config.seatsCount} مقاعد)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  تم وضع علامة الترشيح عليهم. أدخل الصفة لكل عضو يدوياً أو اتركها فارغة، ثم اطبع المحضر النهائي.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFormationPrint(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 font-extrabold text-xs transition-colors cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-teal-700" />
+                  <span>معاينة الطباعة A4</span>
+                </button>
+              </div>
+            </div>
+
+            {selectedApps.length === 0 ? (
+              <div className="text-center py-12 px-4 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                <AlertCircle className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+                <h4 className="font-extrabold text-sm text-slate-800">لا توجد أسماء في قائمة الاعتماد بعد</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
+                  قم بالدخول إلى قسم "فرز وترتيب المتقدمين الذكي"، ثم ضع علامة (✓) على المرشحين المطلوب اعتمادهم لتظهر أسماؤهم هنا تلقائياً.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("smart_screening")}
+                  className="mt-4 px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs cursor-pointer shadow-xs"
+                >
+                  الذهاب إلى فرز وترتيب المتقدمين الذكي ←
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {selectedApps.map((app, index) => (
+                  <div
+                    key={app.id}
+                    className="py-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 hover:bg-slate-50/70 p-3.5 rounded-2xl transition-colors border border-transparent hover:border-slate-200"
+                  >
+                    {/* Member Info */}
+                    <div className="flex items-start gap-3 w-full lg:w-auto">
+                      <div className="w-9 h-9 rounded-xl bg-teal-700 text-white font-mono font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-sm text-slate-900">{app.fullName}</span>
+                          {app.assignedRole ? (
+                            <span className="text-[11px] font-black px-2.5 py-0.5 rounded-lg bg-teal-100 text-teal-950 border border-teal-300">
+                              الصفة: {app.assignedRole}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 border border-slate-300">
+                              (الصفة متروكة فارغة)
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-600">
+                            (طالب: {app.studentName} - {app.studentGrade}) • جوال: <span dir="ltr">{app.phone}</span>
+                          </span>
+                        </div>
+
+                        {/* Manual Role Selector / Input */}
+                        <div className="flex items-center gap-2 flex-wrap mt-2.5 pt-2 border-t border-slate-100">
+                          <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <PenLine className="w-3.5 h-3.5 text-teal-700" />
+                            <span>الصفة في المجلس (إدخال يدوي):</span>
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <input
+                              type="text"
+                              value={app.assignedRole || ""}
+                              onChange={(e) => handleUpdateRole(app.id, e.target.value)}
+                              placeholder="اكتب الصفة يدوياً أو اتركها فارغة..."
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                app.assignedRole
+                                  ? "bg-teal-50/70 border-teal-300 text-teal-950 font-black"
+                                  : "bg-slate-50 border-slate-300 text-slate-800 placeholder:text-slate-400"
+                              } focus:ring-2 focus:ring-teal-600 focus:outline-hidden w-44 sm:w-56`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateRole(app.id, "نائب الرئيس")}
+                              className={`text-[10px] px-2.5 py-1 rounded-md font-bold cursor-pointer transition-colors border ${
+                                app.assignedRole === "نائب الرئيس"
+                                  ? "bg-teal-700 text-white border-teal-800 shadow-xs"
+                                  : "bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200"
+                              }`}
+                            >
+                              نائب الرئيس
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateRole(app.id, "أمين السر")}
+                              className={`text-[10px] px-2.5 py-1 rounded-md font-bold cursor-pointer transition-colors border ${
+                                app.assignedRole === "أمين السر"
+                                  ? "bg-teal-700 text-white border-teal-800 shadow-xs"
+                                  : "bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200"
+                              }`}
+                            >
+                              أمين السر
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateRole(app.id, "عضو مجلس")}
+                              className={`text-[10px] px-2.5 py-1 rounded-md font-bold cursor-pointer transition-colors border ${
+                                app.assignedRole === "عضو مجلس"
+                                  ? "bg-teal-700 text-white border-teal-800 shadow-xs"
+                                  : "bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200"
+                              }`}
+                            >
+                              عضو مجلس
+                            </button>
+                            {app.assignedRole && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateRole(app.id, "")}
+                                className="text-[10px] px-2 py-1 rounded-md font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 cursor-pointer"
+                                title="مسح وترك الصفة فارغة"
+                              >
+                                مسح (فارغة)
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Verified skills badges */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                          {app.skills.organizationalManagement && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200">
+                              تنظيم وإدارة ✓
+                            </span>
+                          )}
+                          {app.skills.volunteerExperience && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded border border-emerald-200">
+                              عمل تطوعي ✓
+                            </span>
+                          )}
+                          {app.skills.reportingAndDoc && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-800 rounded border border-purple-200">
+                              توثيق وتقارير ✓
+                            </span>
+                          )}
+                          {app.skills.digitalPlatforms && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-900 rounded border border-amber-200">
+                              منصات رقمية ✓
+                            </span>
+                          )}
+                          {app.skills.previousCommittees && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">
+                              لجان سابقة ✓
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAppForPrint(app)}
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                        title="معاينة وطباعة الاستمارة الرسمية A4"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleMoveToReserve(app.id)}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                        title="نقله إلى قائمة الأعضاء الاحتياط"
+                      >
+                        تحويل للاحتياط
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNomination(app.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
+                        title="إلغاء الترشيح من المجلس وإعادته للمتقدمين"
+                      >
+                        <UserX className="w-3.5 h-3.5" />
+                        <span>إلغاء الترشيح</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reserve Section */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-600" />
+                  <span>قائمة الأعضاء الاحتياط المعتمدين ({reserveApps.length} أعضاء)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  أعضاء احتياط يتم إدراجهم في محضر التشكيل والاعتماد الرسمي
+                </p>
+              </div>
+            </div>
+
+            {reserveApps.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs font-bold">
+                لا يوجد أعضاء احتياط حالياً.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {reserveApps.map((app) => (
+                  <div
+                    key={app.id}
+                    className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="font-extrabold text-xs text-slate-900">{app.fullName}</div>
+                      <div className="text-[11px] text-slate-500">
+                        طالب: {app.studentName} ({app.studentGrade})
+                      </div>
+                      <div className="text-[10px] font-mono font-bold text-teal-800 mt-0.5">
+                        درجة التقييم: {app.smartEvaluation?.overallScore || "—"}%
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCandidate(app.id)}
+                        className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs cursor-pointer shadow-xs transition-transform active:scale-95"
+                      >
+                        تصعيد للمجلس
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAppForPrint(app)}
+                        className="p-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer"
+                        title="معاينة الاستمارة الرسمية"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Final Action Card */}
+          <div className="bg-linear-to-br from-teal-50 to-slate-100 rounded-3xl border-2 border-teal-300/80 p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+            <div>
+              <h4 className="font-black text-slate-900 text-base flex items-center gap-2">
+                <Printer className="w-5 h-5 text-teal-700" />
+                <span>جاهز لطباعة محضر الاعتماد النهائي</span>
+              </h4>
+              <p className="text-xs text-slate-600 mt-1 max-w-xl">
+                بعد الانتهاء من إدخال الصفات المحددة يدوياً (أو تركها فارغة للمجلس)، يمكنك طباعة المحضر الرسمي الكامل وفق اللائحة الوزارية المعتمدة بمقاس A4.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => setShowFormationPrint(true)}
+                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-teal-800 hover:bg-teal-900 text-white font-black text-sm transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-amber-300" />
+                <span>طباعة محضر الاعتماد النهائي (A4)</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleApproveFormation}
+                disabled={config.formationApproved}
+                className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-black text-sm transition-all shadow-md active:scale-95 cursor-pointer ${
+                  config.formationApproved ? "bg-emerald-700 text-white cursor-default" : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{config.formationApproved ? "المجلس معتمد" : "اعتماد المجلس"}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

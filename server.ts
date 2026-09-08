@@ -18,6 +18,7 @@ import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/te
 import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine";
 import { analyzeSurveyResponses, generateActivationCode } from "./src/utils/studentNeedsRulesEngine";
 import { evaluateParentCouncilApplication } from "./src/types/parentCouncil";
+import { reconcileStudentsRoster, reconcileTeachersRoster } from "./src/utils/rosterReconciliation";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -825,10 +826,14 @@ function saveNeedsSurveyProfiles() {
   }
 }
 
-function saveParentCouncilsStore() {
+function saveParentCouncilsStore(immediate = false) {
   try {
     fs.writeFileSync(PARENT_COUNCILS_FILE, JSON.stringify(parentCouncilsStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+    if (immediate) {
+      forceFlushServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+    } else {
+      syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+    }
   } catch (e) {
     console.error("Error saving parent_councils_store.json", e);
   }
@@ -970,12 +975,55 @@ app.get("/api/teachers", (req, res) => {
 });
 
 app.post("/api/teachers", (req, res) => {
-  const { teachers } = req.body || {};
+  const { teachers, forceOverwrite = false } = req.body || {};
   if (Array.isArray(teachers)) {
-    teachersList = teachers;
+    // Safety guard against empty payload destroying the teacher roster
+    if (teachers.length === 0 && !req.body.forceEmpty) {
+      return res.json({
+        success: true,
+        count: teachersList.length,
+        teachers: teachersList,
+        warning: "تم تجاهل القائمة الفارغة لحماية بيانات المعلمين المسجلة",
+      });
+    }
+
+    if (forceOverwrite) {
+      teachersList = teachers;
+    } else {
+      // Reconcile incoming teachers with existing database records:
+      // Preserves existing teacher IDs, links with inquiries and evaluations, and archives removed teachers safely
+      const reconciliation = reconcileTeachersRoster(teachersList, teachers);
+      teachersList = reconciliation.reconciledTeachers;
+    }
     saveTeachersList();
   }
-  res.json({ success: true, count: teachersList.length, teachers: teachersList });
+  res.json({
+    success: true,
+    count: teachersList.filter((t: any) => !t.isArchived).length,
+    totalCombined: teachersList.length,
+    teachers: teachersList,
+  });
+});
+
+// Dedicated endpoint for high-fidelity teacher roster reconciliation & upload report
+app.post("/api/teachers/reconcile-upload", (req, res) => {
+  const { teachers } = req.body || {};
+  if (!Array.isArray(teachers) || teachers.length === 0) {
+    return res.status(400).json({ success: false, error: "كشف المعلمين فارغ أو غير صالح" });
+  }
+
+  const reconciliation = reconcileTeachersRoster(teachersList, teachers);
+  teachersList = reconciliation.reconciledTeachers;
+  saveTeachersList();
+
+  res.json({
+    success: true,
+    teachers: teachersList,
+    activeCount: reconciliation.stats.activeCount,
+    archivedCount: reconciliation.stats.archivedPreservedCount,
+    stats: reconciliation.stats,
+    message: reconciliation.summaryMessage,
+  });
 });
 
 // School Timetable Schedule API Endpoints
@@ -2092,7 +2140,7 @@ app.post("/api/parent-councils/submit", (req, res) => {
     }
   }
 
-  saveParentCouncilsStore();
+  saveParentCouncilsStore(true);
   res.json({ success: true, application: finalApp, invites: parentCouncilsStore.invites });
 });
 
@@ -2108,7 +2156,7 @@ app.post("/api/parent-councils/sync", (req, res) => {
       ...config,
     };
   }
-  saveParentCouncilsStore();
+  saveParentCouncilsStore(true);
   res.json({
     success: true,
     count: Object.keys(parentCouncilsStore.applications).length,
@@ -2138,7 +2186,7 @@ app.post("/api/parent-councils/invites", (req, res) => {
       };
     });
     parentCouncilsStore.invites = merged;
-    saveParentCouncilsStore();
+    saveParentCouncilsStore(true);
   }
   res.json({ success: true, invites: parentCouncilsStore.invites });
 });
@@ -2444,12 +2492,54 @@ app.post("/api/app-state/settings", (req, res) => {
 });
 
 app.post("/api/app-state/students", (req, res) => {
-  const { students } = req.body || {};
+  const { students, forceOverwrite = false } = req.body || {};
   if (Array.isArray(students)) {
-    activeStudentsList = students;
+    // Safety guard against empty payload destroying the student roster
+    if (students.length === 0 && !req.body.forceEmpty) {
+      return res.json({
+        success: true,
+        count: activeStudentsList.length,
+        warning: "تم تجاهل القائمة الفارغة لحماية بيانات الطلاب والعمليات المسجلة",
+      });
+    }
+
+    if (forceOverwrite) {
+      activeStudentsList = students;
+    } else {
+      // Reconcile incoming students against existing database:
+      // Preserves persistent IDs, historical attendance, health profiles, surveys, messages,
+      // and retains removed students in the safe archive.
+      const reconciliation = reconcileStudentsRoster(activeStudentsList, students);
+      activeStudentsList = reconciliation.reconciledStudents;
+    }
     saveStudentsList();
   }
-  res.json({ success: true, count: activeStudentsList.length });
+  res.json({
+    success: true,
+    count: activeStudentsList.filter((s: any) => !s.isArchived).length,
+    totalCombined: activeStudentsList.length,
+  });
+});
+
+// Dedicated endpoint for student roster reconciliation & upload report
+app.post("/api/students/reconcile-upload", (req, res) => {
+  const { students } = req.body || {};
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({ success: false, error: "كشف الطلاب فارغ أو غير صالح" });
+  }
+
+  const reconciliation = reconcileStudentsRoster(activeStudentsList, students);
+  activeStudentsList = reconciliation.reconciledStudents;
+  saveStudentsList();
+
+  res.json({
+    success: true,
+    students: activeStudentsList,
+    activeCount: reconciliation.stats.activeCount,
+    archivedCount: reconciliation.stats.archivedPreservedCount,
+    stats: reconciliation.stats,
+    message: reconciliation.summaryMessage,
+  });
 });
 
 app.post("/api/app-state/template", (req, res) => {
@@ -3454,33 +3544,78 @@ async function startServer() {
         if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
           if (activeStudentsList.length === 0) {
             activeStudentsList = cloudState.activeStudentsList;
-            saveStudentsList();
+          } else {
+            // Reconcile and deep-merge disk students with cloud students:
+            // Prevents data loss across container rebuilds, code updates, and roster variations
+            const reconciliation = reconcileStudentsRoster(cloudState.activeStudentsList, activeStudentsList);
+            activeStudentsList = reconciliation.reconciledStudents;
           }
+          saveStudentsList();
+        } else if (activeStudentsList.length > 0) {
+          syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
         }
+
         if (Array.isArray(cloudState.teachersList) && cloudState.teachersList.length > 0) {
-          teachersList = cloudState.teachersList;
+          if (teachersList.length === 0) {
+            teachersList = cloudState.teachersList;
+          } else {
+            // Reconcile and deep-merge disk teachers with cloud teachers
+            const reconciliation = reconcileTeachersRoster(cloudState.teachersList, teachersList);
+            teachersList = reconciliation.reconciledTeachers;
+          }
           saveTeachersList();
+        } else if (teachersList.length > 0) {
+          syncServerStateToFirestore({ teachersList }).catch(() => {});
         }
+
         if (Array.isArray(cloudState.scheduleAssignments) && cloudState.scheduleAssignments.length > 0) {
-          scheduleAssignments = cloudState.scheduleAssignments;
+          if (scheduleAssignments.length === 0) {
+            scheduleAssignments = cloudState.scheduleAssignments;
+          } else {
+            const existingIds = new Set(scheduleAssignments.map(a => a.id));
+            cloudState.scheduleAssignments.forEach((a: any) => {
+              if (!existingIds.has(a.id)) scheduleAssignments.push(a);
+            });
+          }
           saveScheduleAssignments();
         }
+
         if (cloudState.attendanceRecords && typeof cloudState.attendanceRecords === "object" && Object.keys(cloudState.attendanceRecords).length > 0) {
-          attendanceRecordsStore = { ...attendanceRecordsStore, ...cloudState.attendanceRecords };
+          for (const [dateKey, dayRecords] of Object.entries(cloudState.attendanceRecords)) {
+            if (!attendanceRecordsStore[dateKey]) {
+              attendanceRecordsStore[dateKey] = dayRecords as any;
+            } else {
+              attendanceRecordsStore[dateKey] = { ...(dayRecords as any), ...attendanceRecordsStore[dateKey] };
+            }
+          }
           saveAttendanceRecords();
         }
+
         if (Array.isArray(cloudState.inquiryRequests) && cloudState.inquiryRequests.length > 0) {
-          inquiryRequestsStore = cloudState.inquiryRequests;
+          const existingInqIds = new Set(inquiryRequestsStore.map(i => i.id));
+          cloudState.inquiryRequests.forEach((inq: any) => {
+            if (!existingInqIds.has(inq.id)) inquiryRequestsStore.push(inq);
+          });
           saveInquiryRequests();
         }
+
         if (Array.isArray(cloudState.systemUsersList) && cloudState.systemUsersList.length > 0) {
-          systemUsersList = cloudState.systemUsersList;
+          if (systemUsersList.length === 0) {
+            systemUsersList = cloudState.systemUsersList;
+          } else {
+            const existingUsernames = new Set(systemUsersList.map(u => u.username));
+            cloudState.systemUsersList.forEach((u: any) => {
+              if (!existingUsernames.has(u.username)) systemUsersList.push(u);
+            });
+          }
           saveUsersList();
         }
+
         if (cloudState.activeTemplate && activeTemplate === "السلام عليكم ورحمة الله وبركاته،\nأهلاً بك يا سيد {أبو الطالب}، نود إحاطتكم علماً بأن الطالب {اسم الطالب} قد حصل على درجة {الدرجة} في مادة الرياضيات.\nنتمنى له دوام التوفيق والنجاح.\n- إدارة المدرسة") {
           activeTemplate = cloudState.activeTemplate;
           saveTemplate();
         }
+
         if (cloudState.whatsappConfig) {
           whatsappConfig = { ...whatsappConfig, ...cloudState.whatsappConfig };
           // If not currently actively connected, reset phone number and connection status
@@ -3489,31 +3624,96 @@ async function startServer() {
             whatsappConfig.simulatedPhone = "";
           }
         }
+
         if (cloudState.campaigns && Object.keys(campaigns).length === 0) {
           Object.assign(campaigns, cloudState.campaigns);
         }
+
         if (Array.isArray(cloudState.individualLogs) && individualLogs.length === 0) {
           individualLogs.push(...cloudState.individualLogs);
         }
-        if (cloudState.healthProfiles && Object.keys(cloudState.healthProfiles).length > 0) {
-          if (Object.keys(healthProfilesStore).length === 0) {
-            healthProfilesStore = cloudState.healthProfiles;
-          }
+
+        if (cloudState.healthProfiles && typeof cloudState.healthProfiles === "object") {
+          healthProfilesStore = { ...cloudState.healthProfiles, ...healthProfilesStore };
+          saveHealthProfiles();
         }
+
         if (Array.isArray(cloudState.supportCases) && cloudState.supportCases.length > 0) {
-          if (supportCasesStore.length === 0) {
-            supportCasesStore = cloudState.supportCases;
-          }
+          const existingCaseIds = new Set(supportCasesStore.map(c => c.id));
+          cloudState.supportCases.forEach((sc: any) => {
+            if (!existingCaseIds.has(sc.id)) supportCasesStore.push(sc);
+          });
+          saveSupportCases();
         }
+
         if (Array.isArray(cloudState.healthAuditLogs) && cloudState.healthAuditLogs.length > 0) {
-          if (healthAuditLogsStore.length === 0) {
-            healthAuditLogsStore = cloudState.healthAuditLogs;
-          }
+          const existingLogIds = new Set(healthAuditLogsStore.map(l => l.id));
+          cloudState.healthAuditLogs.forEach((l: any) => {
+            if (!existingLogIds.has(l.id)) healthAuditLogsStore.push(l);
+          });
+          saveHealthAuditLogs();
         }
-        if (cloudState.needsSurveyProfiles && Object.keys(cloudState.needsSurveyProfiles).length > 0) {
-          if (Object.keys(needsSurveyProfilesStore).length === 0) {
-            needsSurveyProfilesStore = cloudState.needsSurveyProfiles;
+
+        if (cloudState.needsSurveyProfiles && typeof cloudState.needsSurveyProfiles === "object") {
+          needsSurveyProfilesStore = { ...cloudState.needsSurveyProfiles, ...needsSurveyProfilesStore };
+        }
+        if (cloudState.parentCouncils && typeof cloudState.parentCouncils === "object") {
+          const cloudApps = cloudState.parentCouncils.applications || {};
+          const cloudInvites = cloudState.parentCouncils.invites || {};
+          const cloudConfig = cloudState.parentCouncils.config || {};
+          
+          // Deep-reconcile applications to avoid overwriting newer or filled fields
+          const mergedApps = { ...cloudApps };
+          const localApps = parentCouncilsStore.applications || {};
+          for (const [id, localApp] of Object.entries(localApps)) {
+            if (!mergedApps[id]) {
+              mergedApps[id] = localApp;
+            } else {
+              const cloudApp = mergedApps[id];
+              mergedApps[id] = {
+                ...cloudApp,
+                ...localApp,
+                // Preserve manually assigned role if either has it non-empty
+                assignedRole: (localApp as any).assignedRole !== undefined && (localApp as any).assignedRole !== "" 
+                  ? (localApp as any).assignedRole 
+                  : ((cloudApp as any).assignedRole || ""),
+                // Preserve approval status if marked in either
+                status: (localApp as any).status === "approved" || (cloudApp as any).status === "approved"
+                  ? "approved"
+                  : ((localApp as any).status || (cloudApp as any).status || "submitted"),
+                // Keep evaluation
+                smartEvaluation: (localApp as any).smartEvaluation || (cloudApp as any).smartEvaluation,
+              };
+            }
           }
+
+          // Deep-reconcile config
+          const localConfig = parentCouncilsStore.config || {};
+          const mergedSelected = Array.from(new Set([
+            ...(cloudConfig.selectedMemberIds || []),
+            ...(localConfig.selectedMemberIds || []),
+          ]));
+          const mergedReserve = Array.from(new Set([
+            ...(cloudConfig.reserveMemberIds || []),
+            ...(localConfig.reserveMemberIds || []),
+          ])).filter(id => !mergedSelected.includes(id));
+
+          parentCouncilsStore = {
+            applications: mergedApps,
+            invites: { ...cloudInvites, ...(parentCouncilsStore.invites || {}) },
+            config: {
+              ...parentCouncilsStore.config,
+              ...cloudConfig,
+              ...localConfig,
+              selectedMemberIds: mergedSelected.length > 0 ? mergedSelected : (cloudConfig.selectedMemberIds || localConfig.selectedMemberIds || []),
+              reserveMemberIds: mergedReserve,
+              formationApproved: !!(cloudConfig.formationApproved || localConfig.formationApproved),
+              formationApprovedAt: cloudConfig.formationApprovedAt || localConfig.formationApprovedAt,
+              isSurveyClosed: cloudConfig.isSurveyClosed !== undefined ? cloudConfig.isSurveyClosed : localConfig.isSurveyClosed,
+            },
+          };
+          saveParentCouncilsStore(true);
+          console.log(`[Firebase] Restored & fortified parent councils data from Firestore (${Object.keys(parentCouncilsStore.applications).length} apps, ${parentCouncilsStore.config.selectedMemberIds.length} nominated members).`);
         }
         console.log("[Firebase] System state successfully synchronized from Firestore.");
       }

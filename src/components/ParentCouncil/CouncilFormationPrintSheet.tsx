@@ -1,5 +1,5 @@
-import React from "react";
-import { Printer, ArrowRight, Award, ShieldCheck } from "lucide-react";
+import React, { useState } from "react";
+import { Printer, ArrowRight, Award, ShieldCheck, PenLine } from "lucide-react";
 import { ParentCouncilApplication, ParentCouncilConfig } from "../../types/parentCouncil";
 import { SchoolSignatories } from "../../types";
 
@@ -8,6 +8,7 @@ interface CouncilFormationPrintSheetProps {
   applications: Record<string, ParentCouncilApplication>;
   signatories: SchoolSignatories;
   onClose?: () => void;
+  onUpdateRole?: (appId: string, role: string) => void;
 }
 
 export default function CouncilFormationPrintSheet({
@@ -15,6 +16,7 @@ export default function CouncilFormationPrintSheet({
   applications,
   signatories,
   onClose,
+  onUpdateRole,
 }: CouncilFormationPrintSheetProps) {
   const selectedMembers = config.selectedMemberIds
     .map((id) => applications[id])
@@ -24,6 +26,25 @@ export default function CouncilFormationPrintSheet({
     .map((id) => applications[id])
     .filter(Boolean);
 
+  // Local state for manual role entries in the formation minutes
+  const [localRoles, setLocalRoles] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    config.selectedMemberIds.forEach((id) => {
+      const app = applications[id];
+      if (app && app.assignedRole !== undefined) {
+        init[id] = app.assignedRole;
+      }
+    });
+    return init;
+  });
+
+  const handleRoleChange = (id: string, newRole: string) => {
+    setLocalRoles((prev) => ({ ...prev, [id]: newRole }));
+    if (onUpdateRole) {
+      onUpdateRole(id, newRole);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -31,7 +52,7 @@ export default function CouncilFormationPrintSheet({
   return (
     <div className="min-h-screen bg-slate-100 p-4 sm:p-8 text-slate-900 font-sans" dir="rtl">
       {/* Top Action Bar */}
-      <div className="max-w-4xl mx-auto mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between no-print">
+      <div className="max-w-4xl mx-auto mb-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between no-print">
         <div className="flex items-center gap-3">
           {onClose && (
             <button
@@ -44,7 +65,7 @@ export default function CouncilFormationPrintSheet({
           )}
           <div className="h-6 w-px bg-slate-200" />
           <span className="text-xs font-bold text-slate-700">
-            معاينة محضر تشكيل المجلس الرسمي (نسخة موفرة للحبر)
+            معاينة محضر الاعتماد النهائي لمجلس أولياء الأمور (نسخة موفرة للحبر)
           </span>
         </div>
 
@@ -54,8 +75,23 @@ export default function CouncilFormationPrintSheet({
           id="btn-print-council-formation"
         >
           <Printer className="w-4 h-4" />
-          <span>طباعة محضر التشكيل الرسمي (A4)</span>
+          <span>طباعة محضر الاعتماد النهائي (A4)</span>
         </button>
+      </div>
+
+      {/* Manual Role Entry Guide Banner (no-print) */}
+      <div className="max-w-4xl mx-auto mb-4 bg-teal-50/90 border border-teal-200 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs text-teal-900 no-print">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-teal-700 text-white flex items-center justify-center shrink-0 text-sm font-bold shadow-xs">
+            <PenLine className="w-4 h-4 text-teal-100" />
+          </div>
+          <div>
+            <div className="font-black text-teal-950">إدخال الصفة في المجلس يدوياً للأعضاء المختارين أو تركها فارغة:</div>
+            <div className="text-teal-800 text-[11px] mt-0.5">
+              وفقاً للتنظيم، يتم إدخال صفة كل عضو يدوياً (مثل: <strong>نائب الرئيس</strong>، <strong>أمين السر</strong>، <strong>عضو مجلس</strong>) أو <strong>تركها فارغة</strong> بحسب رغبة إدارة المدرسة، ثم طباعة محضر الاعتماد النهائي.
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Official Minutes Canvas - Ink-Saving Clean A4 Design */}
@@ -72,7 +108,7 @@ export default function CouncilFormationPrintSheet({
 
           <div className="text-center pt-1">
             <div className="text-lg sm:text-xl font-black text-slate-900 tracking-wide border-b border-slate-800 pb-1 inline-block px-4">
-              محضر تشكيل واعتماد مجلس أولياء الأمور
+              محضر الاعتماد النهائي لتشكيل مجلس أولياء الأمور
             </div>
             <div className="text-[11px] font-bold text-slate-600 mt-1">
               للعام الدراسي {config.academicYear || "1447 - 1448هـ"}
@@ -122,7 +158,10 @@ export default function CouncilFormationPrintSheet({
               <tr className="border-b border-slate-800 bg-white text-slate-900 font-extrabold">
                 <th className="p-1.5 border-l border-slate-800 w-8 text-center">م</th>
                 <th className="p-1.5 border-l border-slate-800 text-right">اسم ولي الأمر</th>
-                <th className="p-1.5 border-l border-slate-800 text-center w-28">الصفة في المجلس</th>
+                <th className="p-1.5 border-l border-slate-800 text-center w-36">
+                  <div>الصفة في المجلس</div>
+                  <div className="no-print text-[9px] font-normal text-teal-700 font-sans mt-0.5">(إدخال يدوي)</div>
+                </th>
                 <th className="p-1.5 border-l border-slate-800 text-right">اسم الطالب والصف</th>
                 <th className="p-1.5 border-l border-slate-800 text-center w-28">رقم الجوال</th>
                 <th className="p-1.5 text-center w-20">درجة التقييم</th>
@@ -138,8 +177,70 @@ export default function CouncilFormationPrintSheet({
                       <span className="text-[10px] font-normal text-slate-600 mr-1">({m.relationLabel})</span>
                     )}
                   </td>
-                  <td className="p-1.5 text-center border-l border-slate-700 font-black text-slate-900">
-                    {m.assignedRole || "عضو مجلس"}
+                  <td className="p-1.5 text-center border-l border-slate-700 font-black text-slate-900 align-middle">
+                    {/* Screen Mode: Interactive Input and quick presets */}
+                    <div className="no-print flex flex-col items-center gap-1">
+                      <input
+                        type="text"
+                        value={localRoles[m.id] !== undefined ? localRoles[m.id] : (m.assignedRole || "")}
+                        onChange={(e) => handleRoleChange(m.id, e.target.value)}
+                        placeholder="الصفة يدوياً (أو اتركها فارغة)..."
+                        className="w-full text-center px-2 py-1 bg-amber-50/70 hover:bg-amber-50 focus:bg-white border border-amber-300 rounded text-xs font-black text-slate-900 focus:outline-hidden focus:ring-1 focus:ring-teal-600 transition-all placeholder:text-slate-400 placeholder:font-normal"
+                        title="اكتب أو عدل الصفة في المجلس يدوياً أو اتركها فارغة"
+                      />
+                      <div className="flex flex-wrap items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleRoleChange(m.id, "نائب الرئيس")}
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors border ${
+                            (localRoles[m.id] ?? m.assignedRole) === "نائب الرئيس"
+                              ? "bg-teal-700 text-white border-teal-800"
+                              : "bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          نائب الرئيس
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRoleChange(m.id, "أمين السر")}
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors border ${
+                            (localRoles[m.id] ?? m.assignedRole) === "أمين السر"
+                              ? "bg-teal-700 text-white border-teal-800"
+                              : "bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          أمين السر
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRoleChange(m.id, "عضو مجلس")}
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors border ${
+                            (localRoles[m.id] ?? m.assignedRole) === "عضو مجلس"
+                              ? "bg-teal-700 text-white border-teal-800"
+                              : "bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          عضو مجلس
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRoleChange(m.id, "")}
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors border ${
+                            !(localRoles[m.id] ?? m.assignedRole)
+                              ? "bg-slate-700 text-white border-slate-800"
+                              : "bg-slate-50 hover:bg-rose-50 text-slate-500 border-slate-200"
+                          }`}
+                          title="ترك الصفة فارغة"
+                        >
+                          ترك فارغة
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Print Mode: Pure Crisp Text (Clean Ministerial Layout) */}
+                    <span className="hidden print:inline">
+                      {(localRoles[m.id] !== undefined ? localRoles[m.id] : (m.assignedRole || "")).trim()}
+                    </span>
                   </td>
                   <td className="p-1.5 border-l border-slate-700 text-slate-800">
                     <span className="font-bold">{m.studentName}</span>
