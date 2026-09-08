@@ -26,3 +26,14 @@ export async function parseNoorExcelFile(file: File): Promise<{ success: boolean
 export function enrichWithExistingStudents(absences: NoorStudentAbsence[], students: Student[]): NoorStudentAbsence[] {
   return absences;
 }
+
+export const NOOR_CONSOLE_CODE = `/* Noor Scraper Script */`;
+export const NOOR_BOOKMARKLET_URL = `javascript:void(0);`;
+
+export async function generateNoorChromeExtensionZip(): Promise<Blob> {
+  return new Blob([""], { type: "application/zip" });
+}
+
+export function generateSingleFileUserScript(): string {
+  return "// User script for Noor";
+}

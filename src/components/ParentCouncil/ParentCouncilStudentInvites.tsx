@@ -26,9 +26,9 @@ import {
   Unlock,
 } from "lucide-react";
 import { Student, SchoolSignatories } from "../../types";
-import { ParentCouncilApplication } from "../../types/parentCouncil";
-import UnifiedCampaignModal from "../common/UnifiedCampaignModal";
-import CampaignLaunchButtons from "../common/CampaignLaunchButtons";
+import { ParentCouncilApplication } from "../../types";
+import UnifiedCampaignModal from "../UnifiedCampaignModal";
+import { CampaignLaunchButtons } from "../UnifiedCampaignModal";
 import { launchOfficialCampaign } from "../../utils/campaignLauncher";
 
 export interface ParentCouncilInvite {

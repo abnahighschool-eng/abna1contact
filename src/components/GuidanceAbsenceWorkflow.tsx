@@ -29,7 +29,7 @@ import {
 import { NoorStudentAbsence, SchoolSignatories, Student } from "../types";
 import GuidanceDocumentModal, { GuidanceDocType } from "./GuidanceDocumentModal";
 import NoorImporterModal from "./NoorImporterModal";
-import { generateNoorChromeExtensionZip } from "../utils/chromeExtensionBuilder";
+import { generateNoorChromeExtensionZip } from "../utils/noorSmartParser";
 
 interface GuidanceAbsenceWorkflowProps {
   students: Student[];

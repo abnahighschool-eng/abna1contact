@@ -19,7 +19,7 @@ import {
   GraduationCap,
   Sparkles,
 } from "lucide-react";
-import { ParentCouncilApplication, ParentCouncilInvite } from "../../types/parentCouncil";
+import { ParentCouncilApplication, ParentCouncilInvite } from "../../types";
 import { Student } from "../../types";
 
 interface ParentCouncilSentMessagesLogProps {

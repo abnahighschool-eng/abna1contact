@@ -49,7 +49,7 @@ import {
   SurveyCategory,
   SurveyStatus,
   CaseAction,
-} from "../../types/studentNeedsSurvey";
+} from "../../types";
 import { AppUser, SchoolSignatories } from "../../types";
 import {
   extractStudentPhone,
@@ -57,7 +57,7 @@ import {
   extractStudentGrade,
   extractStudentClass,
 } from "../AttendanceSystem";
-import CampaignLaunchButtons from "../common/CampaignLaunchButtons";
+import { CampaignLaunchButtons } from "../UnifiedCampaignModal";
 import { launchOfficialCampaign } from "../../utils/campaignLauncher";
 
 interface BatchSendProgress {

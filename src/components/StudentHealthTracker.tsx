@@ -45,7 +45,7 @@ import {
   SupportCase,
   HealthAuditLog,
   IndicatorLevel,
-} from "../types/studentSupport";
+} from "../types";
 import {
   calculateStudentIndicators,
   calculateOverallPriority,
@@ -54,8 +54,8 @@ import {
 } from "../utils/studentSupportRulesEngine";
 import StudentSupportDetailModal from "./StudentSupportDetailModal";
 import TeacherSupportCardModal from "./TeacherSupportCardModal";
-import CampaignLaunchButtons from "./common/CampaignLaunchButtons";
-import UnifiedCampaignModal from "./common/UnifiedCampaignModal";
+import { CampaignLaunchButtons } from "./UnifiedCampaignModal";
+import UnifiedCampaignModal from "./UnifiedCampaignModal";
 import { launchOfficialCampaign } from "../utils/campaignLauncher";
 
 export interface BatchLogItem {

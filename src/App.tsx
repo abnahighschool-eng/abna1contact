@@ -9,6 +9,8 @@ import {
   Sparkles, 
   Smartphone, 
   ShieldCheck, 
+  ShieldAlert,
+  Clock,
   Database, 
   User, 
   Printer,
@@ -23,7 +25,8 @@ import {
   CloudCheck,
   Cloud,
   Menu,
-  X
+  X,
+  LogOut
 } from "lucide-react";
 import ConnectionPanel from "./components/ConnectionPanel";
 import ExcelUploader from "./components/ExcelUploader";
@@ -44,7 +47,7 @@ import ParentCouncilDashboard from "./components/ParentCouncil/ParentCouncilDash
 import ParentCouncilPortal from "./components/ParentCouncil/ParentCouncilPortal";
 import DatabaseManagementModal from "./components/DatabaseManagementModal";
 import { SchoolSignatoriesModal, DEFAULT_MINISTRY_LOGO } from "./components/SchoolSignatoriesModal";
-import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types/studentSupport";
+import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types";
 import { Student, WhatsAppConfig, SchoolSignatories, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
 import { 
   loadInitialAppData, 
@@ -58,7 +61,6 @@ import {
   getCloudStorageStatus
 } from "./firebaseService";
 import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./utils/teachersScheduleParser";
-import { LogOut } from "lucide-react";
 
 export default function App() {
   const [mainSection, setMainSection] = useState<MainSectionType>("messages");
@@ -277,6 +279,12 @@ export default function App() {
 
   const [healthAuditLogs, setHealthAuditLogs] = useState<HealthAuditLog[]>([]);
   const [showDatabaseModal, setShowDatabaseModal] = useState(false);
+
+  // Inactivity tracking state: Auto-logout after 5 minutes with 30-second warning
+  const [showInactivityWarning, setShowInactivityWarning] = useState(false);
+  const [inactivitySecondsLeft, setInactivitySecondsLeft] = useState(30);
+  const [sessionTimeoutNotice, setSessionTimeoutNotice] = useState<string | null>(null);
+  const lastActivityTimeRef = useRef<number>(Date.now());
 
   // Clear specific or all local state sections
   const handleClearLocalSection = (scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "health" | "logs") => {
@@ -521,6 +529,11 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: AppUser) => {
+    // Reset inactivity tracking and clear notices on login
+    lastActivityTimeRef.current = Date.now();
+    setSessionTimeoutNotice(null);
+    setShowInactivityWarning(false);
+
     // Update lastLogin
     const updatedUsers = users.map((u) => (u.id === user.id ? { ...u, lastLogin: new Date().toISOString() } : u));
     setUsers(updatedUsers);
@@ -543,7 +556,63 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem("abna_auth_current_user");
     setMainSection("messages");
+    setShowInactivityWarning(false);
   };
+
+  const handleExtendSession = () => {
+    lastActivityTimeRef.current = Date.now();
+    setShowInactivityWarning(false);
+  };
+
+  // Inactivity tracking (Auto-logout after 5 minutes with 30s countdown warning)
+  const INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes
+  const INACTIVITY_WARNING_MS = 30 * 1000; // Last 30 seconds
+  const INACTIVITY_THRESHOLD_MS = INACTIVITY_LIMIT_MS - INACTIVITY_WARNING_MS; // 4m 30s
+
+  useEffect(() => {
+    if (!currentUser) {
+      setShowInactivityWarning(false);
+      return;
+    }
+
+    lastActivityTimeRef.current = Date.now();
+
+    const handleUserActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityTimeRef.current > 1000) {
+        lastActivityTimeRef.current = now;
+      }
+    };
+
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
+    events.forEach((evt) => window.addEventListener(evt, handleUserActivity, { passive: true }));
+
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - lastActivityTimeRef.current;
+
+      if (elapsed >= INACTIVITY_LIMIT_MS) {
+        // Inactivity exceeded 5 minutes -> Auto logout!
+        setShowInactivityWarning(false);
+        setCurrentUser(null);
+        localStorage.removeItem("abna_auth_current_user");
+        setMainSection("messages");
+        setSessionTimeoutNotice("تم تسجيل خروجك تلقائياً بعد مرور 5 دقائق من عدم وجود نشاط، وذلك لحماية وسرية بيانات النظام والطلاب.");
+      } else if (elapsed >= INACTIVITY_THRESHOLD_MS) {
+        // Last 30 seconds -> Show countdown modal
+        const remainingSec = Math.max(1, Math.ceil((INACTIVITY_LIMIT_MS - elapsed) / 1000));
+        setInactivitySecondsLeft(remainingSec);
+        setShowInactivityWarning(true);
+      } else {
+        setShowInactivityWarning(false);
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      events.forEach((evt) => window.removeEventListener(evt, handleUserActivity));
+    };
+  }, [currentUser]);
+
 
   const handleSaveUsers = (updatedUsers: AppUser[]) => {
     setUsers(updatedUsers);
@@ -578,9 +647,12 @@ export default function App() {
     fetchFullAppState();
 
     const interval = setInterval(() => {
+      if (document.hidden) return;
       fetchConfig();
-      syncInquiriesFromServer();
-    }, 3000);
+      if (currentUser) {
+        syncInquiriesFromServer();
+      }
+    }, 8000);
 
     // Initial local fallback if server hasn't responded yet
     const savedTemplate = localStorage.getItem("whatsapp_student_template");
@@ -807,6 +879,8 @@ export default function App() {
         signatories={signatories}
         onLoginSuccess={handleLoginSuccess}
         onUpdateUsers={handleSaveUsers}
+        sessionTimeoutNotice={sessionTimeoutNotice}
+        onClearTimeoutNotice={() => setSessionTimeoutNotice(null)}
       />
     );
   }
@@ -1252,6 +1326,92 @@ export default function App() {
         onRefreshAllData={fetchFullAppState}
         onClearLocalSection={handleClearLocalSection}
       />
+
+      {/* 5-Minute Inactivity Warning & 30-Second Countdown Security Modal */}
+      {showInactivityWarning && currentUser && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-fadeIn"
+          dir="rtl"
+          id="inactivity-warning-modal"
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-rose-100 overflow-hidden text-slate-800"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="inactivity-dialog-title"
+          >
+            {/* Top accent bar */}
+            <div className="h-2 bg-gradient-to-r from-amber-500 via-rose-500 to-red-600 animate-pulse" />
+
+            <div className="p-6 sm:p-7 text-center">
+              {/* Icon badge */}
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center relative shadow-sm">
+                <ShieldAlert className="w-8 h-8" />
+                <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-4 w-4 bg-rose-600"></span>
+                </span>
+              </div>
+
+              {/* Title & Description */}
+              <h3 
+                id="inactivity-dialog-title"
+                className="text-lg sm:text-xl font-black text-slate-900 mb-2"
+              >
+                تنبيه أمان: انتهاء الجلسة لعدم النشاط
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6">
+                لحماية أمان وسرية بيانات المدرسة والطلاب، سيقوم النظام بتسجيل الخروج تلقائياً بعد مرور 5 دقائق من عدم وجود نشاط.
+              </p>
+
+              {/* Circular / Countdown Timer Box */}
+              <div className="bg-slate-50 border-2 border-rose-200 rounded-2xl p-4 mb-6 shadow-inner">
+                <div className="text-[11px] font-bold text-slate-500 mb-1 flex items-center justify-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-rose-500 animate-spin" />
+                  <span>الوقت المتبقي قبل الإغلاق التلقائي:</span>
+                </div>
+
+                <div className="text-3xl sm:text-4xl font-black text-rose-600 font-mono tracking-tight my-1">
+                  {inactivitySecondsLeft}
+                  <span className="text-sm font-sans font-bold text-slate-700 mr-1.5">ثانية</span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
+                  <div 
+                    className="bg-rose-500 h-full transition-all duration-1000 ease-linear rounded-full"
+                    style={{ width: `${Math.min(100, Math.max(0, (inactivitySecondsLeft / 30) * 100))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleExtendSession}
+                  className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer"
+                  id="btn-extend-inactivity-session"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                  <span>متابعة العمل (تمديد 5 دقائق)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  id="btn-logout-immediately"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>تسجيل الخروج الآن</span>
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

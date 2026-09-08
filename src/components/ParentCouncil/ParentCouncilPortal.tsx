@@ -30,9 +30,9 @@ import {
   CouncilSkills,
   CouncilCompliance,
   evaluateParentCouncilApplication,
-} from "../../types/parentCouncil";
+} from "../../types";
 import { SchoolSignatories, Student } from "../../types";
-import ParentCouncilPrintSheet from "./ParentCouncilPrintSheet";
+import { ParentCouncilPrintSheet } from "./ParentCouncilPrintSheets";
 import {
   validateNationalId,
   validateSaudiPhone,

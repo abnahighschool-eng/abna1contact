@@ -32,7 +32,7 @@ import {
   SupportCaseAction,
   HealthAuditLog,
   SupportRoleView,
-} from "../types/studentSupport";
+} from "../types";
 import {
   getIndicatorColor,
   getIndicatorLabel,

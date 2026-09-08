@@ -25,7 +25,7 @@ import {
 import {
   StudentNeedsProfile,
   SurveyResponses,
-} from "../../types/studentNeedsSurvey";
+} from "../../types";
 
 interface ParentNeedsSurveyPortalProps {
   token: string;

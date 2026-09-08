@@ -8,7 +8,7 @@ import {
   StudentIndicators,
   IndicatorLevel,
   IndicatorData,
-} from "../types/studentSupport";
+} from "../types";
 
 const LEVEL_COLORS: Record<IndicatorLevel, { bg: string; text: string; border: string; dot: string }> = {
   none: {

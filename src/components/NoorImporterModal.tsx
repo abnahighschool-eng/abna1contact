@@ -19,10 +19,17 @@ import {
   Info,
   PhoneCall
 } from "lucide-react";
-import { NOOR_CONSOLE_CODE, NOOR_BOOKMARKLET_URL } from "../utils/noorBookmarklet";
 import { NoorStudentAbsence, Student } from "../types";
-import { generateNoorChromeExtensionZip, generateSingleFileUserScript } from "../utils/chromeExtensionBuilder";
-import { parseNoorRawText, parseNoorExcelFile, enrichWithExistingStudents, getCurrentHijriDate } from "../utils/noorSmartParser";
+import {
+  NOOR_CONSOLE_CODE,
+  NOOR_BOOKMARKLET_URL,
+  generateNoorChromeExtensionZip,
+  generateSingleFileUserScript,
+  parseNoorRawText,
+  parseNoorExcelFile,
+  enrichWithExistingStudents,
+  getCurrentHijriDate,
+} from "../utils/noorSmartParser";
 
 interface NoorImporterModalProps {
   isOpen: boolean;

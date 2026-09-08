@@ -42,13 +42,15 @@ import {
   ParentCouncilConfig,
   ParentCouncilInvite,
   evaluateParentCouncilApplication,
-} from "../../types/parentCouncil";
+} from "../../types";
 import { SchoolSignatories, Student } from "../../types";
-import ParentCouncilPrintSheet from "./ParentCouncilPrintSheet";
-import CouncilFormationPrintSheet from "./CouncilFormationPrintSheet";
+import {
+  ParentCouncilPrintSheet,
+  CouncilFormationPrintSheet,
+  SentMessagesReportPrintSheet,
+} from "./ParentCouncilPrintSheets";
 import ParentCouncilStudentInvites from "./ParentCouncilStudentInvites";
 import ParentCouncilSentMessagesLog from "./ParentCouncilSentMessagesLog";
-import SentMessagesReportPrintSheet from "./SentMessagesReportPrintSheet";
 
 interface ParentCouncilDashboardProps {
   students: Student[];

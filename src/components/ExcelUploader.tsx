@@ -42,6 +42,8 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
   const [isParsing, setIsParsing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedGrade, setSelectedGrade] = useState<string>("all");
+  const [selectedSection, setSelectedSection] = useState<string>("all");
   const [rosterTab, setRosterTab] = useState<"all" | "active" | "archived">("active");
   const [reconcileStats, setReconcileStats] = useState<any | null>(null);
   const [reconcileNotification, setReconcileNotification] = useState<string>("");
@@ -528,7 +530,30 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
   const activeStudentsCount = useMemo(() => students.filter(s => !s.isArchived).length, [students]);
   const archivedStudentsCount = useMemo(() => students.filter(s => !!s.isArchived).length, [students]);
 
-  // Filter students by search and active/archived tab
+  // Extract unique grades and sections
+  const uniqueGrades = useMemo(() => {
+    const grades = new Set<string>();
+    students.forEach((s) => {
+      const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
+      if (g) grades.add(g);
+    });
+    return Array.from(grades).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
+  }, [students]);
+
+  // Extract unique sections dynamically based on selected grade
+  const availableSections = useMemo(() => {
+    const sections = new Set<string>();
+    students.forEach((s) => {
+      const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
+      if (selectedGrade === "all" || g === selectedGrade.trim()) {
+        const cls = (s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || (s as any)["الشعبه"] || (s as any)["الفصل / الشعبة"] || "").trim();
+        if (cls) sections.add(cls);
+      }
+    });
+    return Array.from(sections).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
+  }, [students, selectedGrade]);
+
+  // Filter students by search, grade, section, and active/archived tab
   const filteredStudents = useMemo(() => {
     let list = students;
     if (rosterTab === "active") {
@@ -537,17 +562,33 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
       list = list.filter(s => !!s.isArchived);
     }
 
+    // Filter by Grade
+    if (selectedGrade !== "all") {
+      list = list.filter(s => {
+        const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
+        return g === selectedGrade.trim();
+      });
+    }
+
+    // Filter by Section
+    if (selectedSection !== "all") {
+      list = list.filter(s => {
+        const cls = (s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || (s as any)["الشعبه"] || (s as any)["الفصل / الشعبة"] || "").trim();
+        return cls === selectedSection.trim();
+      });
+    }
+
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase().trim();
     return list.filter(s => {
-      const name = (s.name || s["اسم الطالب"] || "").toLowerCase();
-      const phone = (s.phone || s["رقم الجوال"] || "").toLowerCase();
-      const grade = (s.grade || s["الصف"] || "").toLowerCase();
-      const cls = (s.className || s["الفصل"] || "").toLowerCase();
-      const nid = (s.nationalId || s["السجل المدني"] || s["رقم الهوية"] || "").toLowerCase();
+      const name = (s.name || (s as any)["اسم الطالب"] || (s as any)["الاسم"] || "").toLowerCase();
+      const phone = (s.phone || (s as any)["رقم الجوال"] || (s as any)["الجوال"] || "").toLowerCase();
+      const grade = (s.grade || (s as any)["الصف"] || (s as any)["الصف الدراسي"] || "").toLowerCase();
+      const cls = (s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || "").toLowerCase();
+      const nid = (s.nationalId || (s as any)["السجل المدني"] || (s as any)["رقم الهوية"] || (s as any)["رقم الطالب"] || s.id || "").toLowerCase();
       return name.includes(q) || phone.includes(q) || grade.includes(q) || cls.includes(q) || nid.includes(q);
     });
-  }, [students, searchQuery, rosterTab]);
+  }, [students, searchQuery, rosterTab, selectedGrade, selectedSection]);
 
   // Phone stats
   const validPhonesCount = useMemo(() => {
@@ -891,73 +932,127 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
           )}
 
           {/* Quick Search, Filter Tabs & Table Controls */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-col gap-3.5">
             
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-              <button
-                type="button"
-                onClick={() => setRosterTab("active")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  rosterTab === "active"
-                    ? "bg-white text-emerald-800 shadow-xs border border-emerald-200"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>الكشف الحالي النشط ({activeStudentsCount})</span>
-              </button>
+            {/* Top row: Roster tab filters & counters */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setRosterTab("active")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    rosterTab === "active"
+                      ? "bg-white text-emerald-800 shadow-xs border border-emerald-200"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>الكشف الحالي النشط ({activeStudentsCount})</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setRosterTab("archived")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  rosterTab === "archived"
-                    ? "bg-white text-amber-900 shadow-xs border border-amber-300"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <Archive className="w-3.5 h-3.5 text-amber-600" />
-                <span>السجلات المحفوظة تاريخياً ({archivedStudentsCount})</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setRosterTab("archived")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    rosterTab === "archived"
+                      ? "bg-white text-amber-900 shadow-xs border border-amber-300"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Archive className="w-3.5 h-3.5 text-amber-600" />
+                  <span>السجلات المحفوظة تاريخياً ({archivedStudentsCount})</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setRosterTab("all")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  rosterTab === "all"
-                    ? "bg-white text-slate-900 shadow-xs border border-slate-300"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <span>الكل ({students.length})</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setRosterTab("all")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    rosterTab === "all"
+                      ? "bg-white text-slate-900 shadow-xs border border-slate-300"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <span>الكل ({students.length})</span>
+                </button>
+              </div>
+
+              {/* Status / Clear Filter */}
+              <div className="flex items-center gap-3 self-end sm:self-auto">
+                <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                  عرض <strong>{filteredStudents.length}</strong> من إجمالي {students.length}
+                </span>
+                {(searchQuery || selectedGrade !== "all" || selectedSection !== "all") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSelectedGrade("all");
+                      setSelectedSection("all");
+                    }}
+                    className="text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-xl transition-colors cursor-pointer border border-rose-200/60 flex items-center gap-1"
+                  >
+                    <span>إلغاء التصفية</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Search Box */}
-            <div className="flex items-center gap-3">
-              <div className="relative w-full sm:w-72">
+            {/* Filter Bar: Matching قسم الاستعلام عن طالب */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Search input */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="بحث بالاسم، الجوال، الصف، الهوية..."
-                  className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                  placeholder="ابحث بالاسم أو رقم الطالب..."
+                  className="w-full pr-9 pl-7 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium"
                 />
-                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
                 {searchQuery && (
                   <button 
+                    type="button"
                     onClick={() => setSearchQuery("")}
-                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
+                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
                   >
                     ✕
                   </button>
                 )}
               </div>
 
-              <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
-                عرض <strong>{filteredStudents.length}</strong>
-              </span>
+              {/* Grade select */}
+              <div>
+                <select
+                  value={selectedGrade}
+                  onChange={(e) => {
+                    setSelectedGrade(e.target.value);
+                    setSelectedSection("all");
+                  }}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer"
+                >
+                  <option value="all">جميع الصفوف الدراسية</option>
+                  {uniqueGrades.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Section select */}
+              <div>
+                <select
+                  value={selectedSection}
+                  onChange={(e) => setSelectedSection(e.target.value)}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer"
+                >
+                  <option value="all">
+                    {selectedGrade === "all" ? "جميع الشعب والصفوف" : `جميع شعب ${selectedGrade}`}
+                  </option>
+                  {availableSections.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
           </div>

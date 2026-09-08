@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   GraduationCap
 } from "lucide-react";
-import { StudentSupportProfile } from "../types/studentSupport";
+import { StudentSupportProfile } from "../types";
 import { generateTeacherSupportCard, getIndicatorColor } from "../utils/studentSupportRulesEngine";
 
 interface TeacherSupportCardModalProps {

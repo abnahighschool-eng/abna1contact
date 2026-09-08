@@ -31,7 +31,7 @@ import {
   GeneralResponseChoice,
   FrequencyChoice,
   BehaviorChoice,
-} from "../types/studentSupport";
+} from "../types";
 import { calculateStudentIndicators, calculateOverallPriority } from "../utils/studentSupportRulesEngine";
 
 interface ParentStudentSupportPortalProps {

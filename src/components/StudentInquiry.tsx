@@ -62,8 +62,8 @@ import {
   IntegratedTeacherRecord,
   normalizeArabicText,
 } from "../utils/teachersScheduleParser";
-import CampaignLaunchButtons from "./common/CampaignLaunchButtons";
-import UnifiedCampaignModal from "./common/UnifiedCampaignModal";
+import { CampaignLaunchButtons } from "./UnifiedCampaignModal";
+import UnifiedCampaignModal from "./UnifiedCampaignModal";
 import { launchOfficialCampaign, CampaignRecipientItem } from "../utils/campaignLauncher";
 
 interface StudentInquiryProps {
@@ -202,7 +202,8 @@ export default function StudentInquiry({
   const uniqueGrades = useMemo(() => {
     const grades = new Set<string>();
     students.forEach((s) => {
-      if (s.grade) grades.add(s.grade.trim());
+      const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
+      if (g) grades.add(g);
     });
     return Array.from(grades).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
   }, [students]);
@@ -211,9 +212,10 @@ export default function StudentInquiry({
   const availableSections = useMemo(() => {
     const sections = new Set<string>();
     students.forEach((s) => {
-      if (selectedGrade === "all" || s.grade?.trim() === selectedGrade) {
-        const cls = s.className || (s as any)["الشعبة"] || (s as any)["الصف"] || "";
-        if (cls) sections.add(cls.trim());
+      const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
+      if (selectedGrade === "all" || g === selectedGrade.trim()) {
+        const cls = (s.className || s.section || (s as any)["الشعبة"] || (s as any)["الشعبه"] || (s as any)["الفصل"] || (s as any)["الفصل / الشعبة"] || "").trim();
+        if (cls) sections.add(cls);
       }
     });
     return Array.from(sections).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
@@ -290,22 +292,31 @@ export default function StudentInquiry({
   // Filtered Students
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
-      const matchesSearch =
-        !studentSearchTerm ||
-        s.name.toLowerCase().includes(studentSearchTerm.toLowerCase()) ||
-        (s.nationalId && s.nationalId.includes(studentSearchTerm)) ||
-        (s.id && s.id.includes(studentSearchTerm));
+      const sName = (s.name || (s as any)["اسم الطالب"] || (s as any)["الاسم"] || "").toLowerCase();
+      const sNid = (s.nationalId || (s as any)["السجل المدني"] || (s as any)["رقم الهوية"] || (s as any)["رقم الطالب"] || s.id || "").toLowerCase();
+      const sPhone = (s.phone || (s as any)["رقم الجوال"] || (s as any)["الجوال"] || "").toLowerCase();
+      const term = studentSearchTerm.trim().toLowerCase();
 
-      const matchesGrade = selectedGrade === "all" || s.grade?.trim() === selectedGrade;
-      const cls =
+      const matchesSearch =
+        !term ||
+        sName.includes(term) ||
+        sNid.includes(term) ||
+        sPhone.includes(term);
+
+      const sGrade = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
+      const matchesGrade = selectedGrade === "all" || sGrade === selectedGrade.trim();
+
+      const cls = (
         s.className ||
         s.section ||
         (s as any)["الشعبة"] ||
         (s as any)["الشعبه"] ||
         (s as any)["الفصل"] ||
+        (s as any)["الفصل / الشعبة"] ||
         (s as any)["الصف"] ||
-        "";
-      const matchesSection = selectedSection === "all" || cls.trim() === selectedSection;
+        ""
+      ).trim();
+      const matchesSection = selectedSection === "all" || cls === selectedSection.trim();
 
       return matchesSearch && matchesGrade && matchesSection;
     });
