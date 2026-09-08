@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "abna_system_data": {
+      "description": "System state documents including school settings, students data, attendance records, and user accounts",
+      "fields": {
+        "schoolSignatories": {
+          "type": "object",
+          "description": "Official school information, names of principals, counselors and signatories",
+          "validation": "optional"
+        },
+        "students": {
+          "type": "array",
+          "description": "Complete list of enrolled students for messaging and attendance",
+          "validation": "optional"
+        },
+        "attendanceRecords": {
+          "type": "object",
+          "description": "Daily attendance and tardiness tracking records by date",
+          "validation": "optional"
+        },
+        "users": {
+          "type": "array",
+          "description": "Authorized staff and admin user accounts",
+          "validation": "optional"
+        },
+        "teachers": {
+          "type": "array",
+          "description": "School teaching staff roster with specialties and contact phone numbers",
+          "validation": "optional"
+        },
+        "scheduleAssignments": {
+          "type": "array",
+          "description": "School timetable linking teachers, subjects, and student sections",
+          "validation": "optional"
+        },
+        "inquiryRequests": {
+          "type": "array",
+          "description": "Student inquiry requests sent to subject teachers with evaluation ratings and verification status",
+          "validation": "optional"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "description": "ISO timestamp of the last system sync",
+          "validation": "optional"
+        }
+      }
+    }
+  }
+}
