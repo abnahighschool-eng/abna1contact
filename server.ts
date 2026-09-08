@@ -442,6 +442,7 @@ const campaigns: Record<string, Campaign> = {};
 const individualLogs: IndividualLogItem[] = [];
 
 // Persistent files paths
+const APP_STATE_STORE_FILE = path.join(process.cwd(), "app_state_store.json");
 const INDIVIDUAL_LOGS_FILE = path.join(process.cwd(), "individual_logs.json");
 const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_store.json");
 const APP_SETTINGS_FILE = path.join(process.cwd(), "app_settings.json");
@@ -457,6 +458,17 @@ const SUPPORT_CASES_FILE = path.join(process.cwd(), "support_cases_store.json");
 const HEALTH_AUDIT_FILE = path.join(process.cwd(), "health_audit_store.json");
 const NEEDS_SURVEY_FILE = path.join(process.cwd(), "needs_survey_store.json");
 const PARENT_COUNCILS_FILE = path.join(process.cwd(), "parent_councils_store.json");
+
+// Read consolidated app_state_store.json if it exists
+let consolidatedStore: Record<string, any> = {};
+if (fs.existsSync(APP_STATE_STORE_FILE)) {
+  try {
+    const raw = fs.readFileSync(APP_STATE_STORE_FILE, "utf-8");
+    consolidatedStore = JSON.parse(raw) || {};
+  } catch (e) {
+    console.error("Error reading app_state_store.json", e);
+  }
+}
 
 // Parent Councils Data Store
 let parentCouncilsStore: {
@@ -532,7 +544,9 @@ let systemUsersList: any[] = [
   }
 ];
 
-if (fs.existsSync(USERS_FILE)) {
+if (consolidatedStore["users_store"] && Array.isArray(consolidatedStore["users_store"])) {
+  systemUsersList = consolidatedStore["users_store"];
+} else if (fs.existsSync(USERS_FILE)) {
   try {
     const raw = fs.readFileSync(USERS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -542,7 +556,9 @@ if (fs.existsSync(USERS_FILE)) {
   }
 }
 
-if (fs.existsSync(ATTENDANCE_FILE)) {
+if (consolidatedStore["attendance_store"] && typeof consolidatedStore["attendance_store"] === "object") {
+  attendanceRecordsStore = consolidatedStore["attendance_store"];
+} else if (fs.existsSync(ATTENDANCE_FILE)) {
   try {
     const raw = fs.readFileSync(ATTENDANCE_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -554,7 +570,9 @@ if (fs.existsSync(ATTENDANCE_FILE)) {
   }
 }
 
-if (fs.existsSync(TEACHERS_FILE)) {
+if (consolidatedStore["teachers_store"] && Array.isArray(consolidatedStore["teachers_store"])) {
+  teachersList = consolidatedStore["teachers_store"];
+} else if (fs.existsSync(TEACHERS_FILE)) {
   try {
     const raw = fs.readFileSync(TEACHERS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -564,7 +582,13 @@ if (fs.existsSync(TEACHERS_FILE)) {
   }
 }
 
-if (fs.existsSync(SCHEDULE_FILE)) {
+if (consolidatedStore["schedule_store"] && Array.isArray(consolidatedStore["schedule_store"])) {
+  scheduleAssignments = consolidatedStore["schedule_store"].filter((a: any) => {
+    if (a?.id && String(a.id).includes("_34_")) return false;
+    const sec = (a?.section || "").trim();
+    return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+  });
+} else if (fs.existsSync(SCHEDULE_FILE)) {
   try {
     const raw = fs.readFileSync(SCHEDULE_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -580,7 +604,9 @@ if (fs.existsSync(SCHEDULE_FILE)) {
   }
 }
 
-if (fs.existsSync(INQUIRIES_FILE)) {
+if (consolidatedStore["inquiries_store"] && Array.isArray(consolidatedStore["inquiries_store"])) {
+  inquiryRequestsStore = consolidatedStore["inquiries_store"];
+} else if (fs.existsSync(INQUIRIES_FILE)) {
   try {
     const raw = fs.readFileSync(INQUIRIES_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -590,7 +616,9 @@ if (fs.existsSync(INQUIRIES_FILE)) {
   }
 }
 
-if (fs.existsSync(HEALTH_PROFILES_FILE)) {
+if (consolidatedStore["health_profiles_store"] && typeof consolidatedStore["health_profiles_store"] === "object") {
+  healthProfilesStore = consolidatedStore["health_profiles_store"];
+} else if (fs.existsSync(HEALTH_PROFILES_FILE)) {
   try {
     const raw = fs.readFileSync(HEALTH_PROFILES_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -600,7 +628,9 @@ if (fs.existsSync(HEALTH_PROFILES_FILE)) {
   }
 }
 
-if (fs.existsSync(SUPPORT_CASES_FILE)) {
+if (consolidatedStore["support_cases_store"] && Array.isArray(consolidatedStore["support_cases_store"])) {
+  supportCasesStore = consolidatedStore["support_cases_store"];
+} else if (fs.existsSync(SUPPORT_CASES_FILE)) {
   try {
     const raw = fs.readFileSync(SUPPORT_CASES_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -610,7 +640,9 @@ if (fs.existsSync(SUPPORT_CASES_FILE)) {
   }
 }
 
-if (fs.existsSync(HEALTH_AUDIT_FILE)) {
+if (consolidatedStore["health_audit_store"] && Array.isArray(consolidatedStore["health_audit_store"])) {
+  healthAuditLogsStore = consolidatedStore["health_audit_store"];
+} else if (fs.existsSync(HEALTH_AUDIT_FILE)) {
   try {
     const raw = fs.readFileSync(HEALTH_AUDIT_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -620,7 +652,9 @@ if (fs.existsSync(HEALTH_AUDIT_FILE)) {
   }
 }
 
-if (fs.existsSync(NEEDS_SURVEY_FILE)) {
+if (consolidatedStore["needs_survey_store"] && typeof consolidatedStore["needs_survey_store"] === "object") {
+  needsSurveyProfilesStore = consolidatedStore["needs_survey_store"];
+} else if (fs.existsSync(NEEDS_SURVEY_FILE)) {
   try {
     const raw = fs.readFileSync(NEEDS_SURVEY_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -630,7 +664,13 @@ if (fs.existsSync(NEEDS_SURVEY_FILE)) {
   }
 }
 
-if (fs.existsSync(PARENT_COUNCILS_FILE)) {
+if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["parent_councils_store"] === "object") {
+  parentCouncilsStore = {
+    applications: consolidatedStore["parent_councils_store"].applications || {},
+    invites: consolidatedStore["parent_councils_store"].invites || {},
+    config: { ...parentCouncilsStore.config, ...(consolidatedStore["parent_councils_store"].config || {}) },
+  };
+} else if (fs.existsSync(PARENT_COUNCILS_FILE)) {
   try {
     const raw = fs.readFileSync(PARENT_COUNCILS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -647,7 +687,9 @@ if (fs.existsSync(PARENT_COUNCILS_FILE)) {
 }
 
 // Load persisted state safely on startup
-if (fs.existsSync(APP_SETTINGS_FILE)) {
+if (consolidatedStore["app_settings"] && typeof consolidatedStore["app_settings"] === "object") {
+  appSettings = { ...appSettings, ...consolidatedStore["app_settings"] };
+} else if (fs.existsSync(APP_SETTINGS_FILE)) {
   try {
     const raw = fs.readFileSync(APP_SETTINGS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -657,7 +699,9 @@ if (fs.existsSync(APP_SETTINGS_FILE)) {
   }
 }
 
-if (fs.existsSync(STUDENTS_FILE)) {
+if (consolidatedStore["students_store"] && Array.isArray(consolidatedStore["students_store"])) {
+  activeStudentsList = consolidatedStore["students_store"];
+} else if (fs.existsSync(STUDENTS_FILE)) {
   try {
     const raw = fs.readFileSync(STUDENTS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -667,7 +711,9 @@ if (fs.existsSync(STUDENTS_FILE)) {
   }
 }
 
-if (fs.existsSync(TEMPLATE_FILE)) {
+if (consolidatedStore["template_store"] && typeof consolidatedStore["template_store"] === "string") {
+  activeTemplate = consolidatedStore["template_store"];
+} else if (fs.existsSync(TEMPLATE_FILE)) {
   try {
     const raw = fs.readFileSync(TEMPLATE_FILE, "utf-8");
     if (raw && typeof raw === "string") activeTemplate = raw;
@@ -676,7 +722,9 @@ if (fs.existsSync(TEMPLATE_FILE)) {
   }
 }
 
-if (fs.existsSync(CAMPAIGNS_FILE)) {
+if (consolidatedStore["campaigns_store"] && typeof consolidatedStore["campaigns_store"] === "object") {
+  Object.assign(campaigns, consolidatedStore["campaigns_store"]);
+} else if (fs.existsSync(CAMPAIGNS_FILE)) {
   try {
     const raw = fs.readFileSync(CAMPAIGNS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -688,7 +736,9 @@ if (fs.existsSync(CAMPAIGNS_FILE)) {
   }
 }
 
-if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
+if (consolidatedStore["individual_logs"] && Array.isArray(consolidatedStore["individual_logs"])) {
+  individualLogs.push(...consolidatedStore["individual_logs"]);
+} else if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
   try {
     const raw = fs.readFileSync(INDIVIDUAL_LOGS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -700,142 +750,119 @@ if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
   }
 }
 
-function saveIndividualLogs() {
-  try {
-    fs.writeFileSync(INDIVIDUAL_LOGS_FILE, JSON.stringify(individualLogs.slice(0, 1000), null, 2), "utf-8");
-    syncServerStateToFirestore({ individualLogs: individualLogs.slice(0, 500) }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving individual_logs.json", e);
+// Unified Disk Saver (Throttled/Debounced for high performance on Render & low disk I/O)
+let diskSaveTimer: any = null;
+function saveAppStateToDisk(immediate = false) {
+  const doSave = () => {
+    try {
+      const fullState = {
+        users_store: systemUsersList,
+        attendance_store: attendanceRecordsStore,
+        teachers_store: teachersList,
+        schedule_store: scheduleAssignments,
+        inquiries_store: inquiryRequestsStore,
+        health_profiles_store: healthProfilesStore,
+        support_cases_store: supportCasesStore,
+        health_audit_store: healthAuditLogsStore,
+        needs_survey_store: needsSurveyProfilesStore,
+        parent_councils_store: parentCouncilsStore,
+        app_settings: appSettings,
+        students_store: activeStudentsList,
+        template_store: activeTemplate,
+        campaigns_store: campaigns,
+        individual_logs: individualLogs.slice(0, 1000),
+      };
+      fs.writeFileSync(APP_STATE_STORE_FILE, JSON.stringify(fullState, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error saving app_state_store.json", e);
+    }
+  };
+
+  if (immediate) {
+    if (diskSaveTimer) clearTimeout(diskSaveTimer);
+    doSave();
+  } else {
+    if (diskSaveTimer) clearTimeout(diskSaveTimer);
+    diskSaveTimer = setTimeout(doSave, 1000);
   }
+}
+
+function saveIndividualLogs() {
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ individualLogs: individualLogs.slice(0, 500) }).catch(() => {});
 }
 
 function saveCampaigns() {
-  try {
-    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf-8");
-    syncServerStateToFirestore({ campaigns }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving campaigns_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ campaigns }).catch(() => {});
 }
 
 function saveAppSettings() {
-  try {
-    fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(appSettings, null, 2), "utf-8");
-    syncServerStateToFirestore({ appSettings }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving app_settings.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ appSettings }).catch(() => {});
 }
 
 function saveStudentsList() {
-  try {
-    fs.writeFileSync(STUDENTS_FILE, JSON.stringify(activeStudentsList, null, 2), "utf-8");
-    syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving students_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
 }
 
 function saveTemplate() {
-  try {
-    fs.writeFileSync(TEMPLATE_FILE, activeTemplate, "utf-8");
-    syncServerStateToFirestore({ activeTemplate }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving template_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ activeTemplate }).catch(() => {});
 }
 
 function saveUsersList() {
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(systemUsersList, null, 2), "utf-8");
-    syncServerStateToFirestore({ systemUsersList }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving users_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ systemUsersList }).catch(() => {});
 }
 
 function saveAttendanceRecords() {
-  try {
-    fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify(attendanceRecordsStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ attendanceRecords: attendanceRecordsStore }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving attendance_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ attendanceRecords: attendanceRecordsStore }).catch(() => {});
 }
 
 function saveTeachersList() {
-  try {
-    fs.writeFileSync(TEACHERS_FILE, JSON.stringify(teachersList, null, 2), "utf-8");
-    syncServerStateToFirestore({ teachersList }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving teachers_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ teachersList }).catch(() => {});
 }
 
 function saveScheduleAssignments() {
-  try {
-    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(scheduleAssignments, null, 2), "utf-8");
-    syncServerStateToFirestore({ scheduleAssignments }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving schedule_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ scheduleAssignments }).catch(() => {});
 }
 
 function saveInquiryRequests() {
-  try {
-    fs.writeFileSync(INQUIRIES_FILE, JSON.stringify(inquiryRequestsStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving inquiries_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
 }
 
 function saveHealthProfiles() {
-  try {
-    fs.writeFileSync(HEALTH_PROFILES_FILE, JSON.stringify(healthProfilesStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ healthProfiles: healthProfilesStore }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving health_profiles_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ healthProfiles: healthProfilesStore }).catch(() => {});
 }
 
 function saveSupportCases() {
-  try {
-    fs.writeFileSync(SUPPORT_CASES_FILE, JSON.stringify(supportCasesStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ supportCases: supportCasesStore }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving support_cases_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ supportCases: supportCasesStore }).catch(() => {});
 }
 
 function saveHealthAuditLogs() {
-  try {
-    fs.writeFileSync(HEALTH_AUDIT_FILE, JSON.stringify(healthAuditLogsStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ healthAuditLogs: healthAuditLogsStore }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving health_audit_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ healthAuditLogs: healthAuditLogsStore }).catch(() => {});
 }
 
 function saveNeedsSurveyProfiles() {
-  try {
-    fs.writeFileSync(NEEDS_SURVEY_FILE, JSON.stringify(needsSurveyProfilesStore, null, 2), "utf-8");
-    syncServerStateToFirestore({ needsSurveyProfiles: needsSurveyProfilesStore }).catch(() => {});
-  } catch (e) {
-    console.error("Error saving needs_survey_store.json", e);
-  }
+  saveAppStateToDisk();
+  syncServerStateToFirestore({ needsSurveyProfiles: needsSurveyProfilesStore }).catch(() => {});
 }
 
 function saveParentCouncilsStore(immediate = false) {
-  try {
-    fs.writeFileSync(PARENT_COUNCILS_FILE, JSON.stringify(parentCouncilsStore, null, 2), "utf-8");
-    if (immediate) {
-      forceFlushServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
-    } else {
-      syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
-    }
-  } catch (e) {
-    console.error("Error saving parent_councils_store.json", e);
+  saveAppStateToDisk(immediate);
+  if (immediate) {
+    forceFlushServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+  } else {
+    syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
   }
 }
 
@@ -3688,7 +3715,7 @@ async function startServer() {
           }
 
           // Deep-reconcile config
-          const localConfig = parentCouncilsStore.config || {};
+          const localConfig: any = parentCouncilsStore.config || {};
           const mergedSelected = Array.from(new Set([
             ...(cloudConfig.selectedMemberIds || []),
             ...(localConfig.selectedMemberIds || []),
