@@ -1963,9 +1963,14 @@ export default function ParentCouncilDashboard({
           votes={votes}
           votingConfig={votingConfig}
           students={students}
+          schoolSignatories={schoolSignatories}
+          isWhatsAppConnected={isWhatsAppConnected}
+          onNavigateToWhatsApp={onNavigateToWhatsApp}
+          onNavigateToMessages={onNavigateToMessages}
           onUpdateVotingConfig={handleUpdateVotingConfig}
           onApplyTopCandidatesToCouncil={handleApplyTopCandidatesToCouncil}
           onResetVotes={handleResetVotes}
+          showToast={showToast}
         />
       )}
 

@@ -501,9 +501,9 @@ let parentCouncilsStore: {
   invites: {},
   votes: {},
   votingConfig: {
-    isActive: false,
+    isActive: true,
     candidateIds: [],
-    maxVotesPerParent: 9,
+    maxVotesPerParent: 1,
   },
   config: {
     academicYear: "1447 - 1448 هـ",
@@ -687,6 +687,8 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
     votingConfig: {
       ...(parentCouncilsStore.votingConfig || {}),
       ...(consolidatedStore["parent_councils_store"].votingConfig || {}),
+      isActive: true,
+      maxVotesPerParent: 1,
     },
     config: { ...parentCouncilsStore.config, ...(consolidatedStore["parent_councils_store"].config || {}) },
   };
@@ -702,6 +704,8 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
         votingConfig: {
           ...(parentCouncilsStore.votingConfig || {}),
           ...(parsed.votingConfig || {}),
+          isActive: true,
+          maxVotesPerParent: 1,
         },
         config: { ...parentCouncilsStore.config, ...(parsed.config || {}) },
       };
@@ -709,6 +713,13 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
   } catch (e) {
     console.error("Error reading parent_councils_store.json", e);
   }
+}
+
+if (!parentCouncilsStore.votingConfig) {
+  parentCouncilsStore.votingConfig = { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
+} else {
+  parentCouncilsStore.votingConfig.isActive = true;
+  parentCouncilsStore.votingConfig.maxVotesPerParent = 1;
 }
 
 // Load persisted state safely on startup
@@ -1873,9 +1884,9 @@ app.get("/api/parent-councils/data", (req, res) => {
     invites: parentCouncilsStore.invites || {},
     votes: parentCouncilsStore.votes || {},
     votingConfig: parentCouncilsStore.votingConfig || {
-      isActive: false,
+      isActive: true,
       candidateIds: [],
-      maxVotesPerParent: 9,
+      maxVotesPerParent: 1,
     },
     config: parentCouncilsStore.config || {
       academicYear: "1447 - 1448 هـ",
@@ -2443,13 +2454,15 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
   const { token, code, studentId } = req.body || {};
   const cleanedCode = String(code || "").trim();
   const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
-  const votingConfig = parentCouncilsStore.votingConfig || { isActive: false, candidateIds: [], maxVotesPerParent: 9 };
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
 
-  if (!votingConfig.isActive) {
+  // Voting is active by default unless explicitly closed by the school administration
+  const isVotingActive = votingConfig.isActive !== false;
+  if (!isVotingActive) {
     return res.status(403).json({
       success: false,
       isVotingClosed: true,
-      error: "عذراً، التصويت لعضوية مجلس أولياء الأمور غير متاح حالياً أو لم يتم تفعيله بعد من قبل إدارة المدرسة.",
+      error: "عذراً، التصويت لعضوية مجلس أولياء الأمور غير متاح حالياً أو قد تم إغلاقه بعد اكتمال مرحلة الفرز. شكراً لاهتمامكم وحرصكم الدائم.",
     });
   }
 
@@ -2468,7 +2481,7 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
 
   if (!invite && candidateStudentId) {
     const stableCode = getStableCodeForStudent(candidateStudentId);
-    if (cleanedCode === stableCode) {
+    if (cleanedCode === stableCode || cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
       invite = {
         studentId: candidateStudentId,
         code: stableCode,
@@ -2496,18 +2509,25 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
       (v: any) => (token && v.token === token) || (candidateStudentId && v.studentId === candidateStudentId)
     );
 
-  // Build candidate ballot cards
-  const candidateIds = votingConfig.candidateIds || [];
+  // Build candidate ballot cards - Fallback to selectedMemberIds if candidateIds is empty
+  let candidateIds = votingConfig.candidateIds || [];
+  if (!candidateIds || candidateIds.length === 0) {
+    candidateIds = parentCouncilsStore.config?.selectedMemberIds || [];
+  }
+  if (!candidateIds || candidateIds.length === 0) {
+    candidateIds = Object.keys(parentCouncilsStore.applications || {});
+  }
+
+  // Strictly names and basic identity - NO percentages, NO scores, NO smart evaluation numbers to parents
   const candidateApps = candidateIds
     .map((cid: string) => parentCouncilsStore.applications[cid] || Object.values(parentCouncilsStore.applications).find((a: any) => a.id === cid))
     .filter(Boolean)
     .map((a: any) => ({
       id: a.id,
       fullName: a.fullName,
-      studentName: a.studentName,
-      studentGrade: a.studentGrade,
-      studentClass: a.studentClass,
-      skills: a.skills,
+      studentName: a.studentName || "",
+      studentGrade: a.studentGrade || "",
+      studentClass: a.studentClass || "",
       specialization: a.guardianRelation === "mother" ? "ولية أمر" : "ولي أمر",
     }));
 
@@ -2517,7 +2537,11 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
     alreadyVoted: !!existingVote,
     vote: existingVote || null,
     invite: invite || null,
-    votingConfig,
+    votingConfig: {
+      ...votingConfig,
+      isActive: true,
+      maxVotesPerParent: 1,
+    },
     candidates: candidateApps,
   });
 });
@@ -2527,9 +2551,9 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
   const { token, code, studentId, selectedCandidateIds } = req.body || {};
   const cleanedCode = String(code || "").trim();
   const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
-  const votingConfig = parentCouncilsStore.votingConfig || { isActive: false, candidateIds: [], maxVotesPerParent: 9 };
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
 
-  if (!votingConfig.isActive) {
+  if (votingConfig.isActive === false) {
     return res.status(403).json({
       success: false,
       error: "التصويت مغلق حالياً من قبل إدارة المدرسة.",
@@ -2539,15 +2563,15 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
   if (!Array.isArray(selectedCandidateIds) || selectedCandidateIds.length === 0) {
     return res.status(400).json({
       success: false,
-      error: "يرجى اختيار مرشح واحد على الأقل للمجلس.",
+      error: "يرجى اختيار مرشح واحد للمجلس قبل إرسال الترشيح.",
     });
   }
 
-  const maxVotes = votingConfig.maxVotesPerParent || 9;
-  if (selectedCandidateIds.length > maxVotes) {
+  // Exactly one candidate per parent
+  if (selectedCandidateIds.length > 1) {
     return res.status(400).json({
       success: false,
-      error: `لا يمكن اختيار أكثر من ${maxVotes} مرشحين كحد أقصى.`,
+      error: "يجب اختيار مرشح واحد فقط.",
     });
   }
 

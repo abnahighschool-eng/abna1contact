@@ -210,32 +210,48 @@ export default function App() {
     return [];
   });
 
-  // Direct Parent Council Voting Portal URL parameter (?portal=parent-council-vote or ?voting=true or ?vote=true)
-  const [parentCouncilVotePortalOpen, setParentCouncilVotePortalOpen] = useState<boolean>(() => {
+  // Direct Parent Council Voting Portal URL parameter (?portal=parent-council-vote or /v/:token or ?voting=true or ?vote=true)
+  const [parentCouncilVotePortalData, setParentCouncilVotePortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      return (
+      const path = window.location.pathname;
+      const isPathVote = path.startsWith("/v/") || path === "/v";
+      const isParamVote =
         params.get("portal") === "parent-council-vote" ||
         params.get("portal") === "council-vote" ||
         params.get("voting") === "true" ||
-        params.get("vote") === "true"
-      );
+        params.get("vote") === "true";
+
+      if (isPathVote || isParamVote) {
+        let tok = params.get("token") || params.get("t") || params.get("council_token") || null;
+        if (!tok && isPathVote && path.length > 3) {
+          tok = path.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || null;
+        }
+        const cd = params.get("code") || params.get("c") || params.get("council_code") || null;
+        return { isOpen: true, token: tok, code: cd };
+      }
     }
-    return false;
+    return { isOpen: false, token: null, code: null };
   });
 
-  // Direct Parent Council Portal URL parameter (?portal=parent-council or ?parent_council=true or ?council_token=<token> or ?token=pc_... or ?council_code=<code>)
+  // Direct Parent Council Portal URL parameter (?portal=parent-council or /c/:token or ?council_token=<token>)
   const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      const token = params.get("council_token") || params.get("token") || null;
+      const path = window.location.pathname;
+      const isPathCouncil = path.startsWith("/c/") || path === "/c";
+      let token = params.get("council_token") || params.get("token") || null;
+      if (!token && isPathCouncil && path.length > 3) {
+        token = path.replace(/^\/c\/?/, "").split("/")[0].split("?")[0] || null;
+      }
       const isParentCouncil =
+        isPathCouncil ||
         params.get("portal") === "parent-council" ||
         params.get("parent_council") === "true" ||
         params.get("council") === "true" ||
         params.get("page") === "parent_council_portal" ||
         !!params.get("council_token") ||
-        (token !== null && token.startsWith("pc_"));
+        (token !== null && token.startsWith("pc_") && !path.startsWith("/v/"));
 
       if (isParentCouncil) {
         return {
@@ -425,8 +441,28 @@ export default function App() {
         localStorage.setItem("school_signatories", JSON.stringify(cloudData.schoolSignatories));
       }
       if (Array.isArray(cloudData.students) && cloudData.students.length > 0) {
-        setStudents(cloudData.students);
-        localStorage.setItem("whatsapp_student_list", JSON.stringify(cloudData.students));
+        setStudents(prev => {
+          const map = new Map<string, Student>();
+          prev.forEach(s => { if (s && s.id) map.set(String(s.id), s); });
+          const localSaved = localStorage.getItem("whatsapp_student_list");
+          if (localSaved) {
+            try {
+              const parsed = JSON.parse(localSaved);
+              if (Array.isArray(parsed)) {
+                parsed.forEach(s => { if (s && s.id) map.set(String(s.id), s); });
+              }
+            } catch (e) {}
+          }
+          cloudData.students.forEach((s: Student) => {
+            if (s && s.id) {
+              const existing = map.get(String(s.id));
+              map.set(String(s.id), existing ? { ...existing, ...s } : s);
+            }
+          });
+          const merged = Array.from(map.values());
+          localStorage.setItem("whatsapp_student_list", JSON.stringify(merged));
+          return merged;
+        });
       }
       if (cloudData.savedTemplate) {
         setTemplate(cloudData.savedTemplate);
@@ -462,9 +498,20 @@ export default function App() {
           setSignatories(prev => ({ ...prev, ...data.settings }));
           localStorage.setItem("school_signatories", JSON.stringify(data.settings));
         }
-        if (Array.isArray(data.students) && data.students.length > 0 && (!cloudData.students || cloudData.students.length === 0)) {
-          setStudents(data.students);
-          localStorage.setItem("whatsapp_student_list", JSON.stringify(data.students));
+        if (Array.isArray(data.students) && data.students.length > 0) {
+          setStudents(prev => {
+            const map = new Map<string, Student>();
+            prev.forEach(s => { if (s && s.id) map.set(String(s.id), s); });
+            data.students.forEach((s: Student) => {
+              if (s && s.id) {
+                const existing = map.get(String(s.id));
+                map.set(String(s.id), existing ? { ...existing, ...s } : s);
+              }
+            });
+            const merged = Array.from(map.values());
+            localStorage.setItem("whatsapp_student_list", JSON.stringify(merged));
+            return merged;
+          });
         }
         if (data.template && !cloudData.savedTemplate) {
           setTemplate(data.template);
@@ -865,9 +912,17 @@ export default function App() {
   }
 
   // Direct Parent Council Voting Portal (تصويت وترشيح أعضاء المجلس)
-  if (parentCouncilVotePortalOpen) {
+  if (parentCouncilVotePortalData.isOpen) {
     return (
-      <ParentCouncilVotePortal />
+      <ParentCouncilVotePortal
+        initialToken={parentCouncilVotePortalData.token}
+        initialCode={parentCouncilVotePortalData.code}
+        onClose={() => {
+          setParentCouncilVotePortalData({ isOpen: false, token: null, code: null });
+          window.history.replaceState({}, document.title, window.location.pathname);
+          setIsPublicSessionEnded(true);
+        }}
+      />
     );
   }
 
