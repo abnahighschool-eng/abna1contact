@@ -474,6 +474,15 @@ if (fs.existsSync(APP_STATE_STORE_FILE)) {
 let parentCouncilsStore: {
   applications: Record<string, any>;
   invites: Record<string, any>;
+  votes?: Record<string, any>;
+  votingConfig?: {
+    isActive: boolean;
+    candidateIds: string[];
+    maxVotesPerParent: number;
+    createdAt?: string;
+    closedAt?: string;
+    messageTemplate?: string;
+  };
   config: {
     academicYear: string;
     councilTerm: string;
@@ -490,6 +499,12 @@ let parentCouncilsStore: {
 } = {
   applications: {},
   invites: {},
+  votes: {},
+  votingConfig: {
+    isActive: false,
+    candidateIds: [],
+    maxVotesPerParent: 9,
+  },
   config: {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -668,6 +683,11 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
   parentCouncilsStore = {
     applications: consolidatedStore["parent_councils_store"].applications || {},
     invites: consolidatedStore["parent_councils_store"].invites || {},
+    votes: consolidatedStore["parent_councils_store"].votes || {},
+    votingConfig: {
+      ...(parentCouncilsStore.votingConfig || {}),
+      ...(consolidatedStore["parent_councils_store"].votingConfig || {}),
+    },
     config: { ...parentCouncilsStore.config, ...(consolidatedStore["parent_councils_store"].config || {}) },
   };
 } else if (fs.existsSync(PARENT_COUNCILS_FILE)) {
@@ -678,6 +698,11 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
       parentCouncilsStore = {
         applications: parsed.applications || {},
         invites: parsed.invites || {},
+        votes: parsed.votes || {},
+        votingConfig: {
+          ...(parentCouncilsStore.votingConfig || {}),
+          ...(parsed.votingConfig || {}),
+        },
         config: { ...parentCouncilsStore.config, ...(parsed.config || {}) },
       };
     }
@@ -1821,12 +1846,37 @@ app.post("/api/student-needs-survey/batch-update-invites", (req, res) => {
 // PARENT COUNCILS API ENDPOINTS (مجالس أولياء الأمور)
 // ==========================================
 
-// 1. Get All Applications, Config, and Invites
+// Short link redirects for Parent Council survey (/c/:token) and voting (/v/:token)
+app.get("/c/:token", (req, res) => {
+  const token = req.params.token;
+  res.redirect(`/?portal=parent-council&token=${encodeURIComponent(token)}`);
+});
+
+app.get("/c", (req, res) => {
+  res.redirect("/?portal=parent-council");
+});
+
+app.get("/v/:token", (req, res) => {
+  const token = req.params.token;
+  res.redirect(`/?portal=parent-council-vote&token=${encodeURIComponent(token)}`);
+});
+
+app.get("/v", (req, res) => {
+  res.redirect("/?portal=parent-council-vote");
+});
+
+// 1. Get All Applications, Config, Invites, and Voting State
 app.get("/api/parent-councils/data", (req, res) => {
   res.json({
     success: true,
     applications: parentCouncilsStore.applications || {},
     invites: parentCouncilsStore.invites || {},
+    votes: parentCouncilsStore.votes || {},
+    votingConfig: parentCouncilsStore.votingConfig || {
+      isActive: false,
+      candidateIds: [],
+      maxVotesPerParent: 9,
+    },
     config: parentCouncilsStore.config || {
       academicYear: "1447 - 1448 هـ",
       councilTerm: "العام الدراسي 2026 - 2027",
@@ -2335,6 +2385,12 @@ app.post("/api/parent-councils/invites", (req, res) => {
 app.post("/api/parent-councils/reset", (req, res) => {
   parentCouncilsStore.applications = {};
   parentCouncilsStore.invites = {};
+  parentCouncilsStore.votes = {};
+  parentCouncilsStore.votingConfig = {
+    isActive: false,
+    candidateIds: [],
+    maxVotesPerParent: 9,
+  };
   parentCouncilsStore.config = {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -2347,6 +2403,216 @@ app.post("/api/parent-councils/reset", (req, res) => {
   };
   saveParentCouncilsStore();
   res.json({ success: true, message: "تمت إعادة تعيين وتنظيم قسم مجالس أولياء الأمور بنجاح" });
+});
+
+// ==========================================
+// PARENT COUNCIL VOTING & NOMINATION ENDPOINTS (تصويت وترشيح أولياء الأمور)
+// ==========================================
+
+// 9. Update Voting Configuration (Candidates pool, activate/deactivate)
+app.post("/api/parent-councils/voting/config", (req, res) => {
+  const { isActive, candidateIds, maxVotesPerParent, messageTemplate } = req.body || {};
+  if (!parentCouncilsStore.votingConfig) {
+    parentCouncilsStore.votingConfig = { isActive: false, candidateIds: [], maxVotesPerParent: 9 };
+  }
+  if (isActive !== undefined) {
+    parentCouncilsStore.votingConfig.isActive = !!isActive;
+    if (isActive && !parentCouncilsStore.votingConfig.createdAt) {
+      parentCouncilsStore.votingConfig.createdAt = new Date().toISOString();
+    }
+  }
+  if (Array.isArray(candidateIds)) {
+    parentCouncilsStore.votingConfig.candidateIds = candidateIds;
+  }
+  if (maxVotesPerParent && Number(maxVotesPerParent) > 0) {
+    parentCouncilsStore.votingConfig.maxVotesPerParent = Number(maxVotesPerParent);
+  }
+  if (messageTemplate !== undefined) {
+    parentCouncilsStore.votingConfig.messageTemplate = messageTemplate;
+  }
+  saveParentCouncilsStore(true);
+  res.json({
+    success: true,
+    message: "تم تحديث إعدادات تصويت أولياء الأمور بنجاح",
+    votingConfig: parentCouncilsStore.votingConfig,
+  });
+});
+
+// 10. Verify Code and Fetch Voting Ballot for Parents
+app.post("/api/parent-councils/vote/verify", (req, res) => {
+  const { token, code, studentId } = req.body || {};
+  const cleanedCode = String(code || "").trim();
+  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: false, candidateIds: [], maxVotesPerParent: 9 };
+
+  if (!votingConfig.isActive) {
+    return res.status(403).json({
+      success: false,
+      isVotingClosed: true,
+      error: "عذراً، التصويت لعضوية مجلس أولياء الأمور غير متاح حالياً أو لم يتم تفعيله بعد من قبل إدارة المدرسة.",
+    });
+  }
+
+  // Find invite
+  let invite: any = Object.values(parentCouncilsStore.invites || {}).find(
+    (inv: any) =>
+      (token && inv.token === token) ||
+      (studentId && String(inv.studentId) === String(studentId)) ||
+      inv.code === cleanedCode
+  );
+
+  let candidateStudentId = studentId || (invite && invite.studentId);
+  if (!candidateStudentId && token && token.startsWith("pc_")) {
+    candidateStudentId = token.split("_")[1];
+  }
+
+  if (!invite && candidateStudentId) {
+    const stableCode = getStableCodeForStudent(candidateStudentId);
+    if (cleanedCode === stableCode) {
+      invite = {
+        studentId: candidateStudentId,
+        code: stableCode,
+        token: token || getStableTokenForStudent(candidateStudentId),
+      };
+    }
+  }
+
+  // Check valid code
+  const isGeneralCode = cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447";
+  const isInviteCode = invite && String(invite.code || "").trim() === cleanedCode;
+  const isStable = candidateStudentId && cleanedCode === getStableCodeForStudent(candidateStudentId);
+
+  if (!isGeneralCode && !isInviteCode && !isStable) {
+    return res.status(400).json({
+      success: false,
+      error: "رمز التفعيل غير مطابق. يرجى التأكد من كتابة الرمز المكون من 6 أرقام كما ورد في الرسالة.",
+    });
+  }
+
+  // Check if parent already voted
+  const voteKey = candidateStudentId || (invite && invite.studentId) || token;
+  const existingVote = (parentCouncilsStore.votes || {})[voteKey] ||
+    Object.values(parentCouncilsStore.votes || {}).find(
+      (v: any) => (token && v.token === token) || (candidateStudentId && v.studentId === candidateStudentId)
+    );
+
+  // Build candidate ballot cards
+  const candidateIds = votingConfig.candidateIds || [];
+  const candidateApps = candidateIds
+    .map((cid: string) => parentCouncilsStore.applications[cid] || Object.values(parentCouncilsStore.applications).find((a: any) => a.id === cid))
+    .filter(Boolean)
+    .map((a: any) => ({
+      id: a.id,
+      fullName: a.fullName,
+      studentName: a.studentName,
+      studentGrade: a.studentGrade,
+      studentClass: a.studentClass,
+      skills: a.skills,
+      specialization: a.guardianRelation === "mother" ? "ولية أمر" : "ولي أمر",
+    }));
+
+  res.json({
+    success: true,
+    valid: true,
+    alreadyVoted: !!existingVote,
+    vote: existingVote || null,
+    invite: invite || null,
+    votingConfig,
+    candidates: candidateApps,
+  });
+});
+
+// 11. Submit Vote from Parent
+app.post("/api/parent-councils/vote/submit", (req, res) => {
+  const { token, code, studentId, selectedCandidateIds } = req.body || {};
+  const cleanedCode = String(code || "").trim();
+  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: false, candidateIds: [], maxVotesPerParent: 9 };
+
+  if (!votingConfig.isActive) {
+    return res.status(403).json({
+      success: false,
+      error: "التصويت مغلق حالياً من قبل إدارة المدرسة.",
+    });
+  }
+
+  if (!Array.isArray(selectedCandidateIds) || selectedCandidateIds.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "يرجى اختيار مرشح واحد على الأقل للمجلس.",
+    });
+  }
+
+  const maxVotes = votingConfig.maxVotesPerParent || 9;
+  if (selectedCandidateIds.length > maxVotes) {
+    return res.status(400).json({
+      success: false,
+      error: `لا يمكن اختيار أكثر من ${maxVotes} مرشحين كحد أقصى.`,
+    });
+  }
+
+  // Find invite
+  let invite: any = Object.values(parentCouncilsStore.invites || {}).find(
+    (inv: any) => (token && inv.token === token) || (studentId && String(inv.studentId) === String(studentId)) || inv.code === cleanedCode
+  );
+  let candidateStudentId = studentId || (invite && invite.studentId);
+  if (!candidateStudentId && token && token.startsWith("pc_")) {
+    candidateStudentId = token.split("_")[1];
+  }
+
+  // Verify code
+  const isGeneralCode = cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447";
+  const isInviteCode = invite && String(invite.code || "").trim() === cleanedCode;
+  const isStable = candidateStudentId && cleanedCode === getStableCodeForStudent(candidateStudentId);
+
+  if (!isGeneralCode && !isInviteCode && !isStable) {
+    return res.status(400).json({
+      success: false,
+      error: "رمز التفعيل غير صالح.",
+    });
+  }
+
+  const voteKey = candidateStudentId || (invite && invite.studentId) || token || `v_${Date.now()}`;
+  if (!parentCouncilsStore.votes) parentCouncilsStore.votes = {};
+
+  const existingVote = parentCouncilsStore.votes[voteKey] ||
+    Object.values(parentCouncilsStore.votes).find(
+      (v: any) => (token && v.token === token) || (candidateStudentId && v.studentId === candidateStudentId)
+    );
+
+  if (existingVote) {
+    return res.status(400).json({
+      success: false,
+      error: "لقد تم تسجيل وتوثيق تصويتكم مسبقاً، ولا يمكن تكرار التصويت.",
+    });
+  }
+
+  const newVote = {
+    id: `vote_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    studentId: candidateStudentId || "",
+    studentName: invite?.studentName || "",
+    guardianPhone: invite?.guardianPhone || "",
+    token: token || "",
+    selectedCandidateIds,
+    votedAt: new Date().toISOString(),
+    codeUsed: cleanedCode,
+  };
+
+  parentCouncilsStore.votes[voteKey] = newVote;
+  saveParentCouncilsStore(true);
+
+  res.json({
+    success: true,
+    message: "تم تسجيل وتوثيق تصويتكم بنجاح في سجلات المدرسة، شكراً لمشاركتكم.",
+    vote: newVote,
+  });
+});
+
+// 12. Reset Votes
+app.post("/api/parent-councils/voting/reset", (req, res) => {
+  parentCouncilsStore.votes = {};
+  saveParentCouncilsStore(true);
+  res.json({ success: true, message: "تمت إعادة تعيين أصوات أولياء الأمور بنجاح." });
 });
 
 // 5. Seed Realistic Sample Applicants (Disabled to preserve real data)
@@ -3841,6 +4107,11 @@ async function startServer() {
           parentCouncilsStore = {
             applications: mergedApps,
             invites: { ...cloudInvites, ...(parentCouncilsStore.invites || {}) },
+            votes: { ...(cloudState.parentCouncils.votes || {}), ...(parentCouncilsStore.votes || {}) },
+            votingConfig: {
+              ...(parentCouncilsStore.votingConfig || {}),
+              ...(cloudState.parentCouncils.votingConfig || {}),
+            },
             config: {
               ...parentCouncilsStore.config,
               ...cloudConfig,

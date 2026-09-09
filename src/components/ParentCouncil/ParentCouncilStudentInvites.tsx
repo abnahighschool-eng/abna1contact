@@ -218,10 +218,10 @@ export default function ParentCouncilStudentInvites({
     };
   };
 
-  // Helper to construct invite link
+  // Helper to construct shortened invite link
   const buildInviteUrl = (token: string, code: string) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/?portal=parent-council&parent_council=true&council_token=${token}&token=${token}`;
+    return `${origin}/c/${token}`;
   };
 
   // Filter students based on user selection

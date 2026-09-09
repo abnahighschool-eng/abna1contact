@@ -554,45 +554,6 @@ export default function ParentCouncilPortal({
       }).catch(() => {});
     }
 
-    // Check local storage directly for already submitted application to show thank you screen immediately
-    try {
-      const localApps = JSON.parse(localStorage.getItem("parent_councils_apps") || "{}");
-      const foundSubmitted = Object.values(localApps).find((a: any) => {
-        if (!a || a.status === "draft") return false;
-        if (effectiveToken && (a.activationToken === effectiveToken || a.token === effectiveToken || a.id === effectiveToken || a.id === `app_${effectiveToken}`)) return true;
-        if (effectiveStudentId && String(a.studentId) === String(effectiveStudentId)) return true;
-        if (effectivePhone && a.phone && String(a.phone).replace(/\D/g, "") === String(effectivePhone).replace(/\D/g, "")) return true;
-        if (effectiveNationalId && a.nationalId && String(a.nationalId).trim() === String(effectiveNationalId).trim()) return true;
-        return false;
-      });
-
-      const isMarkedSubmittedLocally =
-        (effectiveToken && localStorage.getItem(`pc_submitted_${effectiveToken}`) === "true") ||
-        (effectiveStudentId && localStorage.getItem(`pc_submitted_student_${effectiveStudentId}`) === "true");
-
-      if (foundSubmitted) {
-        setAlreadySubmittedApplication(foundSubmitted as ParentCouncilApplication);
-        setIsCodeVerified(true);
-        return;
-      } else if (isMarkedSubmittedLocally) {
-        // Synthesize minimal submitted application record so parent is never prompted to re-fill
-        const syntheticApp: any = {
-          id: effectiveToken ? `app_${effectiveToken}` : `app_${effectiveStudentId}`,
-          fullName: paramGuardian || "ولي أمر الطالب",
-          studentName: paramStudentName || "الطالب",
-          studentGrade: paramGrade || "المرحلة الثانوية",
-          studentClass: paramClass || "1",
-          phone: paramPhone || "",
-          submissionDateHijri: "1447/03/15هـ",
-          submittedAt: new Date().toISOString(),
-          status: "submitted",
-        };
-        setAlreadySubmittedApplication(syntheticApp);
-        setIsCodeVerified(true);
-        return;
-      }
-    } catch (e) {}
-
     const queryParams = new URLSearchParams();
     if (effectiveStudentId) queryParams.set("studentId", effectiveStudentId);
     if (effectivePhone) queryParams.set("phone", effectivePhone);
@@ -613,7 +574,7 @@ export default function ParentCouncilPortal({
             return;
           }
 
-          // If parent has already submitted the form, directly display the thank you & already submitted message!
+          // If parent has active submitted form in the server database
           if (data.alreadySubmitted && data.application) {
             setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
             setIsCodeVerified(true);
@@ -625,14 +586,17 @@ export default function ParentCouncilPortal({
             } catch (e) {}
             return;
           } else {
-            // Application is not submitted or was deleted by administration - clear stale local flags
+            // Application is not submitted or was deleted by administration - allow re-entry
             setAlreadySubmittedApplication(null);
+            setSubmittedApplication(null);
+            setIsPageClosed(false);
             try {
               localStorage.removeItem(`pc_submitted_${effectiveToken}`);
-              const targetStudentId = data?.invite?.studentId || data?.studentId;
+              const targetStudentId = data?.invite?.studentId || data?.studentId || effectiveStudentId;
               if (targetStudentId) {
                 localStorage.removeItem(`pc_submitted_student_${targetStudentId}`);
               }
+              sessionStorage.removeItem("parent_council_session_closed");
             } catch (e) {}
           }
 
@@ -1231,7 +1195,7 @@ export default function ParentCouncilPortal({
               </div>
             </div>
 
-            {/* Instructions: Browser tab close only - NO BUTTONS */}
+            {/* Instructions: Browser tab close */}
             <div className="p-4 bg-slate-100 rounded-2xl border border-slate-200 text-center space-y-1.5">
               <div className="text-xs sm:text-sm font-black text-slate-800">
                 فضلاً قم بإغلاق المتصفح الآن
@@ -1239,6 +1203,32 @@ export default function ParentCouncilPortal({
               <p className="text-[11px] sm:text-xs text-slate-500 font-medium leading-relaxed">
                 بياناتكم مسجلة مسبقاً ولا توجد خطوات إضافية مطلوبة منكم. يرجى إغلاق نافذة أو علامة تبويب المتصفح.
               </p>
+            </div>
+
+            {/* Re-entry button if application was deleted by administration */}
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                id="btn-re-enter-portal"
+                onClick={() => {
+                  setAlreadySubmittedApplication(null);
+                  setIsCodeVerified(false);
+                  setActivationCodeInput("");
+                  setCodeError(null);
+                  try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const curTok = token || urlParams.get("token") || urlParams.get("council_token");
+                    const curSid = studentId || urlParams.get("studentId") || urlParams.get("sid");
+                    if (curTok) localStorage.removeItem(`pc_submitted_${curTok}`);
+                    if (curSid) localStorage.removeItem(`pc_submitted_student_${curSid}`);
+                    sessionStorage.removeItem("parent_council_session_closed");
+                  } catch (e) {}
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 transition-colors cursor-pointer"
+              >
+                <KeyRound className="w-4 h-4 text-teal-700" />
+                <span>في حال تم حذف استمارتكم من قبل المدرسة، اضغط هنا لإدخال كود التفعيل وإعادة التعبئة</span>
+              </button>
             </div>
           </div>
         </div>

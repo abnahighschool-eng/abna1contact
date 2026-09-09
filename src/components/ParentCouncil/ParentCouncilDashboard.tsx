@@ -36,11 +36,14 @@ import {
   ClipboardCheck,
   ArrowRight,
   ArrowLeft,
+  Vote,
 } from "lucide-react";
 import {
   ParentCouncilApplication,
   ParentCouncilConfig,
   ParentCouncilInvite,
+  ParentCouncilVote,
+  ParentCouncilVotingConfig,
   evaluateParentCouncilApplication,
 } from "../../types";
 import { SchoolSignatories, Student } from "../../types";
@@ -51,6 +54,7 @@ import {
 } from "./ParentCouncilPrintSheets";
 import ParentCouncilStudentInvites from "./ParentCouncilStudentInvites";
 import ParentCouncilSentMessagesLog from "./ParentCouncilSentMessagesLog";
+import ParentCouncilVotingManager from "./ParentCouncilVotingManager";
 
 interface ParentCouncilDashboardProps {
   students: Student[];
@@ -71,12 +75,18 @@ export default function ParentCouncilDashboard({
 }: ParentCouncilDashboardProps) {
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
-    "smart_screening" | "approved_council" | "all_applications" | "links_and_wa" | "sent_invites"
+    "smart_screening" | "approved_council" | "voting_stage" | "all_applications" | "links_and_wa" | "sent_invites"
   >("smart_screening");
 
   // Main state
   const [applications, setApplications] = useState<Record<string, ParentCouncilApplication>>({});
   const [invites, setInvites] = useState<Record<string, any>>({});
+  const [votes, setVotes] = useState<Record<string, ParentCouncilVote>>({});
+  const [votingConfig, setVotingConfig] = useState<ParentCouncilVotingConfig>({
+    isActive: false,
+    candidateIds: [],
+    maxVotesPerParent: 9,
+  });
   const [config, setConfig] = useState<ParentCouncilConfig>({
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -166,6 +176,8 @@ export default function ParentCouncilDashboard({
         if (data.success) {
           if (data.applications) setApplications(data.applications);
           if (data.invites) setInvites(data.invites);
+          if (data.votes) setVotes(data.votes);
+          if (data.votingConfig) setVotingConfig(data.votingConfig);
           if (data.config) {
             setConfig((prev) => ({
               ...prev,
@@ -189,6 +201,34 @@ export default function ParentCouncilDashboard({
       setLoading(false);
     }
   }, []);
+
+  // Voting stage handlers
+  const handleUpdateVotingConfig = async (newVotingConfig: Partial<ParentCouncilVotingConfig>) => {
+    try {
+      const res = await fetch("/api/parent-councils/voting/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newVotingConfig),
+      });
+      const data = await res.json();
+      if (data.success && data.votingConfig) {
+        setVotingConfig(data.votingConfig);
+        showToast("تم تحديث إعدادات تصويت أولياء الأمور بنجاح");
+      }
+    } catch (e) {
+      console.error("Error updating voting config:", e);
+    }
+  };
+
+  const handleResetVotes = async () => {
+    try {
+      await fetch("/api/parent-councils/voting/reset", { method: "POST" });
+      setVotes({});
+      showToast("تمت إعادة ضبط ومسح كافة أصوات أولياء الأمور.");
+    } catch (e) {
+      console.error("Error resetting votes:", e);
+    }
+  };
 
   // Initial Load from Server or Local Storage + Real-time sync listeners
   useEffect(() => {
@@ -606,6 +646,20 @@ export default function ParentCouncilDashboard({
       });
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleApplyTopCandidatesToCouncil = async (topIds: string[], reserveIds: string[]) => {
+    try {
+      const updatedConfig = {
+        ...config,
+        selectedMemberIds: topIds,
+        reserveMemberIds: reserveIds,
+      };
+      await syncUpdates(applications, updatedConfig);
+      showToast("تم اعتماد أكثر 9 مرشحين تصويتاً في التشكيل الرسمي للمجلس بنجاح.");
+    } catch (e) {
+      console.error("Error applying top candidates:", e);
     }
   };
 
@@ -1140,6 +1194,30 @@ export default function ParentCouncilDashboard({
         </button>
 
         <button
+          onClick={() => setActiveTab("voting_stage")}
+          id="tab-voting-stage"
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all cursor-pointer ${
+            activeTab === "voting_stage"
+              ? "bg-teal-700 text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Vote className="w-4 h-4 text-amber-400" />
+          <span>تصويت وترشيح أولياء الأمور</span>
+          {config.selectedMemberIds.length > 9 ? (
+            <span className="text-[10px] px-2.5 py-0.5 rounded-full font-black bg-amber-400 text-slate-950">
+              {config.selectedMemberIds.length} مرشحاً (أكثر من 9)
+            </span>
+          ) : (
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+              activeTab === "voting_stage" ? "bg-teal-900/40 text-teal-100" : "bg-teal-100 text-teal-800"
+            }`}>
+              {Object.keys(votes).length} أصوات
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab("all_applications")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all cursor-pointer ${
             activeTab === "all_applications"
@@ -1185,6 +1263,28 @@ export default function ParentCouncilDashboard({
       {/* TAB 1: نظام فرز وترشيح المجلس */}
       {activeTab === "smart_screening" && (
         <div className="space-y-6">
+          {config.selectedMemberIds.length > 9 && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-amber-950 font-black text-sm">
+                  <Vote className="w-5 h-5 text-amber-600" />
+                  <span>تم ترشيح {config.selectedMemberIds.length} مرشحين (أكثر من 9 مقاعد نظامية)</span>
+                </div>
+                <p className="text-xs text-amber-800 leading-relaxed max-w-2xl">
+                  نظراً لاختيار أكثر من 9 مرشحين، يتيح لكم النظام فتح مرحلة تصويت أولياء الأمور وإرسال رابط تصويت مختصر لهم ليقوم النظام باحتساب الأصوات واختيار أكثر 9 ترشيحاً استرشادياً.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("voting_stage")}
+                className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+              >
+                <Vote className="w-4 h-4" />
+                <span>الانتقال لمرحلة التصويت والرابط المختصر ←</span>
+              </button>
+            </div>
+          )}
           
           {/* Controls Bar */}
           <div className="bg-linear-to-r from-teal-900 to-slate-900 text-white p-6 rounded-3xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -1852,6 +1952,21 @@ export default function ParentCouncilDashboard({
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB: تصويت وترشيح أولياء الأمور */}
+      {activeTab === "voting_stage" && (
+        <ParentCouncilVotingManager
+          applications={applications}
+          config={config}
+          invites={invites}
+          votes={votes}
+          votingConfig={votingConfig}
+          students={students}
+          onUpdateVotingConfig={handleUpdateVotingConfig}
+          onApplyTopCandidatesToCouncil={handleApplyTopCandidatesToCouncil}
+          onResetVotes={handleResetVotes}
+        />
       )}
 
       {/* TAB 2: كافة الاستمارات والطلبات */}

@@ -362,6 +362,26 @@ export interface ParentCouncilApplication {
   inviteStatus?: "not_sent" | "sent" | "failed";
 }
 
+export interface ParentCouncilVote {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  guardianPhone?: string;
+  token?: string;
+  selectedCandidateIds: string[]; // المعرفات الخاصة بالمرشحين الذين صوت لهم ولي الأمر
+  votedAt: string;
+  codeUsed?: string;
+}
+
+export interface ParentCouncilVotingConfig {
+  isActive: boolean; // هل التصويت مفتوح حالياً
+  candidateIds: string[]; // قائمة معرفات المرشحين في ورقة الاقتراع
+  maxVotesPerParent: number; // الحد الأقصى للمرشحين الذين يمكن لولي الأمر اختيارهم (افتراضياً 9)
+  createdAt?: string;
+  closedAt?: string;
+  messageTemplate?: string;
+}
+
 export interface ParentCouncilConfig {
   academicYear: string;
   councilTerm: string;
@@ -374,6 +394,7 @@ export interface ParentCouncilConfig {
   reserveMemberIds: string[];
   isSurveyClosed?: boolean; // هل الاستبيان مغلق بقرار الإدارة
   surveyClosedMessage?: string;
+  votingConfig?: ParentCouncilVotingConfig;
 }
 
 export interface ParentCouncilInvite {

@@ -45,6 +45,7 @@ import StudentNeedsSurveyMain from "./components/StudentNeedsSurvey/StudentNeeds
 import ParentNeedsSurveyPortal from "./components/StudentNeedsSurvey/ParentNeedsSurveyPortal";
 import ParentCouncilDashboard from "./components/ParentCouncil/ParentCouncilDashboard";
 import ParentCouncilPortal from "./components/ParentCouncil/ParentCouncilPortal";
+import ParentCouncilVotePortal from "./components/ParentCouncil/ParentCouncilVotePortal";
 import DatabaseManagementModal from "./components/DatabaseManagementModal";
 import { SchoolSignatoriesModal, DEFAULT_MINISTRY_LOGO } from "./components/SchoolSignatoriesModal";
 import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types";
@@ -209,6 +210,20 @@ export default function App() {
     return [];
   });
 
+  // Direct Parent Council Voting Portal URL parameter (?portal=parent-council-vote or ?voting=true or ?vote=true)
+  const [parentCouncilVotePortalOpen, setParentCouncilVotePortalOpen] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return (
+        params.get("portal") === "parent-council-vote" ||
+        params.get("portal") === "council-vote" ||
+        params.get("voting") === "true" ||
+        params.get("vote") === "true"
+      );
+    }
+    return false;
+  });
+
   // Direct Parent Council Portal URL parameter (?portal=parent-council or ?parent_council=true or ?council_token=<token> or ?token=pc_... or ?council_code=<code>)
   const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
     if (typeof window !== "undefined") {
@@ -238,14 +253,20 @@ export default function App() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token");
+      const isVoting =
+        params.get("portal") === "parent-council-vote" ||
+        params.get("portal") === "council-vote" ||
+        params.get("voting") === "true" ||
+        params.get("vote") === "true";
       const isParentCouncil =
         params.get("portal") === "parent-council" ||
         params.get("parent_council") === "true" ||
         params.get("council") === "true" ||
+        params.get("page") === "parent_council_portal" ||
         !!params.get("council_token") ||
         (token !== null && token.startsWith("pc_"));
 
-      if (isParentCouncil) {
+      if (isParentCouncil || isVoting) {
         return null;
       }
       return params.get("survey_token") || params.get("needs_token") || (params.get("portal") === "needs" ? params.get("token") : null) || (!params.get("portal") && params.get("token")) || params.get("support_token") || params.get("health_token");
@@ -840,6 +861,13 @@ export default function App() {
           window.history.replaceState({}, document.title, window.location.pathname);
         }}
       />
+    );
+  }
+
+  // Direct Parent Council Voting Portal (تصويت وترشيح أعضاء المجلس)
+  if (parentCouncilVotePortalOpen) {
+    return (
+      <ParentCouncilVotePortal />
     );
   }
 
