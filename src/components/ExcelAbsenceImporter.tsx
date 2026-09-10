@@ -191,6 +191,7 @@ export default function ExcelAbsenceImporter({
     failedCount: number;
     currentStudentName: string;
     countdownSeconds: number;
+    isBreak?: boolean;
     isCompleted: boolean;
     logs: Array<{
       id: string;
@@ -1074,20 +1075,27 @@ export default function ExcelAbsenceImporter({
         }));
       }
 
-      // Safe 15-second Anti-Ban Delay with human-like jitter variation between messages (except for the last message)
+      // Safe Anti-Ban Delay with human-like jitter variation and smart micro-breaks
       if (i < batchCandidates.length - 1 && !abortBatchRef.current) {
-        // Safe 15-second interval + random jitter (between 14s and 18s) exactly as in daily attendance tab
-        const jitterSecs = Math.floor(Math.random() * 4) - 1; // -1 to +2
-        const totalDelaySecs = Math.max(14, 15 + jitterSecs);
+        const totalSentSoFar = sent + failed;
+        const isBreak = totalSentSoFar > 0 && totalSentSoFar % 7 === 0;
+
+        // Realistic human interval (13s - 20s) or smart micro-break (25s - 35s)
+        const jitterSecs = Math.floor(Math.random() * 7) - 2; // -2 to +4
+        const totalDelaySecs = isBreak 
+          ? Math.floor(Math.random() * 11) + 25 
+          : Math.max(13, 15 + jitterSecs);
 
         for (let countdown = totalDelaySecs; countdown > 0; countdown--) {
           if (abortBatchRef.current) break;
           setBatchModal((prev) => ({
             ...prev,
             countdownSeconds: countdown,
+            isBreak,
           }));
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
+        setBatchModal((prev) => ({ ...prev, isBreak: false }));
       }
     }
 
@@ -2142,10 +2150,16 @@ export default function ExcelAbsenceImporter({
                 </div>
 
                 {batchModal.countdownSeconds > 0 && (
-                  <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200">
-                    <Clock className="w-4 h-4 text-emerald-600 animate-spin" />
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
+                    batchModal.isBreak
+                      ? "bg-amber-50 text-amber-900 border-amber-300"
+                      : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                  }`}>
+                    <Clock className={`w-4 h-4 ${batchModal.isBreak ? "text-amber-600 animate-bounce" : "text-emerald-600 animate-spin"}`} />
                     <span className="text-xs font-bold">
-                      فاصل الأمان: {batchModal.countdownSeconds} ثانية
+                      {batchModal.isBreak 
+                        ? `استراحة أمان ذكية: ${batchModal.countdownSeconds} ثانية` 
+                        : `فاصل الأمان: ${batchModal.countdownSeconds} ثانية`}
                     </span>
                   </div>
                 )}

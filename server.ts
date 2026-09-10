@@ -94,7 +94,28 @@ function normalizePhoneNumber(input: string | number): string {
   return cleaned;
 }
 
-// Dedicated Baileys Real Message Dispatcher
+// Injects an invisible unique zero-width character sequence so every message has a unique payload hash
+function injectAntiSpamVariation(text: string): string {
+  if (!text) return text;
+  // Zero-width characters: non-joiner, joiner, zero-width space, word joiner
+  const zeroWidthChars = ["\u200B", "\u200C", "\u200D", "\uFEFF"];
+  const getRandomChar = () => zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
+
+  // Insert invisible characters naturally in spaces and at the end so it looks totally identical visually
+  const words = text.split(" ");
+  if (words.length > 3) {
+    const pos1 = Math.floor(Math.random() * (words.length - 1));
+    words[pos1] = words[pos1] + getRandomChar();
+    if (words.length > 6) {
+      const pos2 = Math.floor(Math.random() * (words.length - 1));
+      words[pos2] = words[pos2] + getRandomChar();
+    }
+    return words.join(" ") + getRandomChar() + getRandomChar();
+  }
+  return text + getRandomChar() + getRandomChar();
+}
+
+// Dedicated Baileys Real Message Dispatcher with Authentic Human Emulation
 async function sendBaileysMessage(phone: string, text: string): Promise<{ success: boolean; error?: string; jid?: string; messageId?: string }> {
   const isConnected = !!(sock && (sock.user || realConnectionStatus === "connected"));
   if (!isConnected) {
@@ -118,20 +139,55 @@ async function sendBaileysMessage(phone: string, text: string): Promise<{ succes
   }
 
   try {
-    console.log(`[WhatsApp Real Dispatch] Initiating send to ${targetJid}...`);
+    console.log(`[WhatsApp Real Dispatch] Initiating human-emulated send to ${targetJid}...`);
     
+    // Step 1: Human presence simulation - user appears active/online and opens the chat
+    try {
+      await sock.sendPresenceUpdate("available", targetJid);
+    } catch (presErr) {
+      // non-fatal
+    }
+    const openChatDelay = Math.floor(Math.random() * 700) + 1100; // 1.1s to 1.8s
+    await new Promise((r) => setTimeout(r, openChatDelay));
+
+    // Step 2: Realistic typing presence ('composing' / يكتب الآن...) based on character length
     try {
       await sock.sendPresenceUpdate("composing", targetJid);
     } catch (presErr) {
       // non-fatal
     }
+    // Typical human typing pace: ~26ms per character with random human pauses (between 1.8s and 5.2s)
+    const charCount = text?.length || 40;
+    const typingDuration = Math.min(5200, Math.max(1800, charCount * 26 + Math.floor(Math.random() * 900)));
+    await new Promise((r) => setTimeout(r, typingDuration));
 
-    const sentMsg = await sock.sendMessage(targetJid, { text });
+    // Step 3: Human pre-send review pause ('paused') right before tapping send
+    try {
+      await sock.sendPresenceUpdate("paused", targetJid);
+    } catch (presErr) {
+      // non-fatal
+    }
+    const preSendPause = Math.floor(Math.random() * 400) + 400; // 400ms to 800ms
+    await new Promise((r) => setTimeout(r, preSendPause));
+
+    // Step 4: Unique invisible anti-spam variation so message hash is never flagged as repetitive broadcast
+    const uniqueText = injectAntiSpamVariation(text);
+
+    // Step 5: Send the actual message
+    const sentMsg = await sock.sendMessage(targetJid, { text: uniqueText });
     if (!sentMsg || !sentMsg.key) {
       return { success: false, error: "لم يتم استلام تأكيد تسليم الرسالة من خادم واتساب." };
     }
     const messageId = sentMsg.key.id || "";
     console.log(`[WhatsApp Real Dispatch] Successfully delivered to ${targetJid} (MsgId: ${messageId})`);
+
+    // Reset presence
+    setTimeout(() => {
+      try {
+        if (sock) sock.sendPresenceUpdate("paused", targetJid).catch(() => {});
+      } catch (e) {}
+    }, 500);
+
     return { success: true, jid: targetJid, messageId };
   } catch (sendErr: any) {
     console.error(`[WhatsApp Real Dispatch Error] Failed for ${targetJid}:`, sendErr);
@@ -3581,15 +3637,7 @@ app.get("/api/whatsapp/campaigns", (req, res) => {
   })));
 });
 
-// Injects an invisible unique zero-width character sequence so every message has a unique payload hash
-function injectAntiSpamVariation(text: string): string {
-  if (!text) return text;
-  const zeroWidthChars = ["\u200B", "\u200C", "\u200D", "\uFEFF"];
-  const randomChars = Array.from({ length: 3 }, () => zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)]).join("");
-  return text + randomChars;
-}
-
-// Background Campaign Processing with Anti-Ban Protection
+// Background Campaign Processing with Anti-Ban Protection & Smart Human Pacing
 async function processCampaign(campaignId: string, baseDelayMs: number) {
   const campaign = campaigns[campaignId];
   if (!campaign || campaign.status !== "running") return;
@@ -3608,13 +3656,20 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
 
     log.status = "sending";
     
-    // Anti-Ban Protection: Safe 15-second base interval with dynamic human jitter (+/- 2500ms)
-    const effectiveBaseDelay = Math.max(15000, Number(baseDelayMs || 15000));
-    const jitter = Math.floor(Math.random() * 5000) - 2500; // variance between -2.5s and +2.5s
+    // Anti-Ban Protection: Safe 15-second base interval with dynamic human jitter (-2s to +5s)
+    const effectiveBaseDelay = Math.max(14000, Number(baseDelayMs || 15000));
+    const jitter = Math.floor(Math.random() * 7000) - 2000; // variance between -2s and +5s
     const actualDelay = Math.max(12000, effectiveBaseDelay + jitter);
 
     if (i > 0) {
-      await new Promise(resolve => setTimeout(resolve, actualDelay));
+      // Smart Micro-Break: take 25s - 38s pause after every 7 messages to emulate realistic human pacing
+      if (messagesInCurrentBatch >= 6 && messagesInCurrentBatch % 7 === 0) {
+        const microBreakDuration = Math.floor(Math.random() * 13000) + 25000;
+        console.log(`[WhatsApp Campaign Anti-Ban] Taking smart human micro-break: ${Math.round(microBreakDuration / 1000)}s`);
+        await new Promise(resolve => setTimeout(resolve, microBreakDuration));
+      } else {
+        await new Promise(resolve => setTimeout(resolve, actualDelay));
+      }
     }
 
     // Check again after delay

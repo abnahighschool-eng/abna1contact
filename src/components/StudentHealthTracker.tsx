@@ -57,6 +57,7 @@ import TeacherSupportCardModal from "./TeacherSupportCardModal";
 import { CampaignLaunchButtons } from "./UnifiedCampaignModal";
 import UnifiedCampaignModal from "./UnifiedCampaignModal";
 import { launchOfficialCampaign } from "../utils/campaignLauncher";
+import { deriveFatherFullName } from "../utils/parentCouncilUtils";
 
 export interface BatchLogItem {
   id: string;
@@ -204,7 +205,7 @@ export default function StudentHealthTracker({
         nationalId: (student as any)["رقم الطالب"] || (student as any).nationalId || student.id,
         grade: student.grade || "المرحلة الثانوية",
         className: student.className || "1",
-        guardianName: (student as any).guardianName || (student as any).fatherName || "ولي الأمر",
+        guardianName: deriveFatherFullName(student.name, student) || "ولي الأمر",
         guardianPhone: student.phone || "",
         activationToken: token,
         isActivated: false,

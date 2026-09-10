@@ -38,7 +38,12 @@ import {
   validateSaudiPhone,
   validateEmail,
   formatSaudiPhone,
+  deriveFatherFullName,
+  stripLeadingSonOf,
 } from "../../utils/parentCouncilUtils";
+
+// Re-export for backwards compatibility across components
+export { deriveFatherFullName, stripLeadingSonOf };
 
 interface ParentCouncilPortalProps {
   token?: string | null;
@@ -46,51 +51,6 @@ interface ParentCouncilPortalProps {
   signatories?: SchoolSignatories;
   students?: Student[];
   onExit?: () => void;
-}
-
-// Helper to derive father's full name from student record or student full name
-export function deriveFatherFullName(studentFullName: string, studentRecord?: any): string {
-  if (studentRecord) {
-    if (studentRecord["اسم الأب"] && String(studentRecord["اسم الأب"]).trim()) {
-      return String(studentRecord["اسم الأب"]).trim();
-    }
-    if (studentRecord.fatherName && String(studentRecord.fatherName).trim()) {
-      return String(studentRecord.fatherName).trim();
-    }
-    if (studentRecord["اسم ولي الأمر"] && String(studentRecord["اسم ولي الأمر"]).trim()) {
-      return String(studentRecord["اسم ولي الأمر"]).trim();
-    }
-    if (studentRecord.guardianName && String(studentRecord.guardianName).trim()) {
-      return String(studentRecord.guardianName).trim();
-    }
-    if (studentRecord["ولي الأمر"] && String(studentRecord["ولي الأمر"]).trim()) {
-      return String(studentRecord["ولي الأمر"]).trim();
-    }
-    if (studentRecord.guardian && String(studentRecord.guardian).trim()) {
-      return String(studentRecord.guardian).trim();
-    }
-  }
-
-  const rawName = (studentFullName || "").trim();
-  if (!rawName) return "";
-
-  const parts = rawName.split(/\s+/).filter(Boolean);
-  if (parts.length <= 1) return rawName;
-
-  // Compound student first names in Arabic (e.g. "عبد الله", "أبو بكر", "سيف الدين", etc.)
-  const compoundPrefixes = [
-    "عبد", "أبو", "ابو", "سيف", "نور", "ضياء", "علاء", "شمس", "تقي", "جمال", "بدر", "حسام", "محي", "محيي", "صلاح", "شرف", "زين"
-  ];
-
-  let skipWords = 1;
-  if (parts.length >= 3 && compoundPrefixes.includes(parts[0])) {
-    skipWords = 2;
-  }
-
-  if (parts.length > skipWords) {
-    return parts.slice(skipWords).join(" ");
-  }
-  return rawName;
 }
 
 // Helpers for extracting guardian name & detecting siblings
@@ -114,8 +74,7 @@ function findStudentSiblings(
     ""
   ).trim();
   const currentParts = currentName.split(/\s+/).filter(Boolean);
-  const currentFatherFamily =
-    currentParts.length >= 3 ? currentParts.slice(1).join(" ") : "";
+  const currentFatherFamily = deriveFatherFullName(currentName, currentStudent);
 
   const siblings: Array<{ name: string; grade: string; className?: string }> = [];
 
@@ -124,8 +83,7 @@ function findStudentSiblings(
     const stPhone = (st.phone || st["رقم الجوال"] || "").replace(/\D/g, "");
     const stName = (st.name || st["اسم الطالب"] || "").trim();
     const stParts = stName.split(/\s+/).filter(Boolean);
-    const stFatherFamily =
-      stParts.length >= 3 ? stParts.slice(1).join(" ") : "";
+    const stFatherFamily = deriveFatherFullName(stName, st);
 
     let isSibling = false;
     if (

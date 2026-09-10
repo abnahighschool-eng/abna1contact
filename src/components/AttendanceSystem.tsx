@@ -128,6 +128,7 @@ interface BatchSendProgress {
   failedCount: number;
   currentStudentName: string;
   countdownSeconds?: number;
+  isBreak?: boolean;
   isCompleted?: boolean;
   logs: Array<{
     id: string;
@@ -1037,20 +1038,27 @@ export default function AttendanceSystem({
         }));
       }
 
-      // Safe 15-second Anti-Ban Delay with human-like jitter variation between messages (except for the last message)
+      // Safe Anti-Ban Delay with human-like jitter variation and smart micro-breaks
       if (i < batchCandidates.length - 1 && !abortBatchRef.current) {
-        // Safe 15-second interval + random jitter (between 14s and 18s)
-        const jitterSecs = Math.floor(Math.random() * 4) - 1; // -1 to +2
-        const totalDelaySecs = Math.max(14, 15 + jitterSecs);
+        const totalSentSoFar = sent + failed;
+        const isBreak = totalSentSoFar > 0 && totalSentSoFar % 7 === 0;
+
+        // Realistic human interval (13s - 20s) or smart micro-break (25s - 35s)
+        const jitterSecs = Math.floor(Math.random() * 7) - 2; // -2 to +4
+        const totalDelaySecs = isBreak 
+          ? Math.floor(Math.random() * 11) + 25 
+          : Math.max(13, 15 + jitterSecs);
 
         for (let countdown = totalDelaySecs; countdown > 0; countdown--) {
           if (abortBatchRef.current) break;
           setBatchProgress((prev) => ({
             ...prev,
             countdownSeconds: countdown,
+            isBreak,
           }));
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
+        setBatchProgress((prev) => ({ ...prev, isBreak: false }));
       }
     }
 
@@ -2841,15 +2849,23 @@ export default function AttendanceSystem({
                   <ShieldAlert className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-[11px] font-black text-emerald-300 block">درع الحماية الذكي من حظر الواتساب نشط</span>
-                  <span className="text-[10px] text-emerald-100/80">فاصل أمان (15 ثانية) مع تفاوت زمني بشري عشوائي لمنع كشف الرسائل المتتابعة.</span>
+                  <span className="text-[11px] font-black text-emerald-300 block">درع الحماية البشري الذكي من حظر الواتساب نشط</span>
+                  <span className="text-[10px] text-emerald-100/80">فاصل أمان (15 ثانية) مع تفاوت بشري عشوائي، ومحاكاة الكتابة الحية، واستراحات أمان ذكية.</span>
                 </div>
               </div>
 
               {batchProgress.isRunning && (batchProgress.countdownSeconds ?? 0) > 0 && (
-                <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center gap-1.5 font-mono text-xs font-black shrink-0 animate-pulse">
+                <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 font-mono text-xs font-black shrink-0 animate-pulse ${
+                  batchProgress.isBreak 
+                    ? "bg-amber-500/25 border-amber-400 text-amber-200" 
+                    : "bg-emerald-500/20 border-emerald-400/40 text-emerald-200"
+                }`}>
                   <Clock className="w-3.5 h-3.5" />
-                  <span>انتظار: {batchProgress.countdownSeconds}ث</span>
+                  <span>
+                    {batchProgress.isBreak 
+                      ? `استراحة أمان ذكية: ${batchProgress.countdownSeconds}ث` 
+                      : `انتظار: ${batchProgress.countdownSeconds}ث`}
+                  </span>
                 </div>
               )}
             </div>

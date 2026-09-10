@@ -83,6 +83,7 @@ export default function UnifiedCampaignModal({
   const [sentCount, setSentCount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
+  const [isMicroBreak, setIsMicroBreak] = useState(false);
   const [currentRecipient, setCurrentRecipient] = useState<CampaignRecipientItem | null>(null);
   const [logs, setLogs] = useState<ModalTransmissionLog[]>([]);
 
@@ -100,6 +101,7 @@ export default function UnifiedCampaignModal({
       setSentCount(0);
       setFailedCount(0);
       setCountdownSeconds(0);
+      setIsMicroBreak(false);
       setLogs([]);
       setCurrentRecipient(null);
 
@@ -110,6 +112,7 @@ export default function UnifiedCampaignModal({
       abortRef.current = true;
       isRunningRef.current = false;
       setIsRunning(false);
+      setIsMicroBreak(false);
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
       }
@@ -247,9 +250,20 @@ export default function UnifiedCampaignModal({
 
       // If there are more recipients and not aborted, wait with countdown
       if (i < recipients.length - 1 && !abortRef.current) {
-        // Calculate delay with optional human jitter (±2s)
-        const jitter = enableJitter ? Math.floor(Math.random() * 5) - 2 : 0;
-        const totalDelay = Math.max(8, intervalSeconds + jitter);
+        // Human Pacing: After every 6-8 messages, initiate an anti-ban micro-break (25-35s)
+        const totalProcessedSoFar = sent + failed;
+        const shouldMicroBreak = totalProcessedSoFar > 0 && totalProcessedSoFar % 7 === 0;
+
+        let totalDelay: number;
+        if (shouldMicroBreak) {
+          setIsMicroBreak(true);
+          totalDelay = Math.floor(Math.random() * 11) + 25; // 25 to 35 seconds rest
+        } else {
+          setIsMicroBreak(false);
+          // Calculate delay with realistic Gaussian-like human jitter (-2s to +5s)
+          const jitter = enableJitter ? Math.floor(Math.random() * 8) - 2 : 0;
+          totalDelay = Math.max(12, intervalSeconds + jitter);
+        }
 
         setCountdownSeconds(totalDelay);
 
@@ -259,6 +273,7 @@ export default function UnifiedCampaignModal({
             setIsRunning(false);
             isRunningRef.current = false;
             setIsPaused(true);
+            setIsMicroBreak(false);
             setCountdownSeconds(0);
             return;
           }
@@ -266,6 +281,7 @@ export default function UnifiedCampaignModal({
           remainingSec -= 1;
           setCountdownSeconds(remainingSec);
         }
+        setIsMicroBreak(false);
         setCountdownSeconds(0);
       }
     }
@@ -386,18 +402,28 @@ export default function UnifiedCampaignModal({
             </div>
             <div>
               <span className="text-xs font-black text-emerald-300 block">
-                درع الحماية الذكي من حظر الواتساب نشط
+                درع الحماية البشري الذكي من حظر الواتساب نشط
               </span>
               <span className="text-[11px] text-emerald-100/85">
-                فاصل أمان ({intervalSeconds} ثانية) مع تفاوت زمني بشري عشوائي لمنع كشف الرسائل المتتابعة.
+                فاصل أمان ({intervalSeconds} ثانية) مع تفاوت زمني بشري عشوائي، ومحاكاة الكتابة الحية، واستراحات أمان ذكية.
               </span>
             </div>
           </div>
 
           {isRunning && countdownSeconds > 0 && (
-            <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center gap-1.5 font-mono text-xs font-black shrink-0 animate-pulse">
+            <div
+              className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 font-mono text-xs font-black shrink-0 animate-pulse ${
+                isMicroBreak
+                  ? "bg-amber-500/25 border-amber-400 text-amber-200"
+                  : "bg-emerald-500/20 border-emerald-400/40 text-emerald-200"
+              }`}
+            >
               <Clock className="w-3.5 h-3.5" />
-              <span>انتظار: {countdownSeconds}ث</span>
+              <span>
+                {isMicroBreak
+                  ? `استراحة أمان ذكية: ${countdownSeconds}ث`
+                  : `انتظار: ${countdownSeconds}ث`}
+              </span>
             </div>
           )}
         </div>
