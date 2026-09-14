@@ -24,6 +24,9 @@ import {
   Check,
   Edit3,
   GraduationCap,
+  MessageCircle,
+  Smartphone,
+  Phone,
 } from "lucide-react";
 import {
   ParentCouncilApplication,
@@ -40,6 +43,8 @@ import {
   formatSaudiPhone,
   deriveFatherFullName,
   stripLeadingSonOf,
+  getTodayHijriDate,
+  cleanPhoneNumber,
 } from "../../utils/parentCouncilUtils";
 
 // Re-export for backwards compatibility across components
@@ -48,6 +53,7 @@ export { deriveFatherFullName, stripLeadingSonOf };
 interface ParentCouncilPortalProps {
   token?: string | null;
   initialCode?: string | null;
+  mode?: "code" | "group";
   signatories?: SchoolSignatories;
   students?: Student[];
   onExit?: () => void;
@@ -116,6 +122,7 @@ function findStudentSiblings(
 export default function ParentCouncilPortal({
   token,
   initialCode,
+  mode: propMode,
   signatories: propSignatories,
   students: propStudents,
   onExit,
@@ -186,6 +193,23 @@ export default function ParentCouncilPortal({
       } catch (e) {}
     }, 200);
   };
+
+  // Auth mode: "phone" for WhatsApp Group universal link, "code" for individual link
+  const [authMethod, setAuthMethod] = useState<"phone" | "code">(() => {
+    if (propMode === "group") return "phone";
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("mode") === "group" || params.get("group") === "true") return "phone";
+    }
+    if (token || initialCode) return "code";
+    return "phone";
+  });
+
+  // Phone verification state for WhatsApp group link
+  const [phoneInput, setPhoneInput] = useState("");
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [matchedChildren, setMatchedChildren] = useState<any[]>([]);
 
   // Verification states - strictly manual entry by guardian
   const [activationCodeInput, setActivationCodeInput] = useState("");
@@ -262,7 +286,7 @@ export default function ParentCouncilPortal({
   // Pledge & Signature
   const [pledgeAccepted, setPledgeAccepted] = useState(true);
   const [signature, setSignature] = useState("");
-  const [submissionDateHijri, setSubmissionDateHijri] = useState("1447/03/15هـ");
+  const [submissionDateHijri, setSubmissionDateHijri] = useState(() => getTodayHijriDate());
 
   // Flow & Submission State
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -703,6 +727,171 @@ export default function ParentCouncilPortal({
     }
   };
 
+  // Phone Verification Handler (WhatsApp Group Link)
+  const handleVerifyPhone = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanPhone = cleanPhoneNumber(phoneInput);
+    if (!cleanPhone || cleanPhone.length < 9) {
+      setPhoneError("يرجى إدخال رقم جوال صحيح مكون من 10 أرقام (مثال: 05xxxxxxxx)");
+      return;
+    }
+
+    const normalized = cleanPhone.startsWith("5") && cleanPhone.length === 9 ? "0" + cleanPhone : cleanPhone;
+    if (!/^05\d{8}$/.test(normalized)) {
+      setPhoneError("رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام");
+      return;
+    }
+
+    setVerifyingPhone(true);
+    setPhoneError(null);
+
+    try {
+      // 1. Check local submissions first
+      const localSub =
+        localStorage.getItem(`pc_submitted_phone_${normalized}`) ||
+        localStorage.getItem(`pc_submitted_phone_${normalized.slice(-9)}`);
+      if (localSub) {
+        try {
+          const parsed = JSON.parse(localSub);
+          setAlreadySubmittedApplication(parsed);
+          setIsCodeVerified(true);
+          setVerifyingPhone(false);
+          return;
+        } catch (e) {}
+      }
+
+      // 2. Call backend /api/parent-councils/verify-phone
+      const res = await fetch("/api/parent-councils/verify-phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: normalized }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        if (data?.isSurveyClosed) {
+          setIsSurveyClosed(true);
+          return;
+        }
+        throw new Error(data.error || "تعذر التحقق من رقم الجوال، يرجى التأكد من الرقم والمحاولة مرة أخرى");
+      }
+
+      // Check if application already submitted
+      if (data.alreadySubmitted && data.application) {
+        setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
+        setIsCodeVerified(true);
+        try {
+          localStorage.setItem(`pc_submitted_phone_${normalized}`, JSON.stringify(data.application));
+          localStorage.setItem(`pc_submitted_phone_${normalized.slice(-9)}`, JSON.stringify(data.application));
+        } catch (e) {}
+        return;
+      }
+
+      // Find matching students in client students list AND server response
+      const phone9 = normalized.slice(-9);
+      const clientMatches = (students || []).filter((s) => {
+        const p = cleanPhoneNumber(s.phone || (s as any)["رقم الجوال"] || (s as any)["هاتف ولي الأمر"] || "");
+        return p.slice(-9) === phone9;
+      });
+
+      const serverMatches = data.matchedStudents || [];
+      const mergedMap = new Map();
+      clientMatches.forEach((s) =>
+        mergedMap.set(s.id, {
+          id: s.id,
+          name: s.name || (s as any)["اسم الطالب"],
+          grade: s.grade || (s as any)["الصف"],
+          className: s.className || (s as any)["الفصل"] || (s as any)["الشعبة"],
+          phone: s.phone,
+        })
+      );
+      serverMatches.forEach((s: any) => {
+        if (!mergedMap.has(s.id)) {
+          mergedMap.set(s.id, s);
+        }
+      });
+
+      const allMatched = Array.from(mergedMap.values());
+      setMatchedChildren(allMatched);
+      setPhone(normalized);
+
+      if (allMatched.length > 0) {
+        const primary = allMatched[0];
+        setCurrentStudentObj(primary);
+        setStudentName(primary.name || "");
+        setStudentGrade(primary.grade || "الأول ثانوي");
+        setStudentClass(primary.className || "1");
+        setStudentId(primary.id || "");
+
+        // Sibling detection (Requirement 2):
+        const otherChildren = allMatched.slice(1);
+        const rosterSiblings = findStudentSiblings(primary, students || []);
+        const sibMap = new Map();
+        otherChildren.forEach((ch: any) =>
+          sibMap.set(ch.id || ch.name, {
+            name: ch.name,
+            grade: ch.grade || "المرحلة الثانوية",
+            className: ch.className || "1",
+          })
+        );
+        rosterSiblings.forEach((ch) => {
+          if (ch.name !== primary.name && !sibMap.has(ch.name)) {
+            sibMap.set(ch.name, ch);
+          }
+        });
+        setDetectedSiblings(Array.from(sibMap.values()));
+
+        // Auto-derive father's name from student
+        if (guardianRelation === "father") {
+          const derivedFather = deriveFatherFullName(primary.name, primary);
+          if (derivedFather) {
+            setFullName(derivedFather);
+          }
+        }
+      }
+
+      setIsCodeVerified(true);
+    } catch (err: any) {
+      console.error("Phone verification error:", err);
+      setPhoneError(err.message || "حدث خطأ أثناء التحقق، يرجى المحاولة لاحقاً");
+    } finally {
+      setVerifyingPhone(false);
+    }
+  };
+
+  // Switch primary child if guardian has multiple children in school
+  const selectPrimaryChild = (selectedChild: any) => {
+    setCurrentStudentObj(selectedChild);
+    setStudentName(selectedChild.name || "");
+    setStudentGrade(selectedChild.grade || "الأول ثانوي");
+    setStudentClass(selectedChild.className || "1");
+    setStudentId(selectedChild.id || "");
+
+    const otherChildren = matchedChildren.filter((c) => (c.id || c.name) !== (selectedChild.id || selectedChild.name));
+    const rosterSiblings = findStudentSiblings(selectedChild, students || []);
+    const sibMap = new Map();
+    otherChildren.forEach((ch: any) =>
+      sibMap.set(ch.id || ch.name, {
+        name: ch.name,
+        grade: ch.grade || "المرحلة الثانوية",
+        className: ch.className || "1",
+      })
+    );
+    rosterSiblings.forEach((ch) => {
+      if (ch.name !== selectedChild.name && !sibMap.has(ch.name)) {
+        sibMap.set(ch.name, ch);
+      }
+    });
+    setDetectedSiblings(Array.from(sibMap.values()));
+
+    if (guardianRelation === "father") {
+      const derivedFather = deriveFatherFullName(selectedChild.name, selectedChild);
+      if (derivedFather) {
+        setFullName(derivedFather);
+      }
+    }
+  };
+
   // Student Match helper
   const handleStudentSelect = (selectedStudent: Student) => {
     setStudentName(selectedStudent.name || "");
@@ -731,6 +920,7 @@ export default function ParentCouncilPortal({
 
     setIsSubmitting(true);
 
+    const todayHijri = getTodayHijriDate();
     const newApp: ParentCouncilApplication = {
       id: token ? `app_${token}` : `app_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       activationCode: activationCodeInput || "202601",
@@ -751,7 +941,7 @@ export default function ParentCouncilPortal({
       compliance,
       pledgeAccepted,
       signature: signature.trim() || fullName.trim(),
-      submissionDateHijri: submissionDateHijri || "1447/03/15هـ",
+      submissionDateHijri: submissionDateHijri || todayHijri,
       submittedAt: new Date().toISOString(),
       status: "submitted",
     };
@@ -803,6 +993,13 @@ export default function ParentCouncilPortal({
         }
         if (finalSavedApp.studentId) {
           localStorage.setItem(`pc_submitted_student_${finalSavedApp.studentId}`, "true");
+        }
+        if (finalSavedApp.phone) {
+          const cleanP = cleanPhoneNumber(finalSavedApp.phone);
+          localStorage.setItem(`pc_submitted_phone_${cleanP}`, JSON.stringify(finalSavedApp));
+          if (cleanP.length >= 9) {
+            localStorage.setItem(`pc_submitted_phone_${cleanP.slice(-9)}`, JSON.stringify(finalSavedApp));
+          }
         }
 
         // Broadcast to other tabs / admin dashboard
@@ -1230,66 +1427,143 @@ export default function ParentCouncilPortal({
       {/* Main Content Area */}
       <main className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
         
-        {/* Step 0: Activation Code Verification Gate */}
+        {/* Step 0: Verification Gate (Phone verification for mobile link, or Code for individual invite) */}
         {!isCodeVerified ? (
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-md p-5 sm:p-10 text-center max-w-md mx-auto my-2 sm:my-6">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-2xs">
-              <KeyRound className="w-7 h-7 sm:w-8 sm:h-8" />
-            </div>
-
-            <h2 className="text-base sm:text-lg font-black text-slate-900 mb-1.5 sm:mb-2">
-              رمز التفعيل لترشيح مجلس أولياء الأمور
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-600 mb-5 sm:mb-6 leading-relaxed">
-              يرجى إدخال رمز التفعيل المكون من 6 أرقام المرسل عبر رسالة الواتساب أو الصادر من إدارة المدرسة للبدء في تعبئة استمارة الترشيح.
-            </p>
-
-            <form onSubmit={handleVerifyCode} className="space-y-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-md p-5 sm:p-8 text-center max-w-md mx-auto my-2 sm:my-6">
+            
+            {/* If the parent opened with an explicit individual token/code, show code form. Otherwise (mobile phone link), show phone verification strictly without tabs or code options. */}
+            {authMethod === "phone" ? (
+              /* Phone Number Verification (No code needed, strictly phone number) */
               <div>
-                <input
-                  type="text"
-                  maxLength={10}
-                  value={activationCodeInput}
-                  onChange={(e) => {
-                    setActivationCodeInput(e.target.value);
-                    setCodeError(null);
-                  }}
-                  placeholder="أدخل رمز التفعيل (مثال: 202601)"
-                  className="w-full text-center text-xl sm:text-2xl font-mono font-black tracking-widest py-3 sm:py-3.5 px-4 rounded-2xl bg-slate-50 border-2 border-slate-300 focus:border-teal-600 focus:bg-white focus:outline-hidden transition-all min-h-[48px]"
-                  dir="ltr"
-                  autoFocus
-                />
-              </div>
-
-              {codeError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 text-right">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{codeError}</span>
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-2xs">
+                  <Smartphone className="w-7 h-7 sm:w-8 sm:h-8" />
                 </div>
-              )}
 
-              <button
-                type="submit"
-                disabled={verifyingCode || !activationCodeInput.trim()}
-                className="w-full py-3 sm:py-3.5 px-4 bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer min-h-[46px]"
-              >
-                {verifyingCode ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>جارٍ التحقق...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>التحقق والدخول للاستمارة</span>
-                    <ArrowLeft className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
+                <h2 className="text-base sm:text-lg font-black text-slate-900 mb-1.5 sm:mb-2">
+                  تسجيل ترشيح مجلس أولياء الأمور
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 mb-5 sm:mb-6 leading-relaxed">
+                  أهلاً بك ولي الأمر الكريم. فضلاً أدخل رقم جوالك المعتمد لدى المدرسة في نظام نور للتأكد من بياناتك وبيانات أبنائك الطلاب، ومتابعة تعبئة استمارة الترشح.
+                </p>
 
-            <div className="mt-6 pt-6 border-t border-slate-100 text-[11px] text-slate-500">
-              في حال عدم توفر الرمز، يمكنك التواصل مع لجنة التوجيه الطلابي بالمدرسة للحصول على رمز تفعيل الترشيح.
-            </div>
+                <form onSubmit={handleVerifyPhone} className="space-y-4">
+                  <div>
+                    <label className="block text-right text-xs font-bold text-slate-700 mb-1.5">
+                      رقم الجوال المسجل بنظام نور:
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        id="input-guardian-phone"
+                        value={phoneInput}
+                        onChange={(e) => {
+                          setPhoneInput(e.target.value.replace(/\D/g, ""));
+                          setPhoneError(null);
+                        }}
+                        placeholder="05xxxxxxxx"
+                        className="w-full text-center text-xl sm:text-2xl font-mono font-black tracking-wider py-3 sm:py-3.5 px-4 rounded-2xl bg-slate-50 border-2 border-slate-300 focus:border-emerald-600 focus:bg-white focus:outline-hidden transition-all min-h-[48px]"
+                        dir="ltr"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  {phoneError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 text-right">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{phoneError}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    id="btn-verify-phone"
+                    disabled={verifyingPhone || !phoneInput.trim()}
+                    className="w-full py-3 sm:py-3.5 px-4 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer min-h-[46px]"
+                  >
+                    {verifyingPhone ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>جارٍ التحقق من السجلات...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>التحقق والدخول للاستمارة</span>
+                        <ArrowLeft className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                <div className="mt-5 pt-4 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed">
+                  💡 سيتم جلب بياناتك وبيانات أبنائك الطلاب تلقائياً بمجرد إدخال رقم الجوال للبدء في تعبئة الاستمارة.
+                </div>
+              </div>
+            ) : (
+              /* Activation Code Verification (Only for individual private token links) */
+              <div>
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-2xs">
+                  <KeyRound className="w-7 h-7 sm:w-8 sm:h-8" />
+                </div>
+
+                <h2 className="text-base sm:text-lg font-black text-slate-900 mb-1.5 sm:mb-2">
+                  رمز التفعيل لترشيح مجلس أولياء الأمور
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 mb-5 sm:mb-6 leading-relaxed">
+                  يرجى إدخال رمز التفعيل المكون من 6 أرقام الصادر من إدارة المدرسة للبدء في تعبئة استمارة الترشيح.
+                </p>
+
+                <form onSubmit={handleVerifyCode} className="space-y-4">
+                  <div>
+                    <input
+                      type="text"
+                      maxLength={10}
+                      id="input-activation-code"
+                      value={activationCodeInput}
+                      onChange={(e) => {
+                        setActivationCodeInput(e.target.value);
+                        setCodeError(null);
+                      }}
+                      placeholder="أدخل رمز التفعيل (مثال: 202601)"
+                      className="w-full text-center text-xl sm:text-2xl font-mono font-black tracking-widest py-3 sm:py-3.5 px-4 rounded-2xl bg-slate-50 border-2 border-slate-300 focus:border-teal-600 focus:bg-white focus:outline-hidden transition-all min-h-[48px]"
+                      dir="ltr"
+                      autoFocus
+                    />
+                  </div>
+
+                  {codeError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 text-right">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{codeError}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    id="btn-verify-code"
+                    disabled={verifyingCode || !activationCodeInput.trim()}
+                    className="w-full py-3 sm:py-3.5 px-4 bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer min-h-[46px]"
+                  >
+                    {verifyingCode ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>جارٍ التحقق...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>التحقق والدخول للاستمارة</span>
+                        <ArrowLeft className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                <div className="mt-5 pt-4 border-t border-slate-100 text-[11px] text-slate-500">
+                  في حال واجهتك أي صعوبة، يرجى التواصل مع إدارة المدرسة.
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* Multi-step Application Wizard Form */
@@ -1365,6 +1639,54 @@ export default function ParentCouncilPortal({
                       </span>
                     )}
                   </div>
+
+                  {/* If multiple children detected from phone verification, allow selecting primary child */}
+                  {matchedChildren && matchedChildren.length > 1 && (
+                    <div className="bg-emerald-50/90 border border-emerald-300 rounded-2xl p-3.5 shadow-2xs">
+                      <div className="text-xs font-black text-emerald-950 flex items-center justify-between gap-1.5 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-4 h-4 text-emerald-700" />
+                          <span>أبناؤك المسجلون بالمدرسة ({matchedChildren.length} طلاب):</span>
+                        </div>
+                        <span className="text-[11px] font-bold text-emerald-800 bg-white/90 px-2 py-0.5 rounded-lg border border-emerald-200">
+                          انقر لاختيار الطالب الأساسي للطلب
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {matchedChildren.map((ch: any) => {
+                          const isCur = ch.name === studentName || (ch.id && ch.id === studentId);
+                          return (
+                            <button
+                              key={ch.id || ch.name}
+                              type="button"
+                              onClick={() => selectPrimaryChild(ch)}
+                              className={`p-2.5 rounded-xl text-right transition-all cursor-pointer border flex items-center justify-between gap-2 ${
+                                isCur
+                                  ? "bg-emerald-800 text-white border-emerald-900 shadow-xs"
+                                  : "bg-white text-slate-800 border-emerald-200 hover:bg-emerald-100/50"
+                              }`}
+                            >
+                              <div>
+                                <div className="text-xs font-black leading-snug">{ch.name}</div>
+                                <div className={`text-[10px] mt-0.5 ${isCur ? "text-emerald-100" : "text-slate-500"}`}>
+                                  {ch.grade} {ch.className ? `• شعبة ${ch.className}` : ""}
+                                </div>
+                              </div>
+                              {isCur ? (
+                                <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-bold rounded-lg shrink-0">
+                                  ✓ الأساسي
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-lg shrink-0">
+                                  تبديل
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Auto-detected Student & Siblings Card */}
                   {studentName ? (

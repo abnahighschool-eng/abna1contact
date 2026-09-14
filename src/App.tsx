@@ -211,7 +211,7 @@ export default function App() {
   });
 
   // Direct Parent Council Voting Portal URL parameter (?portal=parent-council-vote or /v/:token or ?voting=true or ?vote=true)
-  const [parentCouncilVotePortalData, setParentCouncilVotePortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
+  const [parentCouncilVotePortalData, setParentCouncilVotePortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null; mode?: "group" | "code" }>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const path = window.location.pathname;
@@ -222,16 +222,33 @@ export default function App() {
         params.get("voting") === "true" ||
         params.get("vote") === "true";
 
+      const isGroupMode =
+        params.get("mode") === "group" ||
+        params.get("group") === "true" ||
+        params.get("token") === "group" ||
+        path === "/v/group" ||
+        path.startsWith("/v/group/") ||
+        path === "/v" ||
+        (!params.get("code") && !params.get("c") && (!params.get("token") || params.get("token") === "group"));
+
       if (isPathVote || isParamVote) {
         let tok = params.get("token") || params.get("t") || params.get("council_token") || null;
         if (!tok && isPathVote && path.length > 3) {
           tok = path.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || null;
         }
+        if (tok === "group") {
+          tok = null;
+        }
         const cd = params.get("code") || params.get("c") || params.get("council_code") || null;
-        return { isOpen: true, token: tok, code: cd };
+        return {
+          isOpen: true,
+          token: tok,
+          code: cd,
+          mode: isGroupMode ? ("group" as const) : ("code" as const),
+        };
       }
     }
-    return { isOpen: false, token: null, code: null };
+    return { isOpen: false, token: null, code: null, mode: "code" as const };
   });
 
   // Direct Parent Council Portal URL parameter (?portal=parent-council or /c/:token or ?council_token=<token>)
@@ -244,6 +261,14 @@ export default function App() {
       if (!token && isPathCouncil && path.length > 3) {
         token = path.replace(/^\/c\/?/, "").split("/")[0].split("?")[0] || null;
       }
+      const isGroupMode =
+        params.get("mode") === "group" ||
+        params.get("group") === "true" ||
+        token === "group" ||
+        path === "/c/group" ||
+        path.startsWith("/c/group/") ||
+        path === "/c" ||
+        (!params.get("code") && !params.get("council_code") && (!token || token === "group"));
       const isParentCouncil =
         isPathCouncil ||
         params.get("portal") === "parent-council" ||
@@ -256,12 +281,13 @@ export default function App() {
       if (isParentCouncil) {
         return {
           isOpen: true,
-          token: token,
+          token: token === "group" ? null : token,
           code: params.get("council_code") || params.get("code") || null,
+          mode: isGroupMode ? ("group" as const) : ("code" as const),
         };
       }
     }
-    return { isOpen: false, token: null, code: null };
+    return { isOpen: false, token: null, code: null, mode: "code" as const };
   });
 
   // Direct Parent Student Needs Survey Portal URL parameter (?survey_token=<token> or ?needs_token=<token> or ?token=<token>)
@@ -917,8 +943,9 @@ export default function App() {
       <ParentCouncilVotePortal
         initialToken={parentCouncilVotePortalData.token}
         initialCode={parentCouncilVotePortalData.code}
+        mode={parentCouncilVotePortalData.mode}
         onClose={() => {
-          setParentCouncilVotePortalData({ isOpen: false, token: null, code: null });
+          setParentCouncilVotePortalData({ isOpen: false, token: null, code: null, mode: "code" });
           window.history.replaceState({}, document.title, window.location.pathname);
           setIsPublicSessionEnded(true);
         }}
@@ -932,10 +959,11 @@ export default function App() {
       <ParentCouncilPortal
         token={parentCouncilPortalData.token}
         initialCode={parentCouncilPortalData.code}
+        mode={parentCouncilPortalData.mode}
         signatories={signatories}
         students={students}
         onExit={() => {
-          setParentCouncilPortalData({ isOpen: false, token: null, code: null });
+          setParentCouncilPortalData({ isOpen: false, token: null, code: null, mode: "code" });
           window.history.replaceState({}, document.title, window.location.pathname);
           setIsPublicSessionEnded(true);
         }}

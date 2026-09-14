@@ -1914,22 +1914,36 @@ app.post("/api/student-needs-survey/batch-update-invites", (req, res) => {
 // ==========================================
 
 // Short link redirects for Parent Council survey (/c/:token) and voting (/v/:token)
+app.get("/c/group", (req, res) => {
+  res.redirect("/?portal=parent-council&mode=group");
+});
+
 app.get("/c/:token", (req, res) => {
   const token = req.params.token;
+  if (token === "group") {
+    return res.redirect("/?portal=parent-council&mode=group");
+  }
   res.redirect(`/?portal=parent-council&token=${encodeURIComponent(token)}`);
 });
 
 app.get("/c", (req, res) => {
-  res.redirect("/?portal=parent-council");
+  res.redirect("/?portal=parent-council&mode=group");
+});
+
+app.get("/v/group", (req, res) => {
+  res.redirect("/?portal=parent-council-vote&mode=group");
 });
 
 app.get("/v/:token", (req, res) => {
   const token = req.params.token;
+  if (token === "group") {
+    return res.redirect("/?portal=parent-council-vote&mode=group");
+  }
   res.redirect(`/?portal=parent-council-vote&token=${encodeURIComponent(token)}`);
 });
 
 app.get("/v", (req, res) => {
-  res.redirect("/?portal=parent-council-vote");
+  res.redirect("/?portal=parent-council-vote&mode=group");
 });
 
 // 1. Get All Applications, Config, Invites, and Voting State
@@ -2258,6 +2272,111 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   });
 });
 
+// Helper for dynamic Saudi Hijri Date on Server
+function getTodayHijriDateServer(): string {
+  try {
+    const today = new Date();
+    const formatter = new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", {
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+    });
+    const parts = formatter.format(today);
+    const standardized = parts
+      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+      .replace(/\s+/g, "")
+      .replace(/هـ/g, "");
+    return `${standardized}هـ`;
+  } catch (e) {
+    const today = new Date();
+    return `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}م`;
+  }
+}
+
+// 4.5. Phone Verification for WhatsApp Group Link (التفعيل برقم الجوال)
+app.post("/api/parent-councils/verify-phone", (req, res) => {
+  const { phone } = req.body || {};
+  const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
+
+  if (isSurveyClosed) {
+    return res.status(403).json({
+      success: false,
+      isSurveyClosed: true,
+      error: "عذراً، تم إيقاف استقبال طلبات الترشح والاستبيان لعضوية مجلس أولياء الأمور من قبل إدارة المدرسة.",
+    });
+  }
+
+  const rawPhone = String(phone || "").trim();
+  const digits = rawPhone.replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]).replace(/\D/g, "");
+  if (!digits || digits.length < 9) {
+    return res.status(400).json({
+      success: false,
+      error: "يرجى إدخال رقم جوال صحيح مكون من 10 أرقام (مثال: 05xxxxxxxx)",
+    });
+  }
+
+  const phone9 = digits.slice(-9);
+
+  // 1. Check if application already exists for this phone number (or previously submitted via code/private link)
+  const existingApp = Object.values(parentCouncilsStore.applications || {}).find((a: any) => {
+    if (!a) return false;
+    if (a.phone) {
+      const p = String(a.phone).replace(/\D/g, "").slice(-9);
+      if (p && p === phone9) return true;
+    }
+    return false;
+  });
+
+  if (existingApp) {
+    return res.json({
+      success: true,
+      alreadySubmitted: true,
+      application: existingApp,
+      message: "تم العثور على استمارة ترشح معبأة مسبقاً بهذا الرقم",
+    });
+  }
+
+  // 2. Search for all students matching this phone number in invites store
+  const matchedStudents: any[] = [];
+  const matchedInvites = Object.values(parentCouncilsStore.invites || {}).filter((inv: any) => {
+    if (!inv || !inv.guardianPhone) return false;
+    const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
+    return invP === phone9;
+  });
+
+  // Check if any matched student has already submitted
+  for (const inv of matchedInvites) {
+    const studentApp = Object.values(parentCouncilsStore.applications || {}).find(
+      (a: any) => a && (String(a.studentId) === String(inv.studentId) || (a.phone && String(a.phone).replace(/\D/g, "").slice(-9) === phone9))
+    );
+    if (studentApp) {
+      return res.json({
+        success: true,
+        alreadySubmitted: true,
+        application: studentApp,
+        message: "تم العثور على استمارة ترشح مقدمة مسبقاً لأحد الأبناء المسجلين بهذا الرقم",
+      });
+    }
+
+    matchedStudents.push({
+      id: inv.studentId,
+      name: inv.studentName,
+      grade: inv.studentGrade,
+      className: inv.studentClass,
+      phone: inv.guardianPhone,
+    });
+  }
+
+  const normalizedPhone = digits.startsWith("5") && digits.length === 9 ? "0" + digits : digits;
+
+  return res.json({
+    success: true,
+    alreadySubmitted: false,
+    phone: normalizedPhone,
+    matchedStudents,
+  });
+});
+
 // 5. Submit or Update Application from Public Portal
 app.post("/api/parent-councils/submit", (req, res) => {
   if (parentCouncilsStore.config?.isSurveyClosed) {
@@ -2279,6 +2398,7 @@ app.post("/api/parent-councils/submit", (req, res) => {
   const effectiveToken = application.token || application.activationToken || (application.studentId ? `pc_${application.studentId}` : null);
   const id = application.id || (effectiveToken ? `app_${effectiveToken}` : `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
   const now = new Date().toISOString();
+  const todayHijri = getTodayHijriDateServer();
 
   // Run official smart evaluation engine
   const smartEvaluation = evaluateParentCouncilApplication(application);
@@ -2292,9 +2412,10 @@ app.post("/api/parent-councils/submit", (req, res) => {
     fullName: application.fullName || application.guardianName,
     nationalId: application.nationalId || application.guardianNationalId,
     phone: application.phone || application.guardianPhone,
+    submissionDateHijri: application.submissionDateHijri || todayHijri,
     status: application.status === "approved" || application.status === "reserve" ? application.status : "submitted",
     smartEvaluation,
-    submittedAt: application.submittedAt || now,
+    submittedAt: now, // Always set to current submission time to guarantee today's date
     lastUpdated: now,
   };
 
@@ -2505,7 +2626,7 @@ app.post("/api/parent-councils/voting/config", (req, res) => {
   });
 });
 
-// 10. Verify Code and Fetch Voting Ballot for Parents
+// 10. Verify Code and Fetch Voting Ballot for Parents (Private Link)
 app.post("/api/parent-councils/vote/verify", (req, res) => {
   const { token, code, studentId } = req.body || {};
   const cleanedCode = String(code || "").trim();
@@ -2558,12 +2679,20 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
     });
   }
 
-  // Check if parent already voted
-  const voteKey = candidateStudentId || (invite && invite.studentId) || token;
-  const existingVote = (parentCouncilsStore.votes || {})[voteKey] ||
-    Object.values(parentCouncilsStore.votes || {}).find(
-      (v: any) => (token && v.token === token) || (candidateStudentId && v.studentId === candidateStudentId)
-    );
+  // Check if parent already voted (by studentId, token, or guardianPhone)
+  const invitePhone9 = invite?.guardianPhone ? String(invite.guardianPhone).replace(/\D/g, "").slice(-9) : "";
+  const existingVote = Object.values(parentCouncilsStore.votes || {}).find(
+    (v: any) => {
+      if (!v) return false;
+      if (token && v.token === token) return true;
+      if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
+      if (invitePhone9 && v.guardianPhone) {
+        const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
+        if (vp && vp === invitePhone9) return true;
+      }
+      return false;
+    }
+  );
 
   // Build candidate ballot cards - Fallback to selectedMemberIds if candidateIds is empty
   let candidateIds = votingConfig.candidateIds || [];
@@ -2602,13 +2731,133 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
   });
 });
 
-// 11. Submit Vote from Parent
-app.post("/api/parent-councils/vote/submit", (req, res) => {
-  const { token, code, studentId, selectedCandidateIds } = req.body || {};
-  const cleanedCode = String(code || "").trim();
-  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
-  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
+// 10.1 Verify Phone and Fetch Voting Ballot for Parents (WhatsApp Group Link)
+app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
+  const { phone } = req.body || {};
+  const rawDigits = String(phone || "").replace(/\D/g, "");
+  if (!rawDigits || rawDigits.length < 9) {
+    return res.status(400).json({
+      success: false,
+      error: "يرجى إدخال رقم جوال صحيح مكون من 10 أرقام (مثال: 05xxxxxxxx)",
+    });
+  }
 
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
+  if (votingConfig.isActive === false) {
+    return res.status(403).json({
+      success: false,
+      isVotingClosed: true,
+      error: "عذراً، التصويت لعضوية مجلس أولياء الأمور غير متاح حالياً أو قد تم إغلاقه بعد اكتمال مرحلة الفرز. شكراً لاهتمامكم وحرصكم الدائم.",
+    });
+  }
+
+  const phone9 = rawDigits.slice(-9);
+  const normalizedPhone = rawDigits.startsWith("5") && rawDigits.length === 9 ? "0" + rawDigits : rawDigits;
+
+  // 1. Check if ANY vote already exists matching this phone number directly
+  const existingVoteByPhone = Object.values(parentCouncilsStore.votes || {}).find((v: any) => {
+    if (!v) return false;
+    if (v.guardianPhone) {
+      const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
+      if (vp && vp === phone9) return true;
+    }
+    return false;
+  });
+
+  // 2. Search for all students matching this phone number in invites store
+  const matchedStudents: any[] = [];
+  const matchedInvites = Object.values(parentCouncilsStore.invites || {}).filter((inv: any) => {
+    if (!inv || !inv.guardianPhone) return false;
+    const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
+    return invP === phone9;
+  });
+
+  // Check if any matched student has already voted (via private code link or group)
+  let existingVoteByStudent: any = null;
+  for (const inv of matchedInvites) {
+    const v = Object.values(parentCouncilsStore.votes || {}).find(
+      (vote: any) => vote && (String(vote.studentId) === String(inv.studentId) || (vote.token && vote.token === inv.token))
+    );
+    if (v && !existingVoteByStudent) {
+      existingVoteByStudent = v;
+    }
+    matchedStudents.push({
+      id: inv.studentId,
+      name: inv.studentName,
+      grade: inv.studentGrade,
+      className: inv.studentClass,
+      phone: inv.guardianPhone,
+    });
+  }
+
+  const existingVote = existingVoteByPhone || existingVoteByStudent;
+
+  // Build candidate ballot cards
+  let candidateIds = votingConfig.candidateIds || [];
+  if (!candidateIds || candidateIds.length === 0) {
+    candidateIds = parentCouncilsStore.config?.selectedMemberIds || [];
+  }
+  if (!candidateIds || candidateIds.length === 0) {
+    candidateIds = Object.keys(parentCouncilsStore.applications || {});
+  }
+
+  const candidateApps = candidateIds
+    .map((cid: string) => parentCouncilsStore.applications[cid] || Object.values(parentCouncilsStore.applications).find((a: any) => a.id === cid))
+    .filter(Boolean)
+    .map((a: any) => ({
+      id: a.id,
+      fullName: a.fullName,
+      studentName: a.studentName || "",
+      studentGrade: a.studentGrade || "",
+      studentClass: a.studentClass || "",
+      specialization: a.guardianRelation === "mother" ? "ولية أمر" : "ولي أمر",
+    }));
+
+  if (existingVote) {
+    return res.json({
+      success: true,
+      alreadyVoted: true,
+      vote: existingVote,
+      phone: normalizedPhone,
+      matchedStudents,
+      candidates: candidateApps,
+      votingConfig: {
+        ...votingConfig,
+        isActive: true,
+        maxVotesPerParent: 1,
+      },
+      message: "لقد تم تسجيل وتوثيق تصويتكم مسبقاً، ولا يمكن تكرار التصويت.",
+    });
+  }
+
+  return res.json({
+    success: true,
+    alreadyVoted: false,
+    phone: normalizedPhone,
+    matchedStudents,
+    candidates: candidateApps,
+    votingConfig: {
+      ...votingConfig,
+      isActive: true,
+      maxVotesPerParent: 1,
+    },
+  });
+});
+
+// 11. Submit Vote from Parent (Supports both Private Code Link and WhatsApp Group Phone Link)
+app.post("/api/parent-councils/vote/submit", (req, res) => {
+  const {
+    token,
+    code,
+    studentId,
+    studentName,
+    guardianPhone,
+    mode,
+    authMethod,
+    selectedCandidateIds,
+  } = req.body || {};
+
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
   if (votingConfig.isActive === false) {
     return res.status(403).json({
       success: false,
@@ -2631,51 +2880,96 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
     });
   }
 
-  // Find invite
+  const isGroupAuth = mode === "group" || authMethod === "phone";
+  const cleanedCode = String(code || "").trim();
+  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
+
+  // Find invite if available
   let invite: any = Object.values(parentCouncilsStore.invites || {}).find(
-    (inv: any) => (token && inv.token === token) || (studentId && String(inv.studentId) === String(studentId)) || inv.code === cleanedCode
+    (inv: any) =>
+      (token && inv.token === token) ||
+      (studentId && String(inv.studentId) === String(studentId)) ||
+      (!isGroupAuth && inv.code === cleanedCode)
   );
+
   let candidateStudentId = studentId || (invite && invite.studentId);
   if (!candidateStudentId && token && token.startsWith("pc_")) {
     candidateStudentId = token.split("_")[1];
   }
 
-  // Verify code
-  const isGeneralCode = cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447";
-  const isInviteCode = invite && String(invite.code || "").trim() === cleanedCode;
-  const isStable = candidateStudentId && cleanedCode === getStableCodeForStudent(candidateStudentId);
+  // Verification checks:
+  if (isGroupAuth) {
+    // Phone method: verify phone format
+    const rawPhoneDigits = String(guardianPhone || "").replace(/\D/g, "");
+    if (!rawPhoneDigits || rawPhoneDigits.length < 9) {
+      return res.status(400).json({
+        success: false,
+        error: "رقم الجوال غير صحيح للتحقق.",
+      });
+    }
+  } else {
+    // Code method: verify code
+    if (!invite && candidateStudentId) {
+      const stableCode = getStableCodeForStudent(candidateStudentId);
+      if (cleanedCode === stableCode || cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
+        invite = {
+          studentId: candidateStudentId,
+          code: stableCode,
+          token: token || getStableTokenForStudent(candidateStudentId),
+        };
+      }
+    }
 
-  if (!isGeneralCode && !isInviteCode && !isStable) {
-    return res.status(400).json({
-      success: false,
-      error: "رمز التفعيل غير صالح.",
-    });
+    const isGeneralCode = cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447";
+    const isInviteCode = invite && String(invite.code || "").trim() === cleanedCode;
+    const isStable = candidateStudentId && cleanedCode === getStableCodeForStudent(candidateStudentId);
+
+    if (!isGeneralCode && !isInviteCode && !isStable) {
+      return res.status(400).json({
+        success: false,
+        error: "رمز التفعيل غير صالح.",
+      });
+    }
   }
 
-  const voteKey = candidateStudentId || (invite && invite.studentId) || token || `v_${Date.now()}`;
+  // Unified deduplication check (by studentId, guardianPhone, or token)
+  const phone9 = guardianPhone ? String(guardianPhone).replace(/\D/g, "").slice(-9) : (invite?.guardianPhone ? String(invite.guardianPhone).replace(/\D/g, "").slice(-9) : "");
   if (!parentCouncilsStore.votes) parentCouncilsStore.votes = {};
 
-  const existingVote = parentCouncilsStore.votes[voteKey] ||
-    Object.values(parentCouncilsStore.votes).find(
-      (v: any) => (token && v.token === token) || (candidateStudentId && v.studentId === candidateStudentId)
-    );
+  const existingVote = Object.values(parentCouncilsStore.votes).find((v: any) => {
+    if (!v) return false;
+    if (token && v.token === token) return true;
+    if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
+    if (phone9 && v.guardianPhone) {
+      const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
+      if (vp && vp === phone9) return true;
+    }
+    return false;
+  });
 
   if (existingVote) {
     return res.status(400).json({
       success: false,
+      alreadyVoted: true,
+      vote: existingVote,
       error: "لقد تم تسجيل وتوثيق تصويتكم مسبقاً، ولا يمكن تكرار التصويت.",
     });
   }
 
+  const effectivePhone = guardianPhone || invite?.guardianPhone || "";
+  const effectiveStudentName = studentName || invite?.studentName || "";
+  const voteKey = candidateStudentId || (phone9 ? `p_${phone9}` : token) || `v_${Date.now()}`;
+
   const newVote = {
     id: `vote_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     studentId: candidateStudentId || "",
-    studentName: invite?.studentName || "",
-    guardianPhone: invite?.guardianPhone || "",
+    studentName: effectiveStudentName,
+    guardianPhone: effectivePhone,
     token: token || "",
+    authMethod: isGroupAuth ? "phone" : "code",
     selectedCandidateIds,
     votedAt: new Date().toISOString(),
-    codeUsed: cleanedCode,
+    codeUsed: isGroupAuth ? "التحقق برقم الجوال المعتمد" : cleanedCode,
   };
 
   parentCouncilsStore.votes[voteKey] = newVote;

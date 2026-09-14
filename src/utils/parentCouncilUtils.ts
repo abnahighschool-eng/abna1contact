@@ -176,3 +176,28 @@ export function deriveFatherFullName(studentFullName: string, studentRecord?: an
 
   return rawName;
 }
+
+/**
+ * Returns today's actual date in standard Saudi Umm Al-Qura Hijri format
+ * Example: "1447/03/15هـ" or dynamically based on current day
+ */
+export function getTodayHijriDate(): string {
+  try {
+    const today = new Date();
+    const formatter = new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", {
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+    });
+    const parts = formatter.format(today);
+    // Standardize Arabic-Indic numerals to Latin digits
+    const standardized = parts
+      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+      .replace(/\s+/g, "")
+      .replace(/هـ/g, "");
+    return `${standardized}هـ`;
+  } catch (e) {
+    const today = new Date();
+    return `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}م`;
+  }
+}

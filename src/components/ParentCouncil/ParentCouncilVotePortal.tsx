@@ -14,6 +14,11 @@ import {
   Check,
   Star,
   Award,
+  Phone,
+  Smartphone,
+  MessageCircle,
+  Sparkles,
+  User,
   X
 } from "lucide-react";
 
@@ -26,22 +31,74 @@ interface CandidateItem {
   specialization?: string;
 }
 
+interface MatchedStudentItem {
+  id: string;
+  name: string;
+  grade?: string;
+  className?: string;
+  phone?: string;
+}
+
 interface ParentCouncilVotePortalProps {
   initialToken?: string | null;
   initialCode?: string | null;
+  mode?: "code" | "group";
   onClose?: () => void;
+}
+
+function cleanPhoneNumber(p: string): string {
+  return String(p || "").replace(/\D/g, "");
+}
+
+function validateSaudiPhone(p: string): boolean {
+  const digits = cleanPhoneNumber(p);
+  const normalized = digits.startsWith("5") && digits.length === 9 ? "0" + digits : digits;
+  return /^05\d{8}$/.test(normalized);
 }
 
 export default function ParentCouncilVotePortal({
   initialToken,
   initialCode,
+  mode: propMode = "code",
   onClose,
 }: ParentCouncilVotePortalProps) {
   const [token, setToken] = useState<string>(initialToken || "");
   const [studentId, setStudentId] = useState<string>("");
   const [code, setCode] = useState<string>(initialCode || "");
   const [enteredCode, setEnteredCode] = useState<string>(initialCode || "202601");
-  
+
+  // Auth method: "phone" (for general voting link / phone verification) or "code" (for private individual token link)
+  const [authMethod, setAuthMethod] = useState<"phone" | "code">(() => {
+    if (propMode === "group") return "phone";
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      const path = window.location.pathname;
+      if (
+        p.get("mode") === "group" ||
+        p.get("group") === "true" ||
+        p.get("token") === "group" ||
+        path === "/v/group" ||
+        path.startsWith("/v/group/") ||
+        path === "/v"
+      ) {
+        return "phone";
+      }
+      const tok = initialToken || p.get("token") || p.get("t");
+      const cd = initialCode || p.get("code") || p.get("c");
+      if (tok && tok !== "group") return "code";
+      if (cd) return "code";
+    }
+    return "phone";
+  });
+
+  // Phone input for phone-only verification
+  const [phoneInput, setPhoneInput] = useState<string>("");
+  const [isVerifyingPhone, setIsVerifyingPhone] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [matchedStudents, setMatchedStudents] = useState<MatchedStudentItem[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<MatchedStudentItem | null>(null);
+
+  // Code verification state
   const [isVerifying, setIsVerifying] = useState(false);
   const [codeVerified, setCodeVerified] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
@@ -66,16 +123,33 @@ export default function ParentCouncilVotePortal({
     const params = new URLSearchParams(window.location.search);
     const pathname = window.location.pathname;
 
+    const isGroupMode =
+      propMode === "group" ||
+      params.get("mode") === "group" ||
+      params.get("group") === "true" ||
+      params.get("token") === "group" ||
+      pathname === "/v/group" ||
+      pathname.startsWith("/v/group/") ||
+      pathname === "/v" ||
+      (!initialCode && !params.get("code") && !params.get("c") && (!initialToken || initialToken === "group") && (!params.get("token") || params.get("token") === "group"));
+
+    if (isGroupMode) {
+      setAuthMethod("phone");
+    }
+
     let resolvedToken = initialToken || params.get("token") || params.get("t") || params.get("council_token") || "";
-    if (!resolvedToken && pathname.startsWith("/v/")) {
+    if (!resolvedToken && pathname.startsWith("/v/") && !pathname.startsWith("/v/group")) {
       resolvedToken = pathname.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || "";
     }
+    if (resolvedToken === "group") resolvedToken = "";
 
     const resolvedStudentId = params.get("studentId") || params.get("sid") || "";
     const resolvedCode = initialCode || params.get("code") || params.get("c") || params.get("council_code") || "";
+    const resolvedPhone = params.get("phone") || params.get("p") || "";
 
     if (resolvedToken) setToken(resolvedToken);
     if (resolvedStudentId) setStudentId(resolvedStudentId);
+    if (resolvedPhone) setPhoneInput(resolvedPhone);
     if (resolvedCode) {
       setCode(resolvedCode);
       setEnteredCode(resolvedCode);
@@ -84,24 +158,114 @@ export default function ParentCouncilVotePortal({
     // Check localStorage if this user already voted previously
     const checkToken = resolvedToken;
     const checkSid = resolvedStudentId || (resolvedToken.startsWith("pc_") ? resolvedToken.split("_")[1] : "");
-    const localVoted = (checkToken && localStorage.getItem(`pc_voted_${checkToken}`)) ||
-      (checkSid && localStorage.getItem(`pc_voted_${checkSid}`));
+    const localVoted =
+      (checkToken && localStorage.getItem(`pc_voted_${checkToken}`)) ||
+      (checkSid && localStorage.getItem(`pc_voted_${checkSid}`)) ||
+      (resolvedPhone && localStorage.getItem(`pc_voted_phone_${cleanPhoneNumber(resolvedPhone)}`));
 
     if (localVoted) {
       setAlreadyVoted(true);
       try {
-        const savedVote = localStorage.getItem(`pc_vote_data_${checkToken || checkSid}`);
+        const savedVote =
+          (checkToken && localStorage.getItem(`pc_vote_data_${checkToken}`)) ||
+          (checkSid && localStorage.getItem(`pc_vote_data_${checkSid}`)) ||
+          (resolvedPhone && localStorage.getItem(`pc_vote_data_phone_${cleanPhoneNumber(resolvedPhone)}`));
         if (savedVote) {
           setExistingVoteData(JSON.parse(savedVote));
         }
       } catch (e) {}
     }
 
-    // Auto-verify if code or default code is ready
-    const codeToUse = resolvedCode || "202601";
-    verifyCode(codeToUse, resolvedToken, resolvedStudentId);
-  }, []);
+    // Only auto-verify code if NOT group mode and a private code was supplied
+    if (!isGroupMode && resolvedCode && resolvedCode !== "202601") {
+      verifyCode(resolvedCode, resolvedToken, resolvedStudentId);
+    }
+  }, [propMode]);
 
+  // 1. Verify Phone Number (WhatsApp Group Link flow)
+  const handleVerifyPhone = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const rawDigits = cleanPhoneNumber(phoneInput);
+    if (!rawDigits || rawDigits.length < 9) {
+      setPhoneError("يرجى إدخال رقم جوال صحيح مكون من 10 أرقام (مثال: 05xxxxxxxx)");
+      return;
+    }
+
+    const normalized = rawDigits.startsWith("5") && rawDigits.length === 9 ? "0" + rawDigits : rawDigits;
+    if (!/^05\d{8}$/.test(normalized)) {
+      setPhoneError("رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام صحيحة");
+      return;
+    }
+
+    setIsVerifyingPhone(true);
+    setPhoneError(null);
+
+    try {
+      // Check local storage for phone vote
+      const localPhoneVoted =
+        localStorage.getItem(`pc_voted_phone_${normalized}`) ||
+        localStorage.getItem(`pc_voted_phone_${normalized.slice(-9)}`);
+
+      if (localPhoneVoted) {
+        try {
+          const savedVote =
+            localStorage.getItem(`pc_vote_data_phone_${normalized}`) ||
+            localStorage.getItem(`pc_vote_data_phone_${normalized.slice(-9)}`);
+          if (savedVote) {
+            setExistingVoteData(JSON.parse(savedVote));
+          }
+        } catch (e) {}
+        setAlreadyVoted(true);
+        setCodeVerified(true);
+        setIsVerifyingPhone(false);
+        return;
+      }
+
+      const res = await fetch("/api/parent-councils/vote/verify-phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: normalized }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        if (data?.isVotingClosed) {
+          setIsVotingClosed(true);
+          return;
+        }
+        throw new Error(data?.error || "تعذر التحقق من رقم الجوال، يرجى التأكد من الرقم والمحاولة مرة أخرى.");
+      }
+
+      setCandidates(data.candidates || []);
+      setCodeVerified(true);
+
+      // Handle already voted
+      if (data.alreadyVoted) {
+        setAlreadyVoted(true);
+        setExistingVoteData(data.vote);
+        localStorage.setItem(`pc_voted_phone_${normalized}`, "true");
+        localStorage.setItem(`pc_voted_phone_${normalized.slice(-9)}`, "true");
+        if (data.vote) {
+          localStorage.setItem(`pc_vote_data_phone_${normalized}`, JSON.stringify(data.vote));
+        }
+        return;
+      }
+
+      // Matched students
+      const studentsList: MatchedStudentItem[] = data.matchedStudents || [];
+      setMatchedStudents(studentsList);
+      if (studentsList.length > 0) {
+        setSelectedStudent(studentsList[0]);
+        setStudentId(studentsList[0].id);
+      }
+    } catch (err: any) {
+      setPhoneError(err.message || "حدث خطأ أثناء التحقق من رقم الجوال");
+    } finally {
+      setIsVerifyingPhone(false);
+    }
+  };
+
+  // 2. Verify Code (Private Link flow)
   const verifyCode = async (codeToVerify: string, t = token, sId = studentId) => {
     const clean = codeToVerify.trim();
     if (!clean) {
@@ -137,6 +301,10 @@ export default function ParentCouncilVotePortal({
         setExistingVoteData(data.vote);
         if (t) localStorage.setItem(`pc_voted_${t}`, "true");
         if (data.invite?.studentId) localStorage.setItem(`pc_voted_${data.invite.studentId}`, "true");
+        if (data.invite?.guardianPhone) {
+          const p9 = cleanPhoneNumber(data.invite.guardianPhone).slice(-9);
+          localStorage.setItem(`pc_voted_phone_${p9}`, "true");
+        }
       }
     } catch (err: any) {
       setVerifyError(err.message || "حدث خطأ أثناء التحقق من الرمز");
@@ -152,26 +320,36 @@ export default function ParentCouncilVotePortal({
     setSubmitError(null);
   };
 
+  // Submit vote (Supports both Private Code link and WhatsApp Group link)
   const handleSubmitVote = async () => {
     if (!selectedCandidateId) {
       setSubmitError("يرجى اختيار مرشح واحد قبل إرسال الترشيح");
       return;
     }
 
-    const candidateObj = candidates.find(c => c.id === selectedCandidateId);
+    const candidateObj = candidates.find((c) => c.id === selectedCandidateId);
     const chosenName = candidateObj ? candidateObj.fullName : "المرشح المختار";
 
     setIsSubmitting(true);
     setSubmitError(null);
+
+    const isGroup = authMethod === "phone";
+    const effectivePhone = phoneInput ? cleanPhoneNumber(phoneInput) : (inviteData?.guardianPhone || "");
+    const effectiveStudentId = selectedStudent?.id || studentId || inviteData?.studentId || "";
+    const effectiveStudentName = selectedStudent?.name || inviteData?.studentName || "";
 
     try {
       const res = await fetch("/api/parent-councils/vote/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
-          code,
-          studentId: studentId || inviteData?.studentId,
+          mode: isGroup ? "group" : "code",
+          authMethod: isGroup ? "phone" : "code",
+          token: isGroup ? "" : token,
+          code: isGroup ? "" : code,
+          studentId: effectiveStudentId,
+          studentName: effectiveStudentName,
+          guardianPhone: effectivePhone,
           selectedCandidateIds: [selectedCandidateId],
         }),
       });
@@ -190,15 +368,20 @@ export default function ParentCouncilVotePortal({
       setSubmittedCandidateName(chosenName);
       setExistingVoteData(data.vote);
 
-      // Persist voted state locally
+      // Persist voted state locally for all identifiers
       if (token) {
         localStorage.setItem(`pc_voted_${token}`, "true");
         localStorage.setItem(`pc_vote_data_${token}`, JSON.stringify(data.vote));
       }
-      const finalSid = studentId || inviteData?.studentId;
-      if (finalSid) {
-        localStorage.setItem(`pc_voted_${finalSid}`, "true");
-        localStorage.setItem(`pc_vote_data_${finalSid}`, JSON.stringify(data.vote));
+      if (effectiveStudentId) {
+        localStorage.setItem(`pc_voted_${effectiveStudentId}`, "true");
+        localStorage.setItem(`pc_vote_data_${effectiveStudentId}`, JSON.stringify(data.vote));
+      }
+      if (effectivePhone) {
+        const pNorm = effectivePhone.startsWith("5") && effectivePhone.length === 9 ? "0" + effectivePhone : effectivePhone;
+        localStorage.setItem(`pc_voted_phone_${pNorm}`, "true");
+        localStorage.setItem(`pc_voted_phone_${pNorm.slice(-9)}`, "true");
+        localStorage.setItem(`pc_vote_data_phone_${pNorm}`, JSON.stringify(data.vote));
       }
     } catch (err: any) {
       setSubmitError(err.message || "تعذر إرسال التصويت");
@@ -207,7 +390,7 @@ export default function ParentCouncilVotePortal({
     }
   };
 
-  const filteredCandidates = candidates.filter(c => {
+  const filteredCandidates = candidates.filter((c) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -256,63 +439,131 @@ export default function ParentCouncilVotePortal({
           </div>
         )}
 
-        {/* Step 0: Activation Code Verification */}
+        {/* Step 0: Authentication (Phone verification for mobile link, OR Code for private individual invite) */}
         {!isVotingClosed && !codeVerified && (
           <div className="p-6 sm:p-10 space-y-6">
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 bg-teal-100 text-teal-800 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                <ShieldCheck className="w-8 h-8" />
-              </div>
-              <h3 className="text-base sm:text-lg font-black text-slate-900">
-                رمز التفعيل للتصويت والترشيح
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                المكرم ولي الأمر، نأمل إدخال رمز التفعيل المكون من 6 أرقام والموضح في رسالة الدعوة لفتح بطاقة ترشيح ممثليكم في المجلس.
-              </p>
-            </div>
-
-            <div className="max-w-xs mx-auto space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
-                  رمز التفعيل (6 أرقام)
-                </label>
-                <input
-                  type="text"
-                  maxLength={10}
-                  value={enteredCode}
-                  onChange={(e) => setEnteredCode(e.target.value.replace(/\D/g, ""))}
-                  placeholder="مثال: 202601"
-                  className="w-full text-center tracking-widest text-2xl font-mono font-black py-3 px-4 rounded-2xl border-2 border-teal-300 focus:border-teal-600 focus:outline-hidden bg-slate-50 text-slate-900 shadow-inner"
-                />
-              </div>
-
-              {verifyError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{verifyError}</span>
+            
+            {/* TAB A: PHONE NUMBER VERIFICATION (Strictly by mobile phone number, matching nomination portal) */}
+            {authMethod === "phone" ? (
+              <div className="space-y-4 animate-fadeIn max-w-md mx-auto">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-2xs">
+                  <Smartphone className="w-7 h-7 sm:w-8 sm:h-8" />
                 </div>
-              )}
 
-              <button
-                type="button"
-                onClick={() => verifyCode(enteredCode)}
-                disabled={isVerifying || !enteredCode.trim()}
-                className="w-full py-3 px-4 rounded-2xl bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-black text-xs sm:text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isVerifying ? (
-                  <span>جارٍ التحقق من الرمز...</span>
-                ) : (
-                  <>
-                    <span>التحقق والدخول إلى بطاقة التصويت</span>
-                    <ArrowRight className="w-4 h-4 rotate-180" />
-                  </>
-                )}
-              </button>
-            </div>
+                <div className="text-center space-y-1.5">
+                  <h3 className="text-base sm:text-lg font-black text-slate-900">
+                    تصويت واقتراع مجلس أولياء الأمور
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
+                    أهلاً بك ولي الأمر الكريم. فضلاً أدخل رقم جوالك المعتمد لدى المدرسة في نظام نور للدخول واختيار مرشحك لعضوية المجلس لمرة واحدة.
+                  </p>
+                </div>
+
+                <form onSubmit={handleVerifyPhone} className="space-y-4 pt-2">
+                  <div>
+                    <label className="block text-right text-xs font-bold text-slate-700 mb-1.5">
+                      رقم الجوال المسجل بنظام نور:
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        dir="ltr"
+                        maxLength={10}
+                        id="input-vote-guardian-phone"
+                        value={phoneInput}
+                        onChange={(e) => {
+                          setPhoneInput(e.target.value.replace(/\D/g, ""));
+                          if (phoneError) setPhoneError(null);
+                        }}
+                        placeholder="05xxxxxxxx"
+                        className="w-full text-center text-xl sm:text-2xl font-mono font-black tracking-wider py-3 sm:py-3.5 px-4 rounded-2xl bg-slate-50 border-2 border-slate-300 focus:border-emerald-600 focus:bg-white focus:outline-hidden transition-all min-h-[48px]"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  {phoneError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 text-right">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{phoneError}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={isVerifyingPhone || !phoneInput.trim()}
+                    className="w-full py-3 sm:py-3.5 px-6 rounded-2xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-black text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer min-h-[48px]"
+                  >
+                    {isVerifyingPhone ? (
+                      <span>جارٍ التحقق من رقم الجوال...</span>
+                    ) : (
+                      <>
+                        <span>التحقق برقم الجوال ومتابعة التصويت</span>
+                        <ArrowRight className="w-4 h-4 rotate-180" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              /* TAB B: ACTIVATION CODE VERIFICATION (Only for private individual token links) */
+              <div className="space-y-5 animate-fadeIn">
+                <div className="text-center space-y-2">
+                  <div className="w-14 h-14 bg-teal-100 text-teal-800 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                    <ShieldCheck className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900">
+                    رمز التفعيل للتصويت والترشيح
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                    المكرم ولي الأمر، نأمل إدخال رمز التفعيل المكون من 6 أرقام والموضح في رسالة الدعوة الخاصة لفتح بطاقة الترشيح والتصويت.
+                  </p>
+                </div>
+
+                <div className="max-w-xs mx-auto space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
+                      رمز التفعيل (6 أرقام)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={10}
+                      value={enteredCode}
+                      onChange={(e) => setEnteredCode(e.target.value.replace(/\D/g, ""))}
+                      placeholder="مثال: 202601"
+                      className="w-full text-center tracking-widest text-2xl font-mono font-black py-3 px-4 rounded-2xl border-2 border-teal-300 focus:border-teal-600 focus:outline-hidden bg-slate-50 text-slate-900 shadow-inner"
+                    />
+                  </div>
+
+                  {verifyError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{verifyError}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => verifyCode(enteredCode)}
+                    disabled={isVerifying || !enteredCode.trim()}
+                    className="w-full py-3 px-4 rounded-2xl bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-black text-xs sm:text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isVerifying ? (
+                      <span>جارٍ التحقق من الرمز...</span>
+                    ) : (
+                      <>
+                        <span>التحقق والدخول إلى بطاقة التصويت</span>
+                        <ArrowRight className="w-4 h-4 rotate-180" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs text-slate-600 text-center max-w-md mx-auto">
               <span className="font-bold text-slate-800 block mb-0.5">ملاحظة نظامية:</span>
-              يُسمح لكل ولي أمر باختيار مرشح واحد فقط لضمان تكافؤ الفرص والعدالة في تشكيل المجلس.
+              يُسمح لكل ولي أمر باختيار مرشح واحد فقط لضمان تكافؤ الفرص والشفافية والعدالة لجميع المرشحين.
             </div>
           </div>
         )}
@@ -343,6 +594,12 @@ export default function ParentCouncilVotePortal({
                   <span>تاريخ وتوقيت التسجيل:</span>
                   <span className="font-mono font-medium">
                     {new Date(existingVoteData.votedAt || Date.now()).toLocaleString("ar-SA")}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>طريقة التصويت:</span>
+                  <span className="font-bold text-slate-800">
+                    {authMethod === "phone" ? "التحقق برقم الجوال المعتمد" : "رمز التفعيل المعتمد"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-slate-600">
@@ -403,6 +660,12 @@ export default function ParentCouncilVotePortal({
                     {new Date(existingVoteData.votedAt || Date.now()).toLocaleString("ar-SA")}
                   </span>
                 </div>
+                {existingVoteData.codeUsed && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>مصدر التوثيق:</span>
+                    <span className="font-bold text-slate-800">{existingVoteData.codeUsed}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-slate-600">
                   <span>حالة التصويت:</span>
                   <span className="font-bold text-emerald-700">✓ تم التصويت والترشيح</span>
@@ -434,26 +697,69 @@ export default function ParentCouncilVotePortal({
         {/* SCREEN 3: ACTIVE VOTING BALLOT (اسماء المرشحين فقط دون نسبهم لاختيار مرشح واحد) */}
         {!isVotingClosed && codeVerified && !alreadyVoted && !submitSuccess && (
           <div className="p-5 sm:p-8 space-y-5">
+            
             {/* Student & Parent Info Banner */}
-            <div className="bg-gradient-to-l from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <span className="text-[10px] font-bold text-teal-700 block">بيانات ولي الأمر المصوت:</span>
-                <span className="text-xs sm:text-sm font-black text-slate-900">
-                  {inviteData?.studentName ? `ولي أمر الطالب: ${inviteData.studentName}` : "المكرم ولي الأمر"}
-                </span>
-                {inviteData?.studentGrade && (
-                  <span className="text-[11px] text-slate-600 block">
-                    الصف: {inviteData.studentGrade} {inviteData.studentClass ? `- الشعبة ${inviteData.studentClass}` : ""}
+            <div className="bg-gradient-to-l from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-bold text-teal-700 block">بيانات ولي الأمر المصوت:</span>
+                  <span className="text-xs sm:text-sm font-black text-slate-900">
+                    {selectedStudent?.name
+                      ? `ولي أمر الطالب: ${selectedStudent.name}`
+                      : inviteData?.studentName
+                      ? `ولي أمر الطالب: ${inviteData.studentName}`
+                      : phoneInput
+                      ? `ولي أمر برقم الجوال: ${phoneInput}`
+                      : "المكرم ولي الأمر"}
                   </span>
-                )}
+                  {(selectedStudent?.grade || inviteData?.studentGrade) && (
+                    <span className="text-[11px] text-slate-600 block">
+                      الصف: {selectedStudent?.grade || inviteData?.studentGrade}{" "}
+                      {(selectedStudent?.className || inviteData?.studentClass) ? `- الشعبة ${selectedStudent?.className || inviteData?.studentClass}` : ""}
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-white px-3.5 py-1.5 rounded-xl border border-teal-200 shadow-xs shrink-0 text-center">
+                  <span className="text-[10px] text-slate-500 block font-bold">المرشح المختار:</span>
+                  <span className="text-xs font-black text-teal-800">
+                    {selectedCandidateId ? "١ مرشح تم اختياره" : "لم يتم الاختيار بعد"}
+                  </span>
+                </div>
               </div>
 
-              <div className="bg-white px-3.5 py-1.5 rounded-xl border border-teal-200 shadow-xs shrink-0 text-center">
-                <span className="text-[10px] text-slate-500 block font-bold">المرشح المختار:</span>
-                <span className="text-xs font-black text-teal-800">
-                  {selectedCandidateId ? "١ مرشح تم اختياره" : "لم يتم الاختيار بعد"}
-                </span>
-              </div>
+              {/* If multiple students associated with this phone number, allow selection */}
+              {matchedStudents.length > 1 && (
+                <div className="pt-2 border-t border-teal-200/60">
+                  <span className="text-[11px] font-bold text-teal-900 block mb-1.5">
+                    الرجاء تحديد الطالب الذي تصوت بالنيابة عنه:
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {matchedStudents.map((st) => {
+                      const isStSelected = selectedStudent?.id === st.id;
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedStudent(st);
+                            setStudentId(st.id);
+                          }}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                            isStSelected
+                              ? "bg-teal-700 text-white border-teal-800 shadow-xs"
+                              : "bg-white text-slate-700 border-teal-200 hover:bg-teal-50"
+                          }`}
+                        >
+                          <User className="w-3 h-3" />
+                          <span>{st.name}</span>
+                          {st.grade && <span className="text-[10px] opacity-80">({st.grade})</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Instruction Banner */}

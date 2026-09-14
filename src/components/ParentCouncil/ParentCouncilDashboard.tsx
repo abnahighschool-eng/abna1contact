@@ -37,6 +37,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Vote,
+  MessageCircle,
 } from "lucide-react";
 import {
   ParentCouncilApplication,
@@ -980,7 +981,18 @@ export default function ParentCouncilDashboard({
     navigator.clipboard.writeText(publicPortalUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 3000);
-    showToast("تم نسخ رابط بوابة ترشيح مجلس أولياء الأمور بنجاح");
+    showToast("تم نسخ رابط بوابة ترشيح مجلس أولياء الأمور (الخاص برمز التفعيل) بنجاح");
+  };
+
+  // WhatsApp Group Link (General link with phone number activation for WhatsApp groups)
+  const groupPortalUrl = `${origin}?portal=parent-council&mode=group`;
+  const [copiedGroupLink, setCopiedGroupLink] = useState(false);
+
+  const copyGroupPortalLink = () => {
+    navigator.clipboard.writeText(groupPortalUrl);
+    setCopiedGroupLink(true);
+    setTimeout(() => setCopiedGroupLink(false), 3000);
+    showToast("تم نسخ رابط الترشيح العام لقروب الواتساب (التفعيل برقم الجوال) بنجاح");
   };
 
   // Filtered applications list
@@ -1079,14 +1091,26 @@ export default function ParentCouncilDashboard({
           {/* Quick Header Buttons */}
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             
+            {/* 1. Private individual link button */}
             <button
               type="button"
               onClick={copyPortalLink}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer border border-slate-200"
-              title="نسخ رابط التقديم لولي الأمر"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer border border-slate-200"
+              title="نسخ رابط التقديم الخاص (برمز التفعيل المخصص)"
             >
               {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-600" />}
-              <span>{copiedLink ? "تم نسخ الرابط" : "نسخ رابط الترشيح"}</span>
+              <span>{copiedLink ? "تم نسخ الرابط" : "نسخ رابط الترشيح (الخاص)"}</span>
+            </button>
+
+            {/* 2. WhatsApp Group Universal Link Button */}
+            <button
+              type="button"
+              onClick={copyGroupPortalLink}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs hover:shadow-md border border-emerald-800"
+              title="نسخ رابط الترشيح العام لقروب الواتساب (التفعيل برقم الجوال لجميع أولياء الأمور)"
+            >
+              {copiedGroupLink ? <Check className="w-3.5 h-3.5 text-white" /> : <MessageCircle className="w-3.5 h-3.5 text-emerald-200" />}
+              <span>{copiedGroupLink ? "تم نسخ رابط القروب" : "نسخ رابط الترشيح العام (لقروب الواتساب)"}</span>
             </button>
 
             <button
@@ -2205,18 +2229,28 @@ export default function ParentCouncilDashboard({
                   type="button"
                   onClick={copyPortalLink}
                   className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  title="نسخ الرابط الخاص برمز التفعيل"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>نسخ الرابط العام</span>
+                  <span>نسخ الرابط الخاص (برمز)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyGroupPortalLink}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  title="نسخ رابط الترشيح لقروب الواتساب (التفعيل برقم الجوال)"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>نسخ رابط قروب الواتساب (بالجوال)</span>
                 </button>
                 <a
-                  href={publicPortalUrl}
+                  href={groupPortalUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>تجربة الرابط العام</span>
+                  <span>تجربة رابط القروب</span>
                 </a>
               </div>
             </div>

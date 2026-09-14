@@ -26,7 +26,8 @@ import {
   Send,
   XSquare,
   CheckSquare,
-  Square
+  Square,
+  MessageCircle
 } from "lucide-react";
 import {
   ParentCouncilApplication,
@@ -109,6 +110,81 @@ export default function ParentCouncilVotingManager({
   );
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+  // WhatsApp Group Universal Voting Links
+  const groupVoteUrl = `${origin}?portal=parent-council-vote&mode=group`;
+  const groupVoteShortUrl = `${origin}/v/group`;
+
+  const [copiedGroupVoteLink, setCopiedGroupVoteLink] = useState(false);
+  const [copiedGroupMessage, setCopiedGroupMessage] = useState(false);
+
+  const defaultGroupBroadcastMessage = `السلام عليكم ورحمة الله وبركاته،
+المكرمون أولياء أمور طلاب ${schoolSignatories?.schoolName || "المدرسة"}،،،
+
+حرصاً على تعزيز الشراكة المجتمعية الفاعلة بين البيت والمدرسة، وتطبيقاً للائحة مجالس أولياء الأمور، يسرنا دعوتكم للمشاركة في التصويت لاختيار ممثليكم في مجلس أولياء الأمور للعام الدراسي الحالي.
+
+نأمل التكرم بالدخول على رابط التصويت واختيار مرشح واحد فقط من قائمة المرشحين المعتمدين:
+${groupVoteUrl}
+
+📌 ملاحظات تنظيمية:
+• يتم التحقق تلقائياً برقم الجوال المسجل بنظام نور (دون الحاجة لرمز تفعيل).
+• التصويت متاح لمرة واحدة فقط لكل ولي أمر لضمان الشفافية وتكافؤ الفرص.
+
+شاكرين لكم كريم تعاونكم واهتمامكم الدائم.
+إدارة ${schoolSignatories?.schoolName || "المدرسة"}`;
+
+  const [groupBroadcastMessage, setGroupBroadcastMessage] = useState(defaultGroupBroadcastMessage);
+
+  const copyGroupVoteLink = async () => {
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(groupVoteUrl);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = groupVoteUrl;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopiedGroupVoteLink(true);
+      setTimeout(() => setCopiedGroupVoteLink(false), 3000);
+      const msg = "تم نسخ رابط التصويت بالتحقق برقم الجوال بنجاح";
+      if (showToast) showToast(msg);
+      setNotification(msg);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const copyGroupMessageText = async () => {
+    try {
+      const textToCopy = groupBroadcastMessage.replace(/{الرابط}/g, groupVoteUrl);
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(textToCopy);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = textToCopy;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopiedGroupMessage(true);
+      setTimeout(() => setCopiedGroupMessage(false), 3000);
+      const msg = "تم نسخ نص رسالة قروب الواتساب الجاهزة بنجاح";
+      if (showToast) showToast(msg);
+      setNotification(msg);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const shareGroupToWhatsApp = () => {
+    const text = groupBroadcastMessage.replace(/{الرابط}/g, groupVoteUrl);
+    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, "_blank");
+  };
 
   // Helper to build shortened voting link
   const buildVoteUrl = (token: string) => {
@@ -318,6 +394,26 @@ export default function ParentCouncilVotingManager({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick Action: Copy WhatsApp Group Voting Link */}
+            <button
+              type="button"
+              onClick={copyGroupVoteLink}
+              className="px-3.5 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/40 text-white text-xs font-black flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+              title="نسخ الرابط الموحد المخصص للإرسال في قروب الواتساب (التفعيل برقم الجوال لجميع أولياء الأمور)"
+            >
+              {copiedGroupVoteLink ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-white" />
+                  <span>تم نسخ رابط القروب!</span>
+                </>
+              ) : (
+                <>
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>نسخ رابط التصويت لقروب الواتساب</span>
+                </>
+              )}
+            </button>
+
             {/* Voting Status Indicator */}
             <div className={`px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-2 border shadow-sm ${
               votingConfig?.isActive !== false
@@ -558,20 +654,123 @@ export default function ParentCouncilVotingManager({
       {/* SUB-TAB 2: WHATSAPP DISPATCHER WITH SHORT LINKS */}
       {activeSubTab === "dispatch" && (
         <div className="space-y-6">
+
+          {/* HIGHLIGHTED CARD: WHATSAPP GROUP UNIVERSAL VOTING LINK (رابط التصويت العام لقروب الواتساب) */}
+          <div className="bg-gradient-to-l from-emerald-950 via-teal-900 to-slate-900 text-white rounded-3xl p-6 shadow-lg border-2 border-emerald-500/40 relative overflow-hidden space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start sm:items-center gap-3.5">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 flex items-center justify-center shrink-0 shadow-inner">
+                  <MessageCircle className="w-8 h-8 text-emerald-300" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-black text-white">
+                      رابط التصويت العام لقروب الواتساب (بالتحقق برقم الجوال)
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-400/20 text-emerald-200 border border-emerald-400/30">
+                      رابط موحد لكافة أولياء الأمور
+                    </span>
+                  </div>
+                  <p className="text-xs text-teal-100/80 leading-relaxed max-w-2xl">
+                    يمكن إرسال هذا الرابط الموحد مباشرة في قروب الواتساب لجميع أولياء الأمور (دون الحاجة لإرسال رسائل خاصة لكل ولي أمر)؛ حيث يدخل ولي الأمر رقم جواله المسجل بنظام نور للتحقق واختيار مرشح واحد فقط.
+                  </p>
+                </div>
+              </div>
+
+              {/* URL Display Badge */}
+              <div className="bg-black/40 border border-emerald-400/40 px-4 py-2.5 rounded-2xl text-xs font-mono font-black text-emerald-300 flex items-center gap-2 self-start md:self-auto shadow-inner" dir="ltr">
+                <span className="text-emerald-400">{groupVoteShortUrl}</span>
+              </div>
+            </div>
+
+            {/* Action Buttons Row */}
+            <div className="flex flex-wrap items-center gap-2.5 pt-1 border-t border-white/10">
+              <button
+                type="button"
+                onClick={copyGroupVoteLink}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-2 transition-all cursor-pointer"
+                title="نسخ رابط قروب الواتساب المباشر"
+              >
+                {copiedGroupVoteLink ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-emerald-200" />}
+                <span>{copiedGroupVoteLink ? "تم نسخ رابط القروب" : "نسخ رابط التصويت لقروب الواتساب"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={copyGroupMessageText}
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-teal-100 border border-white/20 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer"
+                title="نسخ نص الرسالة الجاهزة للنشر المباشر بالقروب"
+              >
+                {copiedGroupMessage ? <Check className="w-4 h-4 text-emerald-300" /> : <MessageSquare className="w-4 h-4 text-teal-300" />}
+                <span>{copiedGroupMessage ? "تم نسخ نص الرسالة الجاهزة" : "نسخ نص رسالة القروب الجاهزة"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={shareGroupToWhatsApp}
+                className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer"
+                title="فتح واتساب لمشاركة الرسالة فوراً"
+              >
+                <Share2 className="w-4 h-4 text-emerald-300" />
+                <span>مشاركة مباشرة عبر واتساب</span>
+              </button>
+
+              <a
+                href={groupVoteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 text-xs font-bold flex items-center gap-1.5 transition-all"
+                title="معاينة نموذج التصويت لقروب الواتساب"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-slate-300" />
+                <span>معاينة صفحة التصويت (تجربة ولي الأمر)</span>
+              </a>
+            </div>
+
+            {/* Collapsible Editable Broadcast Message Preview */}
+            <div className="bg-black/25 border border-white/10 rounded-2xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-bold text-teal-200">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>نص رسالة الإعلان المقترحة لقروب أولياء الأمور عبر الواتساب:</span>
+                </span>
+                <span className="text-[11px] text-teal-300/70">يمكنك تعديلها مباشرة ونسخها</span>
+              </div>
+              <textarea
+                rows={5}
+                value={groupBroadcastMessage}
+                onChange={(e) => setGroupBroadcastMessage(e.target.value)}
+                className="w-full p-3 rounded-xl border border-white/15 bg-slate-900/70 text-xs text-teal-50 font-sans leading-relaxed focus:outline-hidden focus:border-emerald-400 shadow-inner"
+              />
+            </div>
+
+            {/* Safeguard Assurance Box */}
+            <div className="bg-emerald-950/70 border border-emerald-500/30 rounded-2xl p-3.5 text-xs text-emerald-200 flex items-start gap-2.5">
+              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-black text-emerald-300 block">نظام منع تكرار التصويت الموحد:</span>
+                <span className="leading-relaxed">
+                  يتحقق النظام من قاعدة البيانات الموحدة برقم الجوال؛ لذا لا يمكن لأي ولي أمر التصويت أكثر من مرة واحدة سواء دخل عبر رابط قروب الواتساب أو عبر الرابط الخاص برمز التفعيل، مما يضمن أعلى معايير النزاهة والعدالة بين المرشحين.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* CARD 2: INDIVIDUAL SHORT LINKS & PERSONALIZED MESSAGES */}
           <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
-                  <Share2 className="w-5 h-5 text-emerald-600" />
-                  <span>إرسال رابط التصويت لأولياء الأمور عبر واتساب</span>
+                  <Share2 className="w-5 h-5 text-teal-700" />
+                  <span>إرسال رابط التصويت الخاص (برسالة فردية لكل ولي أمر)</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   يصل لكل ولي أمر رابط تصويت مختصر مع رمز التفعيل المخصص له لاختيار مرشح المجلس.
                 </p>
               </div>
 
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-3 py-1.5 rounded-xl">
-                الرابط المختصر: <span className="font-mono font-black" dir="ltr">{origin}/v/:token</span>
+              <div className="bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold px-3 py-1.5 rounded-xl">
+                الرابط المختصر الخاص: <span className="font-mono font-black" dir="ltr">{origin}/v/:token</span>
               </div>
             </div>
 
