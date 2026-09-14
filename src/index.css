@@ -1,1 +1,50 @@
 @import "tailwindcss";
+
+@font-face {
+  font-family: '(AH) Manal Medium';
+  src: local('(AH) Manal Medium'),
+       local('AH Manal Medium'),
+       local('(AH) Manal'),
+       local('AH Manal'),
+       local('Hasan Manal W21 Medium'),
+       url('/fonts/ah-manal-medium.woff2') format('woff2'),
+       url('/fonts/ah-manal-medium.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'AH Manal Medium';
+  src: local('(AH) Manal Medium'),
+       local('AH Manal Medium'),
+       local('(AH) Manal'),
+       local('AH Manal'),
+       local('Hasan Manal W21 Medium'),
+       url('/fonts/ah-manal-medium.woff2') format('woff2'),
+       url('/fonts/ah-manal-medium.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'AH Manal';
+  src: local('(AH) Manal Medium'),
+       local('AH Manal Medium'),
+       local('(AH) Manal'),
+       local('AH Manal'),
+       local('Hasan Manal W21 Medium'),
+       url('/fonts/ah-manal-medium.woff2') format('woff2'),
+       url('/fonts/ah-manal-medium.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Custom class and selector for forms and official print documents */
+.font-ah-manal,
+.parent-council-sheet-canvas,
+.parent-council-sheet-canvas * {
+  font-family: '(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', system-ui, -apple-system, sans-serif !important;
+}

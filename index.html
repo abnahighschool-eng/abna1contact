@@ -13,9 +13,54 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="preload" href="/fonts/ah-manal-medium.woff2" as="font" type="font/woff2" crossorigin>
     <style>
+      @font-face {
+        font-family: '(AH) Manal Medium';
+        src: local('(AH) Manal Medium'),
+             local('AH Manal Medium'),
+             local('(AH) Manal'),
+             local('AH Manal'),
+             local('Hasan Manal W21 Medium'),
+             url('/fonts/ah-manal-medium.woff2') format('woff2'),
+             url('/fonts/ah-manal-medium.ttf') format('truetype');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'AH Manal Medium';
+        src: local('(AH) Manal Medium'),
+             local('AH Manal Medium'),
+             local('(AH) Manal'),
+             local('AH Manal'),
+             local('Hasan Manal W21 Medium'),
+             url('/fonts/ah-manal-medium.woff2') format('woff2'),
+             url('/fonts/ah-manal-medium.ttf') format('truetype');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'AH Manal';
+        src: local('(AH) Manal Medium'),
+             local('AH Manal Medium'),
+             local('(AH) Manal'),
+             local('AH Manal'),
+             local('Hasan Manal W21 Medium'),
+             url('/fonts/ah-manal-medium.woff2') format('woff2'),
+             url('/fonts/ah-manal-medium.ttf') format('truetype');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
       body {
         font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+      }
+      .font-ah-manal,
+      .parent-council-sheet-canvas,
+      .parent-council-sheet-canvas * {
+        font-family: '(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', system-ui, sans-serif !important;
       }
     </style>
   </head>

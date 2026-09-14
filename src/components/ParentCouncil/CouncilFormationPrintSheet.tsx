@@ -50,7 +50,60 @@ export default function CouncilFormationPrintSheet({
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 sm:p-8 text-slate-900 font-sans" dir="rtl">
+    <div className="parent-council-print-page min-h-screen bg-slate-100 p-4 sm:p-8 text-slate-900 font-sans print:p-0 print:m-0 print:bg-white print:min-h-0" dir="rtl">
+      {/* Dynamic Print CSS for Standard A4 (1.15cm margin) & Ink-Saving */}
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 1.15cm;
+        }
+        @media print {
+          *, *::before, *::after {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+          }
+          .no-print, header, nav, footer, #main-header, #main-footer {
+            display: none !important;
+          }
+          .parent-council-print-page {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            min-height: auto !important;
+            width: 100% !important;
+          }
+          .parent-council-sheet-canvas {
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            font-family: '(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', sans-serif !important;
+          }
+          .parent-council-sheet-canvas * {
+            font-family: '(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', sans-serif !important;
+          }
+          .print-avoid-break {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+        }
+      `}</style>
+
       {/* Top Action Bar */}
       <div className="max-w-4xl mx-auto mb-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between no-print">
         <div className="flex items-center gap-3">
@@ -67,6 +120,10 @@ export default function CouncilFormationPrintSheet({
           <span className="text-xs font-bold text-slate-700">
             معاينة محضر الاعتماد النهائي لمجلس أولياء الأمور (نسخة موفرة للحبر)
           </span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 border border-teal-200 text-teal-800 text-[11px] font-bold rounded-lg">
+            <span>الخط:</span>
+            <span className="font-extrabold text-teal-950 font-ah-manal">(AH) Manal Medium</span>
+          </div>
         </div>
 
         <button
@@ -95,7 +152,10 @@ export default function CouncilFormationPrintSheet({
       </div>
 
       {/* Official Minutes Canvas - Ink-Saving Clean A4 Design */}
-      <div className="max-w-4xl mx-auto bg-white p-6 sm:p-10 shadow-lg border border-slate-300 rounded-sm print:m-0 print:p-6 print:shadow-none print:border-none print:max-w-none print:w-full print:rounded-none">
+      <div 
+        className="parent-council-sheet-canvas font-ah-manal max-w-4xl mx-auto bg-white p-6 sm:p-10 shadow-lg border border-slate-300 rounded-sm print:m-0 print:p-0 print:shadow-none print:border-none print:max-w-none print:w-full print:rounded-none print-avoid-break"
+        style={{ fontFamily: "'(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', sans-serif" }}
+      >
         
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3 mb-5">

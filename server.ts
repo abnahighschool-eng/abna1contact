@@ -2276,20 +2276,19 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
 function getTodayHijriDateServer(): string {
   try {
     const today = new Date();
-    const formatter = new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", {
-      day: "numeric",
-      month: "numeric",
+    const formatter = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
+      day: "2-digit",
+      month: "2-digit",
       year: "numeric",
     });
-    const parts = formatter.format(today);
-    const standardized = parts
-      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
-      .replace(/\s+/g, "")
-      .replace(/هـ/g, "");
-    return `${standardized}هـ`;
+    const parts = formatter.formatToParts(today);
+    const year = parts.find((p) => p.type === "year")?.value || "1448";
+    const month = parts.find((p) => p.type === "month")?.value || "01";
+    const day = parts.find((p) => p.type === "day")?.value || "01";
+    return `${day}/${month}/${year}هـ`;
   } catch (e) {
     const today = new Date();
-    return `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}م`;
+    return `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}م`;
   }
 }
 
@@ -4323,6 +4322,9 @@ app.post("/api/guidance/actions", (req, res) => {
 // Setup Vite Dev Server / Serve static assets in production
 
 async function startServer() {
+  // Serve static files from public/ (e.g. fonts, logos)
+  app.use(express.static(path.join(process.cwd(), "public")));
+
   // 1. Setup Vite Dev Server or Serve static assets
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -179,25 +179,74 @@ export function deriveFatherFullName(studentFullName: string, studentRecord?: an
 
 /**
  * Returns today's actual date in standard Saudi Umm Al-Qura Hijri format
- * Example: "1447/03/15هـ" or dynamically based on current day
+ * Example: "1448/04/04هـ" with standard digits and no invisible control characters
  */
 export function getTodayHijriDate(): string {
   try {
     const today = new Date();
-    const formatter = new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", {
-      day: "numeric",
-      month: "numeric",
+    const formatter = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
+      day: "2-digit",
+      month: "2-digit",
       year: "numeric",
     });
-    const parts = formatter.format(today);
-    // Standardize Arabic-Indic numerals to Latin digits
-    const standardized = parts
-      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
-      .replace(/\s+/g, "")
-      .replace(/هـ/g, "");
-    return `${standardized}هـ`;
+    const parts = formatter.formatToParts(today);
+    const year = parts.find((p) => p.type === "year")?.value || "1448";
+    const month = parts.find((p) => p.type === "month")?.value || "01";
+    const day = parts.find((p) => p.type === "day")?.value || "01";
+    return `${day}/${month}/${year}هـ`;
   } catch (e) {
     const today = new Date();
-    return `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}م`;
+    return `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}م`;
   }
+}
+
+/**
+ * Robust formatter for official Saudi document print sheets.
+ * Sanitizes any raw or distorted Hijri date string (e.g. from reverse typing or BiDi issues like "4__1448/4/")
+ * and displays it cleanly from Right to Left: Day / Month / Year هـ (اليوم ثم الشهر ثم السنة ثم هـ).
+ */
+export function formatHijriDisplayDate(raw?: string): string {
+  if (!raw || !raw.trim()) return "   /    / 1448 هـ";
+  // 1. Remove invisible unicode BiDi characters
+  let clean = raw.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim();
+  // 2. Normalize Arabic-Indic digits to Latin
+  clean = clean.replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+  // 3. Remove any trailing 'هـ' or 'ه' or 'م'
+  clean = clean.replace(/\s*(هـ|ه|م)\s*$/g, "").trim();
+  // 4. Replace underscores or double underscores with slashes
+  clean = clean.replace(/_+/g, "/");
+
+  // 5. Split by slash, dash, dot, or whitespace
+  const parts = clean.split(/[\/\-\.\s]+/).filter(Boolean);
+  if (parts.length === 3) {
+    const p1 = parts[0];
+    const p2 = parts[1];
+    const p3 = parts[2];
+    let y = "";
+    let m = "";
+    let d = "";
+
+    if (p1.length === 4) {
+      // YYYY / MM / DD -> map to y, m, d
+      y = p1;
+      m = p2.padStart(2, "0");
+      d = p3.padStart(2, "0");
+    } else if (p3.length === 4) {
+      // DD / MM / YYYY -> map to d, m, y
+      d = p1.padStart(2, "0");
+      m = p2.padStart(2, "0");
+      y = p3;
+    } else if (p2.length === 4) {
+      // MM / YYYY / DD -> map to m, y, d
+      m = p1.padStart(2, "0");
+      y = p2;
+      d = p3.padStart(2, "0");
+    } else {
+      return `${clean} هـ`;
+    }
+    // In RTL reading order (from right to left):
+    // Rightmost is Day, followed by Month, followed by Year, followed by هـ
+    return `${d} / ${m} / ${y} هـ`;
+  }
+  return `${clean} هـ`;
 }

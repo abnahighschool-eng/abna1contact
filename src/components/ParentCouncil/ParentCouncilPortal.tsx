@@ -2703,9 +2703,9 @@ export default function ParentCouncilPortal({
                         type="text"
                         value={submissionDateHijri}
                         onChange={(e) => setSubmissionDateHijri(e.target.value)}
-                        placeholder="1447/03/15هـ"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
-                        dir="ltr"
+                        placeholder="15 / 03 / 1447 هـ"
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
+                        dir="rtl"
                       />
                     </div>
                   </div>
