@@ -24,7 +24,15 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Student } from "../types";
-import { reconcileStudentsRoster, ReconcileStudentsResult } from "../utils/rosterReconciliation";
+import { 
+  reconcileStudentsRoster, 
+  ReconcileStudentsResult,
+  cleanAndDeduplicateStudentRows,
+  analyzeStudentsImport,
+  executeStudentsImport,
+  StudentImportAnalysis
+} from "../utils/rosterReconciliation";
+import { StudentImportOptionsModal } from "./StudentImportOptionsModal";
 
 interface ExcelUploaderProps {
   onStudentsLoaded: (students: Student[]) => void;
@@ -48,6 +56,18 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
   const [reconcileStats, setReconcileStats] = useState<any | null>(null);
   const [reconcileNotification, setReconcileNotification] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Smart Import Choice Modal state
+  const [showImportOptionsModal, setShowImportOptionsModal] = useState(false);
+  const [pendingImportData, setPendingImportData] = useState<{
+    fileName: string;
+    cleanRows: any[];
+    analysis: StudentImportAnalysis;
+    bestName: string;
+    bestPhone: string;
+    bestGrade: string;
+    bestClass: string;
+  } | null>(null);
 
   // Manual student modal / form state
   const [showManualForm, setShowManualForm] = useState(false);
@@ -299,8 +319,63 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
         setSelectedGradeCol(bestGrade);
         setSelectedClassCol(bestClass);
 
-        // Build formatted students list
-        buildAndLoadStudents(parsedRows, bestName, bestPhone, bestGrade, bestClass);
+        // Clean rows & strip junk/empty/footer rows and internal duplicates
+        const { cleanRows, junkCount, duplicateCount } = cleanAndDeduplicateStudentRows(
+          parsedRows,
+          bestName,
+          bestPhone,
+          bestGrade,
+          bestClass
+        );
+
+        if (cleanRows.length === 0) {
+          setErrorMsg("لم يتم العثور على صفوف صالحة لأسماء الطلاب في الملف المرفوع بعد استبعاد صفوف التذييل والمجاميع.");
+          return;
+        }
+
+        // If there are existing students in the system, show the user the choice modal!
+        if (students.length > 0) {
+          const analysis = analyzeStudentsImport(
+            students,
+            cleanRows,
+            bestName,
+            bestPhone,
+            bestGrade,
+            bestClass
+          );
+          analysis.rawRowCount = parsedRows.length;
+          analysis.junkCount = junkCount;
+          analysis.duplicateCount = duplicateCount;
+
+          setPendingImportData({
+            fileName: file.name,
+            cleanRows,
+            analysis,
+            bestName,
+            bestPhone,
+            bestGrade,
+            bestClass,
+          });
+          setShowImportOptionsModal(true);
+        } else {
+          // No previous students, load directly with clean rows
+          const result = executeStudentsImport(
+            [],
+            cleanRows,
+            { mode: "full_replace" },
+            bestName,
+            bestPhone,
+            bestGrade,
+            bestClass
+          );
+          onStudentsLoaded(result.reconciledStudents);
+          setReconcileStats({
+            ...result.stats,
+            removedJunkCount: junkCount,
+            removedDuplicatesCount: duplicateCount,
+          });
+          setReconcileNotification(`تم إنزال كشف الطلاب بنجاح: ${result.reconciledStudents.length} طالباً جديداً ونظيفاً دون أي تكرار.`);
+        }
 
       } catch (err: any) {
         setErrorMsg(err.message || "حدث خطأ أثناء معالجة ملف Excel. يرجى التأكد من صياغة الملف بشكل صحيح.");
@@ -317,6 +392,33 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     reader.readAsBinaryString(file);
   };
 
+  const handleConfirmImport = (
+    mode: "smart_merge" | "full_replace",
+    options: { archiveUnmatched: boolean }
+  ) => {
+    if (!pendingImportData) return;
+
+    const result = executeStudentsImport(
+      students,
+      pendingImportData.cleanRows,
+      { mode, archiveUnmatched: options.archiveUnmatched },
+      pendingImportData.bestName,
+      pendingImportData.bestPhone,
+      pendingImportData.bestGrade,
+      pendingImportData.bestClass
+    );
+
+    onStudentsLoaded(result.reconciledStudents);
+    setReconcileStats({
+      ...result.stats,
+      removedJunkCount: pendingImportData.analysis.junkCount,
+      removedDuplicatesCount: pendingImportData.analysis.duplicateCount,
+    });
+    setReconcileNotification(result.summaryMessage);
+    setShowImportOptionsModal(false);
+    setPendingImportData(null);
+  };
+
   const buildAndLoadStudents = (
     rows: any[], 
     nameCol: string, 
@@ -324,42 +426,31 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     gradeCol: string, 
     classCol: string
   ) => {
-    const formatted: Student[] = rows.map((row, idx) => {
-      const nameVal = nameCol && row[nameCol] ? String(row[nameCol]).trim() : `طالب ${idx + 1}`;
-      const phoneVal = phoneCol && row[phoneCol] ? String(row[phoneCol]).trim() : "";
-      const gradeVal = gradeCol && row[gradeCol] ? String(row[gradeCol]).trim() : "";
-      const classVal = classCol && row[classCol] ? String(row[classCol]).trim() : "";
+    const { cleanRows, junkCount, duplicateCount } = cleanAndDeduplicateStudentRows(
+      rows,
+      nameCol,
+      phoneCol,
+      gradeCol,
+      classCol
+    );
 
-      const nidVal = row["السجل المدني"] || row["رقم الهوية"] || row["الهوية"] || row.nationalId || "";
+    const result = executeStudentsImport(
+      students,
+      cleanRows,
+      { mode: "smart_merge", archiveUnmatched: false },
+      nameCol,
+      phoneCol,
+      gradeCol,
+      classCol
+    );
 
-      const studentObj: Student = {
-        id: row.id || String(idx + 1),
-        name: nameVal,
-        phone: phoneVal,
-        grade: gradeVal,
-        className: classVal,
-        nationalId: nidVal ? String(nidVal).trim() : undefined,
-        // Standard Arabic aliases for message templates
-        "اسم الطالب": nameVal,
-        "الاسم": nameVal,
-        "رقم الجوال": phoneVal,
-        "الجوال": phoneVal,
-        "الصف": gradeVal,
-        "الفصل": classVal,
-        ...row // keep all other original row fields for custom tags
-      };
-
-      return studentObj;
+    onStudentsLoaded(result.reconciledStudents);
+    setReconcileStats({
+      ...result.stats,
+      removedJunkCount: junkCount,
+      removedDuplicatesCount: duplicateCount,
     });
-
-    // Smart Reconciliation against existing students:
-    // Matches existing students by (National ID -> ID -> Name+Grade -> Phone),
-    // preserves existing stable IDs, links with attendance/health/inquiry/messages,
-    // and archives students from previous sheets without losing any records.
-    const reconcileResult = reconcileStudentsRoster(students, formatted);
-    onStudentsLoaded(reconcileResult.reconciledStudents);
-    setReconcileStats(reconcileResult.stats);
-    setReconcileNotification(reconcileResult.summaryMessage);
+    setReconcileNotification(result.summaryMessage);
   };
 
   const handleRemapColumns = (nameCol: string, phoneCol: string, gradeCol: string, classCol: string) => {
@@ -598,6 +689,18 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
   return (
     <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col gap-6" id="excel-uploader">
       
+      {/* Hidden File Input - accessible in all application states */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        accept=".xlsx,.xls,.csv"
+        onChange={(e) => {
+          handleChange(e);
+          e.target.value = ""; // Reset to allow re-uploading the same file
+        }}
+      />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5 text-right">
         <div>
@@ -614,11 +717,12 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
           <div className="flex items-center gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
-              title="رفع ملف إكسل آخر"
+              className="text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="رفع كشف إكسل جديد واختيار آلية التحديث"
+              id="btn-upload-new-excel"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
-              <span>استبدال الملف</span>
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
+              <span>رفع كشف جديد / استبدال</span>
             </button>
             <button
               onClick={clearRoster}
@@ -648,14 +752,6 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
             }`}
             id="excel-dropzone"
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleChange}
-            />
-
             <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 shadow-sm border border-emerald-100/50">
               <Upload className="w-7 h-7" />
             </div>
@@ -906,15 +1002,29 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                   </p>
                   {reconcileStats && (
                     <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] font-bold">
-                      <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
-                        ✓ مطابقة {reconcileStats.matchedCount} طالب والاحتفاظ بهوياتهم وسجلاتهم
-                      </span>
-                      <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
-                        + إضافة {reconcileStats.newCount} طالب جديد
-                      </span>
-                      {reconcileStats.archivedPreservedCount > 0 && (
+                      {((reconcileStats.matchedExistingCount ?? 0) > 0 || (reconcileStats.matchedCount ?? 0) > 0) && (
+                        <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
+                          ✓ مطابقة {reconcileStats.matchedExistingCount ?? reconcileStats.matchedCount} طالب والاحتفاظ بهوياتهم وسجلاتهم
+                        </span>
+                      )}
+                      {((reconcileStats.newlyAddedCount ?? 0) > 0 || (reconcileStats.newCount ?? 0) > 0) && (
+                        <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
+                          + إضافة {reconcileStats.newlyAddedCount ?? reconcileStats.newCount} طالب جديد
+                        </span>
+                      )}
+                      {(reconcileStats.archivedPreservedCount ?? 0) > 0 && (
                         <span className="bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 text-amber-950 shadow-xs">
-                          🛡️ حفظ {reconcileStats.archivedPreservedCount} طالب سابق في الأرشيف الآمن دون فقد سجلاتهم
+                          🛡️ حفظ {reconcileStats.archivedPreservedCount} طالب سابق في الأرشيف الآمن
+                        </span>
+                      )}
+                      {(reconcileStats.removedJunkCount ?? 0) > 0 && (
+                        <span className="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 shadow-xs">
+                          تنظيف: استبعاد {reconcileStats.removedJunkCount} صف تذييل/مجاميع
+                        </span>
+                      )}
+                      {(reconcileStats.removedDuplicatesCount ?? 0) > 0 && (
+                        <span className="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 shadow-xs">
+                          تنظيف: إزالة {reconcileStats.removedDuplicatesCount} تكرارات داخلية
                         </span>
                       )}
                     </div>
@@ -1268,6 +1378,20 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
 
           </div>
         </div>
+      )}
+
+      {/* Student Import Options Choice Modal */}
+      {showImportOptionsModal && pendingImportData && (
+        <StudentImportOptionsModal
+          isOpen={showImportOptionsModal}
+          onClose={() => {
+            setShowImportOptionsModal(false);
+            setPendingImportData(null);
+          }}
+          fileName={pendingImportData.fileName}
+          analysis={pendingImportData.analysis}
+          onConfirm={handleConfirmImport}
+        />
       )}
 
     </div>

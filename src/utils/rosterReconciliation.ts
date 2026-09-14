@@ -74,8 +74,719 @@ export interface ReconcileStudentsResult {
     matchedExistingCount: number;
     newlyAddedCount: number;
     updatedInfoCount: number;
+    removedJunkCount?: number;
+    removedDuplicatesCount?: number;
   };
   summaryMessage: string;
+}
+
+export interface StudentImportAnalysis {
+  rawRowCount: number;
+  cleanedCount: number;
+  junkCount: number;
+  duplicateCount: number;
+  matchedCount: number;
+  newCount: number;
+  unmatchedExistingCount: number;
+  sampleMatches: Array<{
+    name: string;
+    existingId: string;
+    phone: string;
+    grade: string;
+    className: string;
+    matchType: "nationalId" | "exactId" | "nameAndGrade" | "phone";
+  }>;
+  sampleNew: Array<{
+    name: string;
+    phone: string;
+    grade: string;
+    className: string;
+  }>;
+  sampleUnmatchedExisting: Array<{
+    name: string;
+    id: string;
+    phone: string;
+    grade: string;
+  }>;
+}
+
+/**
+ * Checks if a parsed row from Excel is junk (footer signatures, totals, blank, headers)
+ */
+export function isJunkStudentRow(row: any, nameCol?: string): boolean {
+  if (!row || typeof row !== "object") return true;
+
+  // Extract candidate name
+  let rawName = "";
+  if (nameCol && row[nameCol] !== undefined && row[nameCol] !== null) {
+    rawName = String(row[nameCol]).trim();
+  }
+  if (!rawName) {
+    rawName = String(
+      row["اسم الطالب"] ||
+      row["الاسم"] ||
+      row["name"] ||
+      row["studentName"] ||
+      row["الطالب"] ||
+      row["اسم الطالب الثلاثي"] ||
+      row["اسم الطالب الرباعي"] ||
+      ""
+    ).trim();
+  }
+
+  // If no name found at all, check if whole row has meaningful info
+  if (!rawName) {
+    const values = Object.values(row).map(v => String(v || "").trim()).filter(Boolean);
+    if (values.length === 0) return true; // entirely empty
+    return true; // no name is fatal for a student row
+  }
+
+  // Pure digits or symbols
+  if (/^[\d\s\-_.,/\\#@!$%^&*()+=]+$/.test(rawName)) {
+    return true;
+  }
+
+  // Less than 3 characters (e.g. "أ", "1", "لا")
+  if (rawName.length < 3) {
+    return true;
+  }
+
+  // Header, Footer, Summary, Signature keywords in Arabic / English
+  const junkKeywords = [
+    "المجموع", "إجمالي", "اجمالي", "مجموع", "العدد", "الكلي", "العدد الكلي",
+    "مدير المدرسة", "المدير", "وكيل", "الوكيل", "المرشد", "المرشد الطلابي", "الموجه", "الموجه الطلابي",
+    "معلم", "المعلم", "معلم المادة", "رائد النشاط", "أمين المصادر", "سكرتير", "الكاتب",
+    "توقيع", "التوقيع", "ختم", "الختم", "يعتمد", "المشرف", "مشرف",
+    "ملاحظة", "ملاحظات", "الغياب", "الحضور", "الحاضرين", "الغائبين", "النسبة", "المعدل",
+    "صفحة", "الصفحة", "page", "total", "sum", "count", "average", "signature",
+    "اسم الطالب", "اسم الطالبة", "رقم الهوية", "السجل المدني", "اسم ولي الأمر", "رقم الجوال", "هاتف ولي الأمر",
+    "الصف الدراسي", "الفصل", "الشعبة", "المرحلة"
+  ];
+
+  const lower = rawName.toLowerCase().replace(/[\s\-_:]+/g, " ").trim();
+  for (const kw of junkKeywords) {
+    if (lower === kw || lower.startsWith(kw + " ") || lower.startsWith(kw + ":") || lower.endsWith(" " + kw)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Cleans raw rows and removes junk rows & internal duplicates within the uploaded file
+ */
+export function cleanAndDeduplicateStudentRows(
+  rawRows: any[],
+  nameCol?: string,
+  phoneCol?: string,
+  gradeCol?: string,
+  classCol?: string
+): { cleanRows: any[]; junkCount: number; duplicateCount: number } {
+  if (!Array.isArray(rawRows)) return { cleanRows: [], junkCount: 0, duplicateCount: 0 };
+
+  const cleanRows: any[] = [];
+  let junkCount = 0;
+  let duplicateCount = 0;
+
+  const seenKeys = new Set<string>();
+
+  rawRows.forEach((row, idx) => {
+    if (isJunkStudentRow(row, nameCol)) {
+      junkCount++;
+      return;
+    }
+
+    const rawName = String(
+      (nameCol && row[nameCol]) ||
+      row.name ||
+      row["اسم الطالب"] ||
+      row["الاسم"] ||
+      row.studentName ||
+      ""
+    ).trim();
+
+    const rawPhone = String(
+      (phoneCol && row[phoneCol]) ||
+      row.phone ||
+      row["رقم الجوال"] ||
+      row["الجوال"] ||
+      row["هاتف"] ||
+      ""
+    ).trim();
+
+    const rawGrade = String(
+      (gradeCol && row[gradeCol]) ||
+      row.grade ||
+      row["الصف"] ||
+      row["المرحلة"] ||
+      row["الصف الدراسي"] ||
+      ""
+    ).trim();
+
+    const rawClass = String(
+      (classCol && row[classCol]) ||
+      row.className ||
+      row["الفصل"] ||
+      row["الشعبة"] ||
+      row["فصل"] ||
+      ""
+    ).trim();
+
+    const rawNid = normalizeCivilId(
+      row.nationalId ||
+      row["السجل المدني"] ||
+      row["رقم الهوية"] ||
+      row["الهوية"] ||
+      ""
+    );
+
+    const normName = normalizeArabicName(rawName);
+
+    // Build deduplication key inside this sheet
+    let dedupeKey = "";
+    if (rawNid && rawNid.length >= 8) {
+      dedupeKey = `nid_${rawNid}`;
+    } else if (normName) {
+      dedupeKey = `name_${normName}_${rawGrade}_${rawClass}`;
+    } else {
+      dedupeKey = `idx_${idx}`;
+    }
+
+    if (seenKeys.has(dedupeKey)) {
+      duplicateCount++;
+      return; // Skip duplicate inside same sheet
+    }
+
+    seenKeys.add(dedupeKey);
+    cleanRows.push(row);
+  });
+
+  return { cleanRows, junkCount, duplicateCount };
+}
+
+/**
+ * Pre-analyzes incoming student rows against existing database students
+ * to give the user exact figures and previews before choosing import mode.
+ */
+export function analyzeStudentsImport(
+  existingStudents: Student[] = [],
+  incomingCleanRows: any[],
+  nameCol?: string,
+  phoneCol?: string,
+  gradeCol?: string,
+  classCol?: string
+): StudentImportAnalysis {
+  // Build lookup indexes for existing students
+  const byNationalId = new Map<string, Student>();
+  const byExactId = new Map<string, Student>();
+  const byNormalizedName = new Map<string, Student[]>();
+  const byNormalizedPhone = new Map<string, Student[]>();
+
+  existingStudents.forEach((std) => {
+    if (std.id) byExactId.set(std.id, std);
+
+    const nid = normalizeCivilId(std.nationalId || std["السجل المدني"] || std["رقم الهوية"] || std["الهوية"]);
+    if (nid && nid.length >= 8) {
+      byNationalId.set(nid, std);
+    }
+
+    const normName = normalizeArabicName(std.name || std["اسم الطالب"] || std["الاسم"] || "");
+    if (normName) {
+      const list = byNormalizedName.get(normName) || [];
+      list.push(std);
+      byNormalizedName.set(normName, list);
+    }
+
+    const normPhone = normalizePhoneNumber(std.phone || std["رقم الجوال"] || std["الجوال"] || "");
+    if (normPhone && normPhone.length >= 9) {
+      const list = byNormalizedPhone.get(normPhone) || [];
+      list.push(std);
+      byNormalizedPhone.set(normPhone, list);
+    }
+  });
+
+  const matchedExistingIds = new Set<string>();
+  const sampleMatches: StudentImportAnalysis["sampleMatches"] = [];
+  const sampleNew: StudentImportAnalysis["sampleNew"] = [];
+
+  let matchedCount = 0;
+  let newCount = 0;
+
+  incomingCleanRows.forEach((row) => {
+    const rawName = String(
+      (nameCol && row[nameCol]) ||
+      row.name ||
+      row["اسم الطالب"] ||
+      row["الاسم"] ||
+      row.studentName ||
+      ""
+    ).trim();
+
+    const rawPhone = String(
+      (phoneCol && row[phoneCol]) ||
+      row.phone ||
+      row["رقم الجوال"] ||
+      row["الجوال"] ||
+      row["هاتف"] ||
+      ""
+    ).trim();
+
+    const rawGrade = String(
+      (gradeCol && row[gradeCol]) ||
+      row.grade ||
+      row["الصف"] ||
+      row["المرحلة"] ||
+      row["الصف الدراسي"] ||
+      ""
+    ).trim();
+
+    const rawClass = String(
+      (classCol && row[classCol]) ||
+      row.className ||
+      row["الفصل"] ||
+      row["الشعبة"] ||
+      row["فصل"] ||
+      ""
+    ).trim();
+
+    const rawNid = normalizeCivilId(
+      row.nationalId ||
+      row["السجل المدني"] ||
+      row["رقم الهوية"] ||
+      row["الهوية"] ||
+      ""
+    );
+
+    const normName = normalizeArabicName(rawName);
+    const normPhone = normalizePhoneNumber(rawPhone);
+
+    let matchedStudent: Student | undefined;
+    let matchType: "nationalId" | "exactId" | "nameAndGrade" | "phone" = "nameAndGrade";
+
+    // 1. Match by National ID
+    if (rawNid && byNationalId.has(rawNid)) {
+      matchedStudent = byNationalId.get(rawNid);
+      matchType = "nationalId";
+    }
+
+    // 2. Match by exact ID
+    if (!matchedStudent && row.id && byExactId.has(row.id)) {
+      matchedStudent = byExactId.get(row.id);
+      matchType = "exactId";
+    }
+
+    // 3. Match by Normalized Name + Grade / Class
+    if (!matchedStudent && normName) {
+      const candidates = byNormalizedName.get(normName);
+      if (candidates && candidates.length > 0) {
+        if (candidates.length === 1) {
+          matchedStudent = candidates[0];
+          matchType = "nameAndGrade";
+        } else {
+          matchedStudent = candidates.find((c) => {
+            const cClass = String(c.className || c["الفصل"] || "").trim();
+            const cGrade = String(c.grade || c["الصف"] || "").trim();
+            const cPhone = normalizePhoneNumber(c.phone || c["رقم الجوال"] || "");
+            if (rawClass && cClass && (rawClass === cClass || cClass.includes(rawClass))) return true;
+            if (rawGrade && cGrade && (rawGrade === cGrade || cGrade.includes(rawGrade))) return true;
+            if (normPhone && cPhone && normPhone === cPhone) return true;
+            return false;
+          }) || candidates[0];
+          matchType = "nameAndGrade";
+        }
+      }
+    }
+
+    // 4. Match by Phone
+    if (!matchedStudent && normPhone) {
+      const candidates = byNormalizedPhone.get(normPhone);
+      if (candidates && candidates.length === 1) {
+        matchedStudent = candidates[0];
+        matchType = "phone";
+      }
+    }
+
+    if (matchedStudent) {
+      matchedExistingIds.add(matchedStudent.id);
+      matchedCount++;
+      if (sampleMatches.length < 5) {
+        sampleMatches.push({
+          name: rawName || matchedStudent.name || "",
+          existingId: matchedStudent.id,
+          phone: rawPhone || matchedStudent.phone || "",
+          grade: rawGrade || matchedStudent.grade || "",
+          className: rawClass || matchedStudent.className || "",
+          matchType,
+        });
+      }
+    } else {
+      newCount++;
+      if (sampleNew.length < 5) {
+        sampleNew.push({
+          name: rawName,
+          phone: rawPhone,
+          grade: rawGrade,
+          className: rawClass,
+        });
+      }
+    }
+  });
+
+  const sampleUnmatchedExisting: StudentImportAnalysis["sampleUnmatchedExisting"] = [];
+  existingStudents.forEach((std) => {
+    if (!matchedExistingIds.has(std.id) && sampleUnmatchedExisting.length < 5) {
+      sampleUnmatchedExisting.push({
+        name: std.name || std["اسم الطالب"] || "",
+        id: std.id,
+        phone: std.phone || std["رقم الجوال"] || "",
+        grade: std.grade || std["الصف"] || "",
+      });
+    }
+  });
+
+  const unmatchedExistingCount = existingStudents.length - matchedExistingIds.size;
+
+  return {
+    rawRowCount: incomingCleanRows.length,
+    cleanedCount: incomingCleanRows.length,
+    junkCount: 0,
+    duplicateCount: 0,
+    matchedCount,
+    newCount,
+    unmatchedExistingCount,
+    sampleMatches,
+    sampleNew,
+    sampleUnmatchedExisting,
+  };
+}
+
+/**
+ * Executes either smart merge (preserving past operations without duplicate names)
+ * or full replacement (discarding old roster and adopting clean new sheet).
+ */
+export function executeStudentsImport(
+  existingStudents: Student[] = [],
+  incomingCleanRows: any[],
+  options: {
+    mode: "smart_merge" | "full_replace";
+    archiveUnmatched?: boolean;
+  },
+  nameCol?: string,
+  phoneCol?: string,
+  gradeCol?: string,
+  classCol?: string
+): ReconcileStudentsResult {
+  // Option 2: Full Replacement Mode
+  if (options.mode === "full_replace") {
+    const formattedNewStudents: Student[] = incomingCleanRows.map((row, idx) => {
+      const rawName = String(
+        (nameCol && row[nameCol]) ||
+        row.name ||
+        row["اسم الطالب"] ||
+        row["الاسم"] ||
+        row.studentName ||
+        `طالب ${idx + 1}`
+      ).trim();
+
+      const rawPhone = String(
+        (phoneCol && row[phoneCol]) ||
+        row.phone ||
+        row["رقم الجوال"] ||
+        row["الجوال"] ||
+        row["هاتف"] ||
+        ""
+      ).trim();
+
+      const rawGrade = String(
+        (gradeCol && row[gradeCol]) ||
+        row.grade ||
+        row["الصف"] ||
+        row["المرحلة"] ||
+        row["الصف الدراسي"] ||
+        ""
+      ).trim();
+
+      const rawClass = String(
+        (classCol && row[classCol]) ||
+        row.className ||
+        row["الفصل"] ||
+        row["الشعبة"] ||
+        row["فصل"] ||
+        ""
+      ).trim();
+
+      const rawNid = normalizeCivilId(
+        row.nationalId ||
+        row["السجل المدني"] ||
+        row["رقم الهوية"] ||
+        row["الهوية"] ||
+        ""
+      );
+
+      const stableId = rawNid ? `std_nid_${rawNid}` : `std_${Date.now()}_${idx + 1}`;
+
+      const student: Student = {
+        ...row,
+        id: stableId,
+        name: rawName,
+        phone: rawPhone,
+        grade: rawGrade,
+        className: rawClass,
+        nationalId: rawNid || undefined,
+        "اسم الطالب": rawName,
+        "الاسم": rawName,
+        "رقم الجوال": rawPhone,
+        "الجوال": rawPhone,
+        "الصف": rawGrade,
+        "الفصل": rawClass,
+        isArchived: false,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        lastReconciledAt: new Date().toISOString(),
+      };
+
+      return student;
+    });
+
+    const summaryMessage = `تم استبدال الكشف بالكامل بنجاح: تم اعتماد ${formattedNewStudents.length} طالباً جديداً ونظيفاً دون أي تكرار مع حذف الكشوف السابقة.`;
+
+    return {
+      reconciledStudents: formattedNewStudents,
+      stats: {
+        totalCombined: formattedNewStudents.length,
+        activeCount: formattedNewStudents.length,
+        archivedPreservedCount: 0,
+        matchedExistingCount: 0,
+        newlyAddedCount: formattedNewStudents.length,
+        updatedInfoCount: 0,
+      },
+      summaryMessage,
+    };
+  }
+
+  // Option 1: Smart Merge Mode (Preserve IDs, keep all operations without duplicate names)
+  const byNationalId = new Map<string, Student>();
+  const byExactId = new Map<string, Student>();
+  const byNormalizedName = new Map<string, Student[]>();
+  const byNormalizedPhone = new Map<string, Student[]>();
+
+  existingStudents.forEach((std) => {
+    if (std.id) byExactId.set(std.id, std);
+
+    const nid = normalizeCivilId(std.nationalId || std["السجل المدني"] || std["رقم الهوية"] || std["الهوية"]);
+    if (nid && nid.length >= 8) {
+      byNationalId.set(nid, std);
+    }
+
+    const normName = normalizeArabicName(std.name || std["اسم الطالب"] || std["الاسم"] || "");
+    if (normName) {
+      const list = byNormalizedName.get(normName) || [];
+      list.push(std);
+      byNormalizedName.set(normName, list);
+    }
+
+    const normPhone = normalizePhoneNumber(std.phone || std["رقم الجوال"] || std["الجوال"] || "");
+    if (normPhone && normPhone.length >= 9) {
+      const list = byNormalizedPhone.get(normPhone) || [];
+      list.push(std);
+      byNormalizedPhone.set(normPhone, list);
+    }
+  });
+
+  const matchedExistingIds = new Set<string>();
+  const reconciledActiveList: Student[] = [];
+  let matchedCount = 0;
+  let newlyAddedCount = 0;
+  let updatedInfoCount = 0;
+
+  incomingCleanRows.forEach((row, idx) => {
+    const rawName = String(
+      (nameCol && row[nameCol]) ||
+      row.name ||
+      row["اسم الطالب"] ||
+      row["الاسم"] ||
+      row.studentName ||
+      ""
+    ).trim();
+
+    const rawPhone = String(
+      (phoneCol && row[phoneCol]) ||
+      row.phone ||
+      row["رقم الجوال"] ||
+      row["الجوال"] ||
+      row["هاتف"] ||
+      ""
+    ).trim();
+
+    const rawGrade = String(
+      (gradeCol && row[gradeCol]) ||
+      row.grade ||
+      row["الصف"] ||
+      row["المرحلة"] ||
+      row["الصف الدراسي"] ||
+      ""
+    ).trim();
+
+    const rawClass = String(
+      (classCol && row[classCol]) ||
+      row.className ||
+      row["الفصل"] ||
+      row["الشعبة"] ||
+      row["فصل"] ||
+      ""
+    ).trim();
+
+    const rawNid = normalizeCivilId(
+      row.nationalId ||
+      row["السجل المدني"] ||
+      row["رقم الهوية"] ||
+      row["الهوية"] ||
+      ""
+    );
+
+    const normName = normalizeArabicName(rawName);
+    const normPhone = normalizePhoneNumber(rawPhone);
+
+    let matchedStudent: Student | undefined;
+
+    // 1. Match by National ID
+    if (rawNid && byNationalId.has(rawNid)) {
+      matchedStudent = byNationalId.get(rawNid);
+    }
+
+    // 2. Match by existing ID
+    if (!matchedStudent && row.id && byExactId.has(row.id)) {
+      matchedStudent = byExactId.get(row.id);
+    }
+
+    // 3. Match by Normalized Name + Grade / Class
+    if (!matchedStudent && normName) {
+      const candidates = byNormalizedName.get(normName);
+      if (candidates && candidates.length > 0) {
+        if (candidates.length === 1) {
+          matchedStudent = candidates[0];
+        } else {
+          matchedStudent = candidates.find((c) => {
+            const cClass = String(c.className || c["الفصل"] || "").trim();
+            const cGrade = String(c.grade || c["الصف"] || "").trim();
+            const cPhone = normalizePhoneNumber(c.phone || c["رقم الجوال"] || "");
+            if (rawClass && cClass && (rawClass === cClass || cClass.includes(rawClass))) return true;
+            if (rawGrade && cGrade && (rawGrade === cGrade || cGrade.includes(rawGrade))) return true;
+            if (normPhone && cPhone && normPhone === cPhone) return true;
+            return false;
+          }) || candidates[0];
+        }
+      }
+    }
+
+    // 4. Match by Phone
+    if (!matchedStudent && normPhone) {
+      const candidates = byNormalizedPhone.get(normPhone);
+      if (candidates && candidates.length === 1) {
+        matchedStudent = candidates[0];
+      }
+    }
+
+    if (matchedStudent) {
+      // PRESERVE PERSISTENT ID - KEEPS ALL ATTENDANCE, WHATSAPP LOGS, HEALTH FILES INTACT
+      matchedExistingIds.add(matchedStudent.id);
+      matchedCount++;
+
+      let hasUpdates = false;
+      if (rawPhone && rawPhone !== matchedStudent.phone) hasUpdates = true;
+      if (rawGrade && rawGrade !== matchedStudent.grade) hasUpdates = true;
+      if (rawClass && rawClass !== matchedStudent.className) hasUpdates = true;
+      if (hasUpdates) updatedInfoCount++;
+
+      const mergedStudent: Student = {
+        ...matchedStudent,
+        ...row,
+        id: matchedStudent.id, // Strictly preserve original ID!
+        name: rawName || matchedStudent.name || "",
+        phone: rawPhone || matchedStudent.phone || "",
+        grade: rawGrade || matchedStudent.grade || "",
+        className: rawClass || matchedStudent.className || "",
+        nationalId: rawNid || matchedStudent.nationalId || "",
+        "اسم الطالب": rawName || matchedStudent.name || "",
+        "الاسم": rawName || matchedStudent.name || "",
+        "رقم الجوال": rawPhone || matchedStudent.phone || "",
+        "الجوال": rawPhone || matchedStudent.phone || "",
+        "الصف": rawGrade || matchedStudent.grade || "",
+        "الفصل": rawClass || matchedStudent.className || "",
+        isArchived: false,
+        status: "active",
+        lastReconciledAt: new Date().toISOString(),
+      };
+
+      reconciledActiveList.push(mergedStudent);
+    } else {
+      // Newly joined student - assign collision-free stable ID
+      newlyAddedCount++;
+      const stableId = rawNid 
+        ? `std_nid_${rawNid}` 
+        : `std_${Date.now()}_${idx + 1}_${Math.random().toString(36).substring(2, 7)}`;
+
+      const newStudent: Student = {
+        ...row,
+        id: stableId,
+        name: rawName || `طالب ${idx + 1}`,
+        phone: rawPhone,
+        grade: rawGrade,
+        className: rawClass,
+        nationalId: rawNid || undefined,
+        "اسم الطالب": rawName || `طالب ${idx + 1}`,
+        "الاسم": rawName || `طالب ${idx + 1}`,
+        "رقم الجوال": rawPhone,
+        "الجوال": rawPhone,
+        "الصف": rawGrade,
+        "الفصل": rawClass,
+        isArchived: false,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        lastReconciledAt: new Date().toISOString(),
+      };
+
+      reconciledActiveList.push(newStudent);
+    }
+  });
+
+  // Handle existing students not in incoming sheet (Transferred / from other classes)
+  const preservedArchivedList: Student[] = [];
+  const shouldArchiveUnmatched = options.archiveUnmatched !== false;
+
+  existingStudents.forEach((existingStd) => {
+    if (!matchedExistingIds.has(existingStd.id)) {
+      if (shouldArchiveUnmatched) {
+        preservedArchivedList.push({
+          ...existingStd,
+          isArchived: true,
+          archivedReason: "غير مدرج في أحدث كشف مستورد - محفوظ بكافة عملياته وسجلاته",
+          lastSeenInRoster: existingStd.lastSeenInRoster || new Date().toISOString(),
+        });
+      } else {
+        // Keep active if requested
+        reconciledActiveList.push(existingStd);
+      }
+    }
+  });
+
+  const allReconciled = [...reconciledActiveList, ...preservedArchivedList];
+
+  const summaryMessage = `تمت المطابقة الذكية بنجاح: تم الحفاظ على هويات وسجلات ${matchedCount} طالباً مطابقاً (مع كامل عمليات الغياب والرسائل السابقة دون تكرار)، وإضافة ${newlyAddedCount} طالباً جديداً للمدرسة، وحفظ ${preservedArchivedList.length} طالباً سابقاً في الأرشيف الآمن.`;
+
+  return {
+    reconciledStudents: allReconciled,
+    stats: {
+      totalCombined: allReconciled.length,
+      activeCount: reconciledActiveList.length,
+      archivedPreservedCount: preservedArchivedList.length,
+      matchedExistingCount: matchedCount,
+      newlyAddedCount,
+      updatedInfoCount,
+    },
+    summaryMessage,
+  };
 }
 
 /**
