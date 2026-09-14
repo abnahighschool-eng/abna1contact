@@ -17,8 +17,8 @@ import {
 import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
 import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine";
 import { analyzeSurveyResponses, generateActivationCode } from "./src/utils/studentNeedsRulesEngine";
-import { evaluateParentCouncilApplication } from "./src/types";
-import { reconcileTeachersRoster } from "./src/utils/rosterReconciliation";
+import { evaluateParentCouncilApplication } from "./src/types/parentCouncil";
+import { reconcileStudentsRoster, reconcileTeachersRoster } from "./src/utils/rosterReconciliation";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;
@@ -94,28 +94,7 @@ function normalizePhoneNumber(input: string | number): string {
   return cleaned;
 }
 
-// Injects an invisible unique zero-width character sequence so every message has a unique payload hash
-function injectAntiSpamVariation(text: string): string {
-  if (!text) return text;
-  // Zero-width characters: non-joiner, joiner, zero-width space, word joiner
-  const zeroWidthChars = ["\u200B", "\u200C", "\u200D", "\uFEFF"];
-  const getRandomChar = () => zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
-
-  // Insert invisible characters naturally in spaces and at the end so it looks totally identical visually
-  const words = text.split(" ");
-  if (words.length > 3) {
-    const pos1 = Math.floor(Math.random() * (words.length - 1));
-    words[pos1] = words[pos1] + getRandomChar();
-    if (words.length > 6) {
-      const pos2 = Math.floor(Math.random() * (words.length - 1));
-      words[pos2] = words[pos2] + getRandomChar();
-    }
-    return words.join(" ") + getRandomChar() + getRandomChar();
-  }
-  return text + getRandomChar() + getRandomChar();
-}
-
-// Dedicated Baileys Real Message Dispatcher with Authentic Human Emulation
+// Dedicated Baileys Real Message Dispatcher
 async function sendBaileysMessage(phone: string, text: string): Promise<{ success: boolean; error?: string; jid?: string; messageId?: string }> {
   const isConnected = !!(sock && (sock.user || realConnectionStatus === "connected"));
   if (!isConnected) {
@@ -139,55 +118,20 @@ async function sendBaileysMessage(phone: string, text: string): Promise<{ succes
   }
 
   try {
-    console.log(`[WhatsApp Real Dispatch] Initiating human-emulated send to ${targetJid}...`);
+    console.log(`[WhatsApp Real Dispatch] Initiating send to ${targetJid}...`);
     
-    // Step 1: Human presence simulation - user appears active/online and opens the chat
-    try {
-      await sock.sendPresenceUpdate("available", targetJid);
-    } catch (presErr) {
-      // non-fatal
-    }
-    const openChatDelay = Math.floor(Math.random() * 700) + 1100; // 1.1s to 1.8s
-    await new Promise((r) => setTimeout(r, openChatDelay));
-
-    // Step 2: Realistic typing presence ('composing' / يكتب الآن...) based on character length
     try {
       await sock.sendPresenceUpdate("composing", targetJid);
     } catch (presErr) {
       // non-fatal
     }
-    // Typical human typing pace: ~26ms per character with random human pauses (between 1.8s and 5.2s)
-    const charCount = text?.length || 40;
-    const typingDuration = Math.min(5200, Math.max(1800, charCount * 26 + Math.floor(Math.random() * 900)));
-    await new Promise((r) => setTimeout(r, typingDuration));
 
-    // Step 3: Human pre-send review pause ('paused') right before tapping send
-    try {
-      await sock.sendPresenceUpdate("paused", targetJid);
-    } catch (presErr) {
-      // non-fatal
-    }
-    const preSendPause = Math.floor(Math.random() * 400) + 400; // 400ms to 800ms
-    await new Promise((r) => setTimeout(r, preSendPause));
-
-    // Step 4: Unique invisible anti-spam variation so message hash is never flagged as repetitive broadcast
-    const uniqueText = injectAntiSpamVariation(text);
-
-    // Step 5: Send the actual message
-    const sentMsg = await sock.sendMessage(targetJid, { text: uniqueText });
+    const sentMsg = await sock.sendMessage(targetJid, { text });
     if (!sentMsg || !sentMsg.key) {
       return { success: false, error: "لم يتم استلام تأكيد تسليم الرسالة من خادم واتساب." };
     }
     const messageId = sentMsg.key.id || "";
     console.log(`[WhatsApp Real Dispatch] Successfully delivered to ${targetJid} (MsgId: ${messageId})`);
-
-    // Reset presence
-    setTimeout(() => {
-      try {
-        if (sock) sock.sendPresenceUpdate("paused", targetJid).catch(() => {});
-      } catch (e) {}
-    }, 500);
-
     return { success: true, jid: targetJid, messageId };
   } catch (sendErr: any) {
     console.error(`[WhatsApp Real Dispatch Error] Failed for ${targetJid}:`, sendErr);
@@ -498,7 +442,6 @@ const campaigns: Record<string, Campaign> = {};
 const individualLogs: IndividualLogItem[] = [];
 
 // Persistent files paths
-const APP_STATE_STORE_FILE = path.join(process.cwd(), "app_state_store.json");
 const INDIVIDUAL_LOGS_FILE = path.join(process.cwd(), "individual_logs.json");
 const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_store.json");
 const APP_SETTINGS_FILE = path.join(process.cwd(), "app_settings.json");
@@ -515,30 +458,10 @@ const HEALTH_AUDIT_FILE = path.join(process.cwd(), "health_audit_store.json");
 const NEEDS_SURVEY_FILE = path.join(process.cwd(), "needs_survey_store.json");
 const PARENT_COUNCILS_FILE = path.join(process.cwd(), "parent_councils_store.json");
 
-// Read consolidated app_state_store.json if it exists
-let consolidatedStore: Record<string, any> = {};
-if (fs.existsSync(APP_STATE_STORE_FILE)) {
-  try {
-    const raw = fs.readFileSync(APP_STATE_STORE_FILE, "utf-8");
-    consolidatedStore = JSON.parse(raw) || {};
-  } catch (e) {
-    console.error("Error reading app_state_store.json", e);
-  }
-}
-
 // Parent Councils Data Store
 let parentCouncilsStore: {
   applications: Record<string, any>;
   invites: Record<string, any>;
-  votes?: Record<string, any>;
-  votingConfig?: {
-    isActive: boolean;
-    candidateIds: string[];
-    maxVotesPerParent: number;
-    createdAt?: string;
-    closedAt?: string;
-    messageTemplate?: string;
-  };
   config: {
     academicYear: string;
     councilTerm: string;
@@ -555,12 +478,6 @@ let parentCouncilsStore: {
 } = {
   applications: {},
   invites: {},
-  votes: {},
-  votingConfig: {
-    isActive: true,
-    candidateIds: [],
-    maxVotesPerParent: 1,
-  },
   config: {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -615,9 +532,7 @@ let systemUsersList: any[] = [
   }
 ];
 
-if (consolidatedStore["users_store"] && Array.isArray(consolidatedStore["users_store"])) {
-  systemUsersList = consolidatedStore["users_store"];
-} else if (fs.existsSync(USERS_FILE)) {
+if (fs.existsSync(USERS_FILE)) {
   try {
     const raw = fs.readFileSync(USERS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -627,9 +542,7 @@ if (consolidatedStore["users_store"] && Array.isArray(consolidatedStore["users_s
   }
 }
 
-if (consolidatedStore["attendance_store"] && typeof consolidatedStore["attendance_store"] === "object") {
-  attendanceRecordsStore = consolidatedStore["attendance_store"];
-} else if (fs.existsSync(ATTENDANCE_FILE)) {
+if (fs.existsSync(ATTENDANCE_FILE)) {
   try {
     const raw = fs.readFileSync(ATTENDANCE_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -641,9 +554,7 @@ if (consolidatedStore["attendance_store"] && typeof consolidatedStore["attendanc
   }
 }
 
-if (consolidatedStore["teachers_store"] && Array.isArray(consolidatedStore["teachers_store"])) {
-  teachersList = consolidatedStore["teachers_store"];
-} else if (fs.existsSync(TEACHERS_FILE)) {
+if (fs.existsSync(TEACHERS_FILE)) {
   try {
     const raw = fs.readFileSync(TEACHERS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -653,13 +564,7 @@ if (consolidatedStore["teachers_store"] && Array.isArray(consolidatedStore["teac
   }
 }
 
-if (consolidatedStore["schedule_store"] && Array.isArray(consolidatedStore["schedule_store"])) {
-  scheduleAssignments = consolidatedStore["schedule_store"].filter((a: any) => {
-    if (a?.id && String(a.id).includes("_34_")) return false;
-    const sec = (a?.section || "").trim();
-    return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
-  });
-} else if (fs.existsSync(SCHEDULE_FILE)) {
+if (fs.existsSync(SCHEDULE_FILE)) {
   try {
     const raw = fs.readFileSync(SCHEDULE_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -675,9 +580,7 @@ if (consolidatedStore["schedule_store"] && Array.isArray(consolidatedStore["sche
   }
 }
 
-if (consolidatedStore["inquiries_store"] && Array.isArray(consolidatedStore["inquiries_store"])) {
-  inquiryRequestsStore = consolidatedStore["inquiries_store"];
-} else if (fs.existsSync(INQUIRIES_FILE)) {
+if (fs.existsSync(INQUIRIES_FILE)) {
   try {
     const raw = fs.readFileSync(INQUIRIES_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -687,9 +590,7 @@ if (consolidatedStore["inquiries_store"] && Array.isArray(consolidatedStore["inq
   }
 }
 
-if (consolidatedStore["health_profiles_store"] && typeof consolidatedStore["health_profiles_store"] === "object") {
-  healthProfilesStore = consolidatedStore["health_profiles_store"];
-} else if (fs.existsSync(HEALTH_PROFILES_FILE)) {
+if (fs.existsSync(HEALTH_PROFILES_FILE)) {
   try {
     const raw = fs.readFileSync(HEALTH_PROFILES_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -699,9 +600,7 @@ if (consolidatedStore["health_profiles_store"] && typeof consolidatedStore["heal
   }
 }
 
-if (consolidatedStore["support_cases_store"] && Array.isArray(consolidatedStore["support_cases_store"])) {
-  supportCasesStore = consolidatedStore["support_cases_store"];
-} else if (fs.existsSync(SUPPORT_CASES_FILE)) {
+if (fs.existsSync(SUPPORT_CASES_FILE)) {
   try {
     const raw = fs.readFileSync(SUPPORT_CASES_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -711,9 +610,7 @@ if (consolidatedStore["support_cases_store"] && Array.isArray(consolidatedStore[
   }
 }
 
-if (consolidatedStore["health_audit_store"] && Array.isArray(consolidatedStore["health_audit_store"])) {
-  healthAuditLogsStore = consolidatedStore["health_audit_store"];
-} else if (fs.existsSync(HEALTH_AUDIT_FILE)) {
+if (fs.existsSync(HEALTH_AUDIT_FILE)) {
   try {
     const raw = fs.readFileSync(HEALTH_AUDIT_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -723,9 +620,7 @@ if (consolidatedStore["health_audit_store"] && Array.isArray(consolidatedStore["
   }
 }
 
-if (consolidatedStore["needs_survey_store"] && typeof consolidatedStore["needs_survey_store"] === "object") {
-  needsSurveyProfilesStore = consolidatedStore["needs_survey_store"];
-} else if (fs.existsSync(NEEDS_SURVEY_FILE)) {
+if (fs.existsSync(NEEDS_SURVEY_FILE)) {
   try {
     const raw = fs.readFileSync(NEEDS_SURVEY_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -735,20 +630,7 @@ if (consolidatedStore["needs_survey_store"] && typeof consolidatedStore["needs_s
   }
 }
 
-if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["parent_councils_store"] === "object") {
-  parentCouncilsStore = {
-    applications: consolidatedStore["parent_councils_store"].applications || {},
-    invites: consolidatedStore["parent_councils_store"].invites || {},
-    votes: consolidatedStore["parent_councils_store"].votes || {},
-    votingConfig: {
-      ...(parentCouncilsStore.votingConfig || {}),
-      ...(consolidatedStore["parent_councils_store"].votingConfig || {}),
-      isActive: true,
-      maxVotesPerParent: 1,
-    },
-    config: { ...parentCouncilsStore.config, ...(consolidatedStore["parent_councils_store"].config || {}) },
-  };
-} else if (fs.existsSync(PARENT_COUNCILS_FILE)) {
+if (fs.existsSync(PARENT_COUNCILS_FILE)) {
   try {
     const raw = fs.readFileSync(PARENT_COUNCILS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -756,13 +638,6 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
       parentCouncilsStore = {
         applications: parsed.applications || {},
         invites: parsed.invites || {},
-        votes: parsed.votes || {},
-        votingConfig: {
-          ...(parentCouncilsStore.votingConfig || {}),
-          ...(parsed.votingConfig || {}),
-          isActive: true,
-          maxVotesPerParent: 1,
-        },
         config: { ...parentCouncilsStore.config, ...(parsed.config || {}) },
       };
     }
@@ -771,17 +646,8 @@ if (consolidatedStore["parent_councils_store"] && typeof consolidatedStore["pare
   }
 }
 
-if (!parentCouncilsStore.votingConfig) {
-  parentCouncilsStore.votingConfig = { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
-} else {
-  parentCouncilsStore.votingConfig.isActive = true;
-  parentCouncilsStore.votingConfig.maxVotesPerParent = 1;
-}
-
 // Load persisted state safely on startup
-if (consolidatedStore["app_settings"] && typeof consolidatedStore["app_settings"] === "object") {
-  appSettings = { ...appSettings, ...consolidatedStore["app_settings"] };
-} else if (fs.existsSync(APP_SETTINGS_FILE)) {
+if (fs.existsSync(APP_SETTINGS_FILE)) {
   try {
     const raw = fs.readFileSync(APP_SETTINGS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -791,9 +657,7 @@ if (consolidatedStore["app_settings"] && typeof consolidatedStore["app_settings"
   }
 }
 
-if (consolidatedStore["students_store"] && Array.isArray(consolidatedStore["students_store"])) {
-  activeStudentsList = consolidatedStore["students_store"];
-} else if (fs.existsSync(STUDENTS_FILE)) {
+if (fs.existsSync(STUDENTS_FILE)) {
   try {
     const raw = fs.readFileSync(STUDENTS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -803,9 +667,7 @@ if (consolidatedStore["students_store"] && Array.isArray(consolidatedStore["stud
   }
 }
 
-if (consolidatedStore["template_store"] && typeof consolidatedStore["template_store"] === "string") {
-  activeTemplate = consolidatedStore["template_store"];
-} else if (fs.existsSync(TEMPLATE_FILE)) {
+if (fs.existsSync(TEMPLATE_FILE)) {
   try {
     const raw = fs.readFileSync(TEMPLATE_FILE, "utf-8");
     if (raw && typeof raw === "string") activeTemplate = raw;
@@ -814,9 +676,7 @@ if (consolidatedStore["template_store"] && typeof consolidatedStore["template_st
   }
 }
 
-if (consolidatedStore["campaigns_store"] && typeof consolidatedStore["campaigns_store"] === "object") {
-  Object.assign(campaigns, consolidatedStore["campaigns_store"]);
-} else if (fs.existsSync(CAMPAIGNS_FILE)) {
+if (fs.existsSync(CAMPAIGNS_FILE)) {
   try {
     const raw = fs.readFileSync(CAMPAIGNS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -828,9 +688,7 @@ if (consolidatedStore["campaigns_store"] && typeof consolidatedStore["campaigns_
   }
 }
 
-if (consolidatedStore["individual_logs"] && Array.isArray(consolidatedStore["individual_logs"])) {
-  individualLogs.push(...consolidatedStore["individual_logs"]);
-} else if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
+if (fs.existsSync(INDIVIDUAL_LOGS_FILE)) {
   try {
     const raw = fs.readFileSync(INDIVIDUAL_LOGS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
@@ -842,119 +700,142 @@ if (consolidatedStore["individual_logs"] && Array.isArray(consolidatedStore["ind
   }
 }
 
-// Unified Disk Saver (Throttled/Debounced for high performance on Render & low disk I/O)
-let diskSaveTimer: any = null;
-function saveAppStateToDisk(immediate = false) {
-  const doSave = () => {
-    try {
-      const fullState = {
-        users_store: systemUsersList,
-        attendance_store: attendanceRecordsStore,
-        teachers_store: teachersList,
-        schedule_store: scheduleAssignments,
-        inquiries_store: inquiryRequestsStore,
-        health_profiles_store: healthProfilesStore,
-        support_cases_store: supportCasesStore,
-        health_audit_store: healthAuditLogsStore,
-        needs_survey_store: needsSurveyProfilesStore,
-        parent_councils_store: parentCouncilsStore,
-        app_settings: appSettings,
-        students_store: activeStudentsList,
-        template_store: activeTemplate,
-        campaigns_store: campaigns,
-        individual_logs: individualLogs.slice(0, 1000),
-      };
-      fs.writeFileSync(APP_STATE_STORE_FILE, JSON.stringify(fullState, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error saving app_state_store.json", e);
-    }
-  };
-
-  if (immediate) {
-    if (diskSaveTimer) clearTimeout(diskSaveTimer);
-    doSave();
-  } else {
-    if (diskSaveTimer) clearTimeout(diskSaveTimer);
-    diskSaveTimer = setTimeout(doSave, 1000);
+function saveIndividualLogs() {
+  try {
+    fs.writeFileSync(INDIVIDUAL_LOGS_FILE, JSON.stringify(individualLogs.slice(0, 1000), null, 2), "utf-8");
+    syncServerStateToFirestore({ individualLogs: individualLogs.slice(0, 500) }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving individual_logs.json", e);
   }
 }
 
-function saveIndividualLogs() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ individualLogs: individualLogs.slice(0, 500) }).catch(() => {});
-}
-
 function saveCampaigns() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ campaigns }).catch(() => {});
+  try {
+    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf-8");
+    syncServerStateToFirestore({ campaigns }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving campaigns_store.json", e);
+  }
 }
 
 function saveAppSettings() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ appSettings }).catch(() => {});
+  try {
+    fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(appSettings, null, 2), "utf-8");
+    syncServerStateToFirestore({ appSettings }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving app_settings.json", e);
+  }
 }
 
 function saveStudentsList() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
+  try {
+    fs.writeFileSync(STUDENTS_FILE, JSON.stringify(activeStudentsList, null, 2), "utf-8");
+    syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving students_store.json", e);
+  }
 }
 
 function saveTemplate() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ activeTemplate }).catch(() => {});
+  try {
+    fs.writeFileSync(TEMPLATE_FILE, activeTemplate, "utf-8");
+    syncServerStateToFirestore({ activeTemplate }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving template_store.json", e);
+  }
 }
 
 function saveUsersList() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ systemUsersList }).catch(() => {});
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(systemUsersList, null, 2), "utf-8");
+    syncServerStateToFirestore({ systemUsersList }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving users_store.json", e);
+  }
 }
 
 function saveAttendanceRecords() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ attendanceRecords: attendanceRecordsStore }).catch(() => {});
+  try {
+    fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify(attendanceRecordsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ attendanceRecords: attendanceRecordsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving attendance_store.json", e);
+  }
 }
 
 function saveTeachersList() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ teachersList }).catch(() => {});
+  try {
+    fs.writeFileSync(TEACHERS_FILE, JSON.stringify(teachersList, null, 2), "utf-8");
+    syncServerStateToFirestore({ teachersList }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving teachers_store.json", e);
+  }
 }
 
 function saveScheduleAssignments() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ scheduleAssignments }).catch(() => {});
+  try {
+    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(scheduleAssignments, null, 2), "utf-8");
+    syncServerStateToFirestore({ scheduleAssignments }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving schedule_store.json", e);
+  }
 }
 
 function saveInquiryRequests() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
+  try {
+    fs.writeFileSync(INQUIRIES_FILE, JSON.stringify(inquiryRequestsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ inquiryRequests: inquiryRequestsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving inquiries_store.json", e);
+  }
 }
 
 function saveHealthProfiles() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ healthProfiles: healthProfilesStore }).catch(() => {});
+  try {
+    fs.writeFileSync(HEALTH_PROFILES_FILE, JSON.stringify(healthProfilesStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ healthProfiles: healthProfilesStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving health_profiles_store.json", e);
+  }
 }
 
 function saveSupportCases() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ supportCases: supportCasesStore }).catch(() => {});
+  try {
+    fs.writeFileSync(SUPPORT_CASES_FILE, JSON.stringify(supportCasesStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ supportCases: supportCasesStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving support_cases_store.json", e);
+  }
 }
 
 function saveHealthAuditLogs() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ healthAuditLogs: healthAuditLogsStore }).catch(() => {});
+  try {
+    fs.writeFileSync(HEALTH_AUDIT_FILE, JSON.stringify(healthAuditLogsStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ healthAuditLogs: healthAuditLogsStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving health_audit_store.json", e);
+  }
 }
 
 function saveNeedsSurveyProfiles() {
-  saveAppStateToDisk();
-  syncServerStateToFirestore({ needsSurveyProfiles: needsSurveyProfilesStore }).catch(() => {});
+  try {
+    fs.writeFileSync(NEEDS_SURVEY_FILE, JSON.stringify(needsSurveyProfilesStore, null, 2), "utf-8");
+    syncServerStateToFirestore({ needsSurveyProfiles: needsSurveyProfilesStore }).catch(() => {});
+  } catch (e) {
+    console.error("Error saving needs_survey_store.json", e);
+  }
 }
 
 function saveParentCouncilsStore(immediate = false) {
-  saveAppStateToDisk(immediate);
-  if (immediate) {
-    forceFlushServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
-  } else {
-    syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+  try {
+    fs.writeFileSync(PARENT_COUNCILS_FILE, JSON.stringify(parentCouncilsStore, null, 2), "utf-8");
+    if (immediate) {
+      forceFlushServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+    } else {
+      syncServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
+    }
+  } catch (e) {
+    console.error("Error saving parent_councils_store.json", e);
   }
 }
 
@@ -1913,51 +1794,12 @@ app.post("/api/student-needs-survey/batch-update-invites", (req, res) => {
 // PARENT COUNCILS API ENDPOINTS (مجالس أولياء الأمور)
 // ==========================================
 
-// Short link redirects for Parent Council survey (/c/:token) and voting (/v/:token)
-app.get("/c/group", (req, res) => {
-  res.redirect("/?portal=parent-council&mode=group");
-});
-
-app.get("/c/:token", (req, res) => {
-  const token = req.params.token;
-  if (token === "group") {
-    return res.redirect("/?portal=parent-council&mode=group");
-  }
-  res.redirect(`/?portal=parent-council&token=${encodeURIComponent(token)}`);
-});
-
-app.get("/c", (req, res) => {
-  res.redirect("/?portal=parent-council&mode=group");
-});
-
-app.get("/v/group", (req, res) => {
-  res.redirect("/?portal=parent-council-vote&mode=group");
-});
-
-app.get("/v/:token", (req, res) => {
-  const token = req.params.token;
-  if (token === "group") {
-    return res.redirect("/?portal=parent-council-vote&mode=group");
-  }
-  res.redirect(`/?portal=parent-council-vote&token=${encodeURIComponent(token)}`);
-});
-
-app.get("/v", (req, res) => {
-  res.redirect("/?portal=parent-council-vote&mode=group");
-});
-
-// 1. Get All Applications, Config, Invites, and Voting State
+// 1. Get All Applications, Config, and Invites
 app.get("/api/parent-councils/data", (req, res) => {
   res.json({
     success: true,
     applications: parentCouncilsStore.applications || {},
     invites: parentCouncilsStore.invites || {},
-    votes: parentCouncilsStore.votes || {},
-    votingConfig: parentCouncilsStore.votingConfig || {
-      isActive: true,
-      candidateIds: [],
-      maxVotesPerParent: 1,
-    },
     config: parentCouncilsStore.config || {
       academicYear: "1447 - 1448 هـ",
       councilTerm: "العام الدراسي 2026 - 2027",
@@ -1993,68 +1835,46 @@ function getStableTokenForStudent(studentId: string | number): string {
 
 // 2. Token / Student Lookup
 app.get("/api/parent-councils/token/:token", (req, res) => {
-  const token = String(req.params.token || "").trim();
-  const queryStudentId = String(req.query.studentId || "").trim();
-  const queryPhone = String(req.query.phone || "").replace(/\D/g, "");
-  const queryNationalId = String(req.query.nationalId || "").trim();
+  const token = req.params.token;
   const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
 
-  // Extract studentId if token is in the format pc_{studentId}_{hash}
-  let candidateStudentId = queryStudentId;
-  if (!candidateStudentId && token && token.startsWith("pc_")) {
-    const parts = token.split("_");
-    if (parts[1]) candidateStudentId = parts[1];
-  }
+  let existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+    (a: any) =>
+      a.activationToken === token ||
+      a.token === token ||
+      a.studentId === token ||
+      a.id === token
+  );
 
-  // 1. Locate invite
   let invite: any =
     parentCouncilsStore.invites?.[token] ||
     Object.values(parentCouncilsStore.invites || {}).find(
-      (inv: any) =>
-        inv.token === token ||
-        (token.startsWith("pc_") && inv.token?.startsWith(token)) ||
-        inv.studentId === token ||
-        (candidateStudentId && String(inv.studentId) === candidateStudentId)
+      (inv: any) => inv.token === token || inv.studentId === token
     );
 
   // If invite not found in store but token starts with pc_, synthesize stable invite
-  if (!invite && candidateStudentId) {
-    invite = {
-      studentId: candidateStudentId,
-      studentName: "",
-      studentGrade: "",
-      studentClass: "",
-      guardianPhone: "",
-      code: getStableCodeForStudent(candidateStudentId),
-      token: token,
-      isSent: false,
-      createdAt: new Date().toISOString(),
-    };
-  }
-
-  // 2. Locate existing submitted application
-  let existingApp = Object.values(parentCouncilsStore.applications || {}).find(
-    (a: any) => {
-      if (!a) return false;
-      if (a.activationToken === token || a.token === token) return true;
-      if (a.id === token || a.id === `app_${token}` || (token.startsWith("app_") && a.id === token.replace(/^app_/, ''))) return true;
-      if (candidateStudentId && String(a.studentId) === candidateStudentId) return true;
-      if (a.studentId && (String(a.studentId) === token || token === `pc_${a.studentId}`)) return true;
-      if (invite?.studentId && String(a.studentId) === String(invite.studentId)) return true;
-      if (invite?.applicationId && (a.id === invite.applicationId || a.id === `app_${invite.applicationId}`)) return true;
-      if (queryNationalId && a.nationalId && String(a.nationalId).trim() === queryNationalId) return true;
-      if (queryPhone && a.phone) {
-        const cleanP = String(a.phone).replace(/\D/g, "");
-        if (cleanP && (cleanP === queryPhone || cleanP.endsWith(queryPhone) || queryPhone.endsWith(cleanP))) return true;
+  if (!invite && token && token.startsWith("pc_")) {
+    const parts = token.split("_");
+    const extractedStudentId = parts[1];
+    if (extractedStudentId) {
+      invite = {
+        studentId: extractedStudentId,
+        studentName: "",
+        studentGrade: "",
+        studentClass: "",
+        guardianPhone: "",
+        code: getStableCodeForStudent(extractedStudentId),
+        token: token,
+        isSent: false,
+        createdAt: new Date().toISOString(),
+      };
+      if (!existingApp) {
+        existingApp = Object.values(parentCouncilsStore.applications || {}).find(
+          (a: any) => a.studentId === extractedStudentId
+        );
       }
-      if (invite?.guardianPhone && a.phone) {
-        const invP = String(invite.guardianPhone).replace(/\D/g, "");
-        const appP = String(a.phone).replace(/\D/g, "");
-        if (invP && appP && (invP === appP || invP.endsWith(appP) || appP.endsWith(invP))) return true;
-      }
-      return false;
     }
-  );
+  }
 
   // Track opening of link
   if (invite) {
@@ -2126,24 +1946,11 @@ app.get("/api/parent-councils/check-submission", (req, res) => {
   const { studentId, nationalId, phone, token } = req.query;
   const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
 
-  const cleanPhone = phone ? String(phone).replace(/\D/g, "") : "";
-  const cleanNationalId = nationalId ? String(nationalId).trim() : "";
-  const tokenStr = token ? String(token).trim() : "";
-  let candidateStudentId = studentId ? String(studentId).trim() : "";
-  if (!candidateStudentId && tokenStr && tokenStr.startsWith("pc_")) {
-    const parts = tokenStr.split("_");
-    if (parts[1]) candidateStudentId = parts[1];
-  }
-
   const existingApp = Object.values(parentCouncilsStore.applications || {}).find((a: any) => {
-    if (!a) return false;
-    if (tokenStr && (a.activationToken === tokenStr || a.token === tokenStr || a.id === tokenStr || a.id === `app_${tokenStr}`)) return true;
-    if (candidateStudentId && String(a.studentId) === candidateStudentId) return true;
-    if (cleanNationalId && a.nationalId && String(a.nationalId).trim() === cleanNationalId) return true;
-    if (cleanPhone && a.phone) {
-      const p = String(a.phone).replace(/\D/g, "");
-      if (p && (p === cleanPhone || p.endsWith(cleanPhone) || cleanPhone.endsWith(p))) return true;
-    }
+    if (studentId && a.studentId === studentId) return true;
+    if (token && (a.activationToken === token || a.token === token)) return true;
+    if (nationalId && a.nationalId === nationalId) return true;
+    if (phone && a.phone === phone) return true;
     return false;
   });
 
@@ -2212,9 +2019,8 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   if (cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
     const existingApp = Object.values(parentCouncilsStore.applications || {}).find(
       (a: any) =>
-        (token && (a.activationToken === token || a.token === token || a.id === `app_${token}`)) ||
-        (invite && invite.studentId && String(a.studentId) === String(invite.studentId)) ||
-        (candidateStudentId && String(a.studentId) === candidateStudentId)
+        (token && (a.activationToken === token || a.token === token)) ||
+        (invite && invite.studentId && a.studentId === invite.studentId)
     );
     return res.json({
       success: true,
@@ -2229,9 +2035,8 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   if (invite && String(invite.code || "").trim() === cleanedCode) {
     const existingForStudent = Object.values(parentCouncilsStore.applications || {}).find(
       (a: any) =>
-        (invite.studentId && String(a.studentId) === String(invite.studentId)) ||
-        (token && (a.activationToken === token || a.token === token || a.id === `app_${token}`)) ||
-        (candidateStudentId && String(a.studentId) === candidateStudentId)
+        (invite.studentId && a.studentId === invite.studentId) ||
+        (token && (a.activationToken === token || a.token === token))
     );
     return res.json({
       success: true,
@@ -2246,8 +2051,8 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   // Check existing application codes
   const existing = Object.values(parentCouncilsStore.applications || {}).find(
     (a: any) =>
-      (token && (a.activationToken === token || a.token === token || a.id === `app_${token}`)) ||
-      (studentId && String(a.studentId) === String(studentId)) ||
+      (token && (a.activationToken === token || a.token === token)) ||
+      (studentId && a.studentId === studentId) ||
       (a.activationCode && String(a.activationCode).trim() === cleanedCode)
   );
   if (existing && String(existing.activationCode || "").trim() === cleanedCode) {
@@ -2272,143 +2077,6 @@ app.post("/api/parent-councils/verify-code", (req, res) => {
   });
 });
 
-// Helper for dynamic Saudi Hijri Date on Server
-function getTodayHijriDateServer(): string {
-  try {
-    const today = new Date();
-    const formatter = new Intl.DateTimeFormat("ar-SA-u-ca-islamic-umalqura", {
-      day: "numeric",
-      month: "numeric",
-      year: "numeric",
-    });
-    const parts = formatter.format(today);
-    const standardized = parts
-      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
-      .replace(/\s+/g, "")
-      .replace(/هـ/g, "");
-    return `${standardized}هـ`;
-  } catch (e) {
-    const today = new Date();
-    return `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}م`;
-  }
-}
-
-// 4.5. Phone Verification for WhatsApp Group Link (التفعيل برقم الجوال)
-app.post("/api/parent-councils/verify-phone", (req, res) => {
-  const { phone } = req.body || {};
-  const isSurveyClosed = !!parentCouncilsStore.config?.isSurveyClosed;
-
-  if (isSurveyClosed) {
-    return res.status(403).json({
-      success: false,
-      isSurveyClosed: true,
-      error: "عذراً، تم إيقاف استقبال طلبات الترشح والاستبيان لعضوية مجلس أولياء الأمور من قبل إدارة المدرسة.",
-    });
-  }
-
-  const rawPhone = String(phone || "").trim();
-  const digits = rawPhone.replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]).replace(/\D/g, "");
-  if (!digits || digits.length < 9) {
-    return res.status(400).json({
-      success: false,
-      error: "يرجى إدخال رقم جوال صحيح مكون من 10 أرقام (مثال: 05xxxxxxxx)",
-    });
-  }
-
-  const phone9 = digits.slice(-9);
-
-  // 1. Check if application already exists for this phone number (or previously submitted via code/private link)
-  const existingApp = Object.values(parentCouncilsStore.applications || {}).find((a: any) => {
-    if (!a) return false;
-    if (a.phone) {
-      const p = String(a.phone).replace(/\D/g, "").slice(-9);
-      if (p && p === phone9) return true;
-    }
-    return false;
-  });
-
-  if (existingApp) {
-    return res.json({
-      success: true,
-      alreadySubmitted: true,
-      application: existingApp,
-      message: "تم العثور على استمارة ترشح معبأة مسبقاً بهذا الرقم",
-    });
-  }
-
-  const normalizeStudentName = (str: string) =>
-    String(str || "")
-      .trim()
-      .replace(/[أإآ]/g, "ا")
-      .replace(/ة/g, "ه")
-      .replace(/ى/g, "ي")
-      .replace(/\s+/g, " ");
-
-  const normalizedPhone = digits.startsWith("5") && digits.length === 9 ? "0" + digits : digits;
-  const seenMatched = new Set<string>();
-  const matchedStudents: any[] = [];
-
-  const addStudent = (id: any, name: string, grade: string, className: string, phone: string) => {
-    const cleanName = String(name || "").trim();
-    const norm = normalizeStudentName(cleanName);
-    if (!norm || seenMatched.has(norm)) return;
-    seenMatched.add(norm);
-    matchedStudents.push({
-      id: id || norm,
-      name: cleanName,
-      grade: grade || "الأول ثانوي",
-      className: className || "1",
-      phone: phone || normalizedPhone,
-    });
-  };
-
-  // 2. Search for all students matching this phone number in invites store
-  const matchedInvites = Object.values(parentCouncilsStore.invites || {}).filter((inv: any) => {
-    if (!inv || !inv.guardianPhone) return false;
-    const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
-    return invP === phone9;
-  });
-
-  // Check if any matched student has already submitted
-  for (const inv of matchedInvites) {
-    const studentApp = Object.values(parentCouncilsStore.applications || {}).find(
-      (a: any) => a && (String(a.studentId) === String(inv.studentId) || (a.phone && String(a.phone).replace(/\D/g, "").slice(-9) === phone9))
-    );
-    if (studentApp) {
-      return res.json({
-        success: true,
-        alreadySubmitted: true,
-        application: studentApp,
-        message: "تم العثور على استمارة ترشح مقدمة مسبقاً لأحد الأبناء المسجلين بهذا الرقم",
-      });
-    }
-
-    addStudent(inv.studentId, inv.studentName, inv.studentGrade, inv.studentClass, inv.guardianPhone);
-  }
-
-  // 3. Search in activeStudentsList roster if not all or partially matched
-  const rosterMatches = (activeStudentsList || []).filter((st: any) => {
-    if (!st) return false;
-    const p = String(st.phone || st["رقم الجوال"] || st["هاتف ولي الأمر"] || st["الجوال"] || "").replace(/\D/g, "");
-    return p && p.slice(-9) === phone9;
-  });
-
-  for (const st of rosterMatches) {
-    const sName = st.name || st["اسم الطالب"] || st["الاسم"] || "";
-    const sGrade = st.grade || st["الصف"] || "الأول ثانوي";
-    const sClass = st.className || st["الفصل"] || st["الشعبة"] || "1";
-    const sPhone = st.phone || st["رقم الجوال"] || normalizedPhone;
-    addStudent(st.id, sName, sGrade, sClass, sPhone);
-  }
-
-  return res.json({
-    success: true,
-    alreadySubmitted: false,
-    phone: normalizedPhone,
-    matchedStudents,
-  });
-});
-
 // 5. Submit or Update Application from Public Portal
 app.post("/api/parent-councils/submit", (req, res) => {
   if (parentCouncilsStore.config?.isSurveyClosed) {
@@ -2427,10 +2095,8 @@ app.post("/api/parent-councils/submit", (req, res) => {
     });
   }
 
-  const effectiveToken = application.token || application.activationToken || (application.studentId ? `pc_${application.studentId}` : null);
-  const id = application.id || (effectiveToken ? `app_${effectiveToken}` : `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
+  const id = application.id || `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const now = new Date().toISOString();
-  const todayHijri = getTodayHijriDateServer();
 
   // Run official smart evaluation engine
   const smartEvaluation = evaluateParentCouncilApplication(application);
@@ -2438,34 +2104,30 @@ app.post("/api/parent-councils/submit", (req, res) => {
   const finalApp = {
     ...application,
     id,
-    token: effectiveToken || application.token || application.activationToken,
-    activationToken: effectiveToken || application.activationToken || application.token,
-    studentId: application.studentId || (effectiveToken && effectiveToken.startsWith("pc_") ? effectiveToken.split("_")[1] : undefined),
     fullName: application.fullName || application.guardianName,
     nationalId: application.nationalId || application.guardianNationalId,
     phone: application.phone || application.guardianPhone,
-    submissionDateHijri: application.submissionDateHijri || todayHijri,
-    status: application.status === "approved" || application.status === "reserve" ? application.status : "submitted",
+    status: application.status || (smartEvaluation.isEligible ? "submitted" : "disqualified"),
     smartEvaluation,
-    submittedAt: now, // Always set to current submission time to guarantee today's date
+    submittedAt: application.submittedAt || now,
     lastUpdated: now,
   };
 
   parentCouncilsStore.applications[id] = finalApp;
 
   // Mark invite as submitted & opened if exists
-  if (finalApp.studentId && parentCouncilsStore.invites?.[finalApp.studentId]) {
-    parentCouncilsStore.invites[finalApp.studentId].isSubmitted = true;
-    parentCouncilsStore.invites[finalApp.studentId].submittedAt = now;
-    parentCouncilsStore.invites[finalApp.studentId].hasOpened = true;
-    if (!parentCouncilsStore.invites[finalApp.studentId].openedAt) {
-      parentCouncilsStore.invites[finalApp.studentId].openedAt = now;
+  if (application.studentId && parentCouncilsStore.invites?.[application.studentId]) {
+    parentCouncilsStore.invites[application.studentId].isSubmitted = true;
+    parentCouncilsStore.invites[application.studentId].submittedAt = now;
+    parentCouncilsStore.invites[application.studentId].hasOpened = true;
+    if (!parentCouncilsStore.invites[application.studentId].openedAt) {
+      parentCouncilsStore.invites[application.studentId].openedAt = now;
     }
-    parentCouncilsStore.invites[finalApp.studentId].applicationId = id;
+    parentCouncilsStore.invites[application.studentId].applicationId = id;
   }
-  if (finalApp.token) {
+  if (application.token) {
     const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
-      (inv: any) => inv.token === finalApp.token
+      (inv: any) => inv.token === application.token
     );
     if (matchedInvite) {
       matchedInvite.isSubmitted = true;
@@ -2502,78 +2164,6 @@ app.post("/api/parent-councils/sync", (req, res) => {
   });
 });
 
-// 6.5 Delete Application and Reset Invite (Allows parent to refill the form)
-app.post("/api/parent-councils/delete-application", (req, res) => {
-  const { id, applicationId } = req.body || {};
-  const targetId = String(id || applicationId || "").trim();
-
-  if (!targetId) {
-    return res.status(400).json({ success: false, message: "معرف الاستمارة مطلوب لحذفها" });
-  }
-
-  const existingApp = parentCouncilsStore.applications[targetId] ||
-    Object.values(parentCouncilsStore.applications || {}).find((a: any) => a && (a.id === targetId || a.id === `app_${targetId}`));
-
-  const appId = existingApp ? existingApp.id : targetId;
-  const studentId = existingApp?.studentId;
-  const token = existingApp?.token || existingApp?.activationToken;
-
-  // 1. Remove from applications
-  if (parentCouncilsStore.applications[appId]) {
-    delete parentCouncilsStore.applications[appId];
-  }
-  if (parentCouncilsStore.applications[targetId]) {
-    delete parentCouncilsStore.applications[targetId];
-  }
-
-  // 2. Remove from selected / reserve member lists in config
-  if (parentCouncilsStore.config) {
-    parentCouncilsStore.config.selectedMemberIds = (parentCouncilsStore.config.selectedMemberIds || []).filter(
-      (mId: string) => mId !== appId && mId !== targetId
-    );
-    parentCouncilsStore.config.reserveMemberIds = (parentCouncilsStore.config.reserveMemberIds || []).filter(
-      (mId: string) => mId !== appId && mId !== targetId
-    );
-  }
-
-  // 3. Reset matched invite so parent can refill the form
-  if (studentId && parentCouncilsStore.invites?.[studentId]) {
-    parentCouncilsStore.invites[studentId].isSubmitted = false;
-    delete parentCouncilsStore.invites[studentId].submittedAt;
-    delete parentCouncilsStore.invites[studentId].applicationId;
-  }
-  if (token) {
-    const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
-      (inv: any) => inv.token === token
-    );
-    if (matchedInvite) {
-      matchedInvite.isSubmitted = false;
-      delete matchedInvite.submittedAt;
-      delete matchedInvite.applicationId;
-    }
-  }
-  Object.values(parentCouncilsStore.invites || {}).forEach((inv: any) => {
-    if (inv && (inv.applicationId === appId || inv.applicationId === targetId)) {
-      inv.isSubmitted = false;
-      delete inv.submittedAt;
-      delete inv.applicationId;
-    }
-  });
-
-  saveParentCouncilsStore(true);
-
-  res.json({
-    success: true,
-    message: "تم حذف الاستمارة بنجاح، ويمكن لولي الأمر الآن تعبئتها مرة أخرى.",
-    deletedId: appId,
-    studentId,
-    token,
-    applications: parentCouncilsStore.applications,
-    config: parentCouncilsStore.config,
-    invites: parentCouncilsStore.invites,
-  });
-});
-
 // 7. Save and Update Student Invites
 app.post("/api/parent-councils/invites", (req, res) => {
   const { invites } = req.body || {};
@@ -2605,12 +2195,6 @@ app.post("/api/parent-councils/invites", (req, res) => {
 app.post("/api/parent-councils/reset", (req, res) => {
   parentCouncilsStore.applications = {};
   parentCouncilsStore.invites = {};
-  parentCouncilsStore.votes = {};
-  parentCouncilsStore.votingConfig = {
-    isActive: false,
-    candidateIds: [],
-    maxVotesPerParent: 9,
-  };
   parentCouncilsStore.config = {
     academicYear: "1447 - 1448 هـ",
     councilTerm: "العام الدراسي 2026 - 2027",
@@ -2623,402 +2207,6 @@ app.post("/api/parent-councils/reset", (req, res) => {
   };
   saveParentCouncilsStore();
   res.json({ success: true, message: "تمت إعادة تعيين وتنظيم قسم مجالس أولياء الأمور بنجاح" });
-});
-
-// ==========================================
-// PARENT COUNCIL VOTING & NOMINATION ENDPOINTS (تصويت وترشيح أولياء الأمور)
-// ==========================================
-
-// 9. Update Voting Configuration (Candidates pool, activate/deactivate)
-app.post("/api/parent-councils/voting/config", (req, res) => {
-  const { isActive, candidateIds, maxVotesPerParent, messageTemplate } = req.body || {};
-  if (!parentCouncilsStore.votingConfig) {
-    parentCouncilsStore.votingConfig = { isActive: false, candidateIds: [], maxVotesPerParent: 9 };
-  }
-  if (isActive !== undefined) {
-    parentCouncilsStore.votingConfig.isActive = !!isActive;
-    if (isActive && !parentCouncilsStore.votingConfig.createdAt) {
-      parentCouncilsStore.votingConfig.createdAt = new Date().toISOString();
-    }
-  }
-  if (Array.isArray(candidateIds)) {
-    parentCouncilsStore.votingConfig.candidateIds = candidateIds;
-  }
-  if (maxVotesPerParent && Number(maxVotesPerParent) > 0) {
-    parentCouncilsStore.votingConfig.maxVotesPerParent = Number(maxVotesPerParent);
-  }
-  if (messageTemplate !== undefined) {
-    parentCouncilsStore.votingConfig.messageTemplate = messageTemplate;
-  }
-  saveParentCouncilsStore(true);
-  res.json({
-    success: true,
-    message: "تم تحديث إعدادات تصويت أولياء الأمور بنجاح",
-    votingConfig: parentCouncilsStore.votingConfig,
-  });
-});
-
-// 10. Verify Code and Fetch Voting Ballot for Parents (Private Link)
-app.post("/api/parent-councils/vote/verify", (req, res) => {
-  const { token, code, studentId } = req.body || {};
-  const cleanedCode = String(code || "").trim();
-  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
-  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
-
-  // Voting is active by default unless explicitly closed by the school administration
-  const isVotingActive = votingConfig.isActive !== false;
-  if (!isVotingActive) {
-    return res.status(403).json({
-      success: false,
-      isVotingClosed: true,
-      error: "عذراً، التصويت لعضوية مجلس أولياء الأمور غير متاح حالياً أو قد تم إغلاقه بعد اكتمال مرحلة الفرز. شكراً لاهتمامكم وحرصكم الدائم.",
-    });
-  }
-
-  // Find invite
-  let invite: any = Object.values(parentCouncilsStore.invites || {}).find(
-    (inv: any) =>
-      (token && inv.token === token) ||
-      (studentId && String(inv.studentId) === String(studentId)) ||
-      inv.code === cleanedCode
-  );
-
-  let candidateStudentId = studentId || (invite && invite.studentId);
-  if (!candidateStudentId && token && token.startsWith("pc_")) {
-    candidateStudentId = token.split("_")[1];
-  }
-
-  if (!invite && candidateStudentId) {
-    const stableCode = getStableCodeForStudent(candidateStudentId);
-    if (cleanedCode === stableCode || cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
-      invite = {
-        studentId: candidateStudentId,
-        code: stableCode,
-        token: token || getStableTokenForStudent(candidateStudentId),
-      };
-    }
-  }
-
-  // Check valid code
-  const isGeneralCode = cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447";
-  const isInviteCode = invite && String(invite.code || "").trim() === cleanedCode;
-  const isStable = candidateStudentId && cleanedCode === getStableCodeForStudent(candidateStudentId);
-
-  if (!isGeneralCode && !isInviteCode && !isStable) {
-    return res.status(400).json({
-      success: false,
-      error: "رمز التفعيل غير مطابق. يرجى التأكد من كتابة الرمز المكون من 6 أرقام كما ورد في الرسالة.",
-    });
-  }
-
-  // Check if parent already voted (by studentId, token, or guardianPhone)
-  const invitePhone9 = invite?.guardianPhone ? String(invite.guardianPhone).replace(/\D/g, "").slice(-9) : "";
-  const existingVote = Object.values(parentCouncilsStore.votes || {}).find(
-    (v: any) => {
-      if (!v) return false;
-      if (token && v.token === token) return true;
-      if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
-      if (invitePhone9 && v.guardianPhone) {
-        const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
-        if (vp && vp === invitePhone9) return true;
-      }
-      return false;
-    }
-  );
-
-  // Build candidate ballot cards - Fallback to selectedMemberIds if candidateIds is empty
-  let candidateIds = votingConfig.candidateIds || [];
-  if (!candidateIds || candidateIds.length === 0) {
-    candidateIds = parentCouncilsStore.config?.selectedMemberIds || [];
-  }
-  if (!candidateIds || candidateIds.length === 0) {
-    candidateIds = Object.keys(parentCouncilsStore.applications || {});
-  }
-
-  // Strictly names and basic identity - NO percentages, NO scores, NO smart evaluation numbers to parents
-  const candidateApps = candidateIds
-    .map((cid: string) => parentCouncilsStore.applications[cid] || Object.values(parentCouncilsStore.applications).find((a: any) => a.id === cid))
-    .filter(Boolean)
-    .map((a: any) => ({
-      id: a.id,
-      fullName: a.fullName,
-      studentName: a.studentName || "",
-      studentGrade: a.studentGrade || "",
-      studentClass: a.studentClass || "",
-      specialization: a.guardianRelation === "mother" ? "ولية أمر" : "ولي أمر",
-    }));
-
-  res.json({
-    success: true,
-    valid: true,
-    alreadyVoted: !!existingVote,
-    vote: existingVote || null,
-    invite: invite || null,
-    votingConfig: {
-      ...votingConfig,
-      isActive: true,
-      maxVotesPerParent: 1,
-    },
-    candidates: candidateApps,
-  });
-});
-
-// 10.1 Verify Phone and Fetch Voting Ballot for Parents (WhatsApp Group Link)
-app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
-  const { phone } = req.body || {};
-  const rawDigits = String(phone || "").replace(/\D/g, "");
-  if (!rawDigits || rawDigits.length < 9) {
-    return res.status(400).json({
-      success: false,
-      error: "يرجى إدخال رقم جوال صحيح مكون من 10 أرقام (مثال: 05xxxxxxxx)",
-    });
-  }
-
-  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
-  if (votingConfig.isActive === false) {
-    return res.status(403).json({
-      success: false,
-      isVotingClosed: true,
-      error: "عذراً، التصويت لعضوية مجلس أولياء الأمور غير متاح حالياً أو قد تم إغلاقه بعد اكتمال مرحلة الفرز. شكراً لاهتمامكم وحرصكم الدائم.",
-    });
-  }
-
-  const phone9 = rawDigits.slice(-9);
-  const normalizedPhone = rawDigits.startsWith("5") && rawDigits.length === 9 ? "0" + rawDigits : rawDigits;
-
-  // 1. Check if ANY vote already exists matching this phone number directly
-  const existingVoteByPhone = Object.values(parentCouncilsStore.votes || {}).find((v: any) => {
-    if (!v) return false;
-    if (v.guardianPhone) {
-      const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
-      if (vp && vp === phone9) return true;
-    }
-    return false;
-  });
-
-  // 2. Search for all students matching this phone number in invites store
-  const matchedStudents: any[] = [];
-  const matchedInvites = Object.values(parentCouncilsStore.invites || {}).filter((inv: any) => {
-    if (!inv || !inv.guardianPhone) return false;
-    const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
-    return invP === phone9;
-  });
-
-  // Check if any matched student has already voted (via private code link or group)
-  let existingVoteByStudent: any = null;
-  for (const inv of matchedInvites) {
-    const v = Object.values(parentCouncilsStore.votes || {}).find(
-      (vote: any) => vote && (String(vote.studentId) === String(inv.studentId) || (vote.token && vote.token === inv.token))
-    );
-    if (v && !existingVoteByStudent) {
-      existingVoteByStudent = v;
-    }
-    matchedStudents.push({
-      id: inv.studentId,
-      name: inv.studentName,
-      grade: inv.studentGrade,
-      className: inv.studentClass,
-      phone: inv.guardianPhone,
-    });
-  }
-
-  const existingVote = existingVoteByPhone || existingVoteByStudent;
-
-  // Build candidate ballot cards
-  let candidateIds = votingConfig.candidateIds || [];
-  if (!candidateIds || candidateIds.length === 0) {
-    candidateIds = parentCouncilsStore.config?.selectedMemberIds || [];
-  }
-  if (!candidateIds || candidateIds.length === 0) {
-    candidateIds = Object.keys(parentCouncilsStore.applications || {});
-  }
-
-  const candidateApps = candidateIds
-    .map((cid: string) => parentCouncilsStore.applications[cid] || Object.values(parentCouncilsStore.applications).find((a: any) => a.id === cid))
-    .filter(Boolean)
-    .map((a: any) => ({
-      id: a.id,
-      fullName: a.fullName,
-      studentName: a.studentName || "",
-      studentGrade: a.studentGrade || "",
-      studentClass: a.studentClass || "",
-      specialization: a.guardianRelation === "mother" ? "ولية أمر" : "ولي أمر",
-    }));
-
-  if (existingVote) {
-    return res.json({
-      success: true,
-      alreadyVoted: true,
-      vote: existingVote,
-      phone: normalizedPhone,
-      matchedStudents,
-      candidates: candidateApps,
-      votingConfig: {
-        ...votingConfig,
-        isActive: true,
-        maxVotesPerParent: 1,
-      },
-      message: "لقد تم تسجيل وتوثيق تصويتكم مسبقاً، ولا يمكن تكرار التصويت.",
-    });
-  }
-
-  return res.json({
-    success: true,
-    alreadyVoted: false,
-    phone: normalizedPhone,
-    matchedStudents,
-    candidates: candidateApps,
-    votingConfig: {
-      ...votingConfig,
-      isActive: true,
-      maxVotesPerParent: 1,
-    },
-  });
-});
-
-// 11. Submit Vote from Parent (Supports both Private Code Link and WhatsApp Group Phone Link)
-app.post("/api/parent-councils/vote/submit", (req, res) => {
-  const {
-    token,
-    code,
-    studentId,
-    studentName,
-    guardianPhone,
-    mode,
-    authMethod,
-    selectedCandidateIds,
-  } = req.body || {};
-
-  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
-  if (votingConfig.isActive === false) {
-    return res.status(403).json({
-      success: false,
-      error: "التصويت مغلق حالياً من قبل إدارة المدرسة.",
-    });
-  }
-
-  if (!Array.isArray(selectedCandidateIds) || selectedCandidateIds.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: "يرجى اختيار مرشح واحد للمجلس قبل إرسال الترشيح.",
-    });
-  }
-
-  // Exactly one candidate per parent
-  if (selectedCandidateIds.length > 1) {
-    return res.status(400).json({
-      success: false,
-      error: "يجب اختيار مرشح واحد فقط.",
-    });
-  }
-
-  const isGroupAuth = mode === "group" || authMethod === "phone";
-  const cleanedCode = String(code || "").trim();
-  const configCode = String(parentCouncilsStore.config?.generalActivationCode || "202601").trim();
-
-  // Find invite if available
-  let invite: any = Object.values(parentCouncilsStore.invites || {}).find(
-    (inv: any) =>
-      (token && inv.token === token) ||
-      (studentId && String(inv.studentId) === String(studentId)) ||
-      (!isGroupAuth && inv.code === cleanedCode)
-  );
-
-  let candidateStudentId = studentId || (invite && invite.studentId);
-  if (!candidateStudentId && token && token.startsWith("pc_")) {
-    candidateStudentId = token.split("_")[1];
-  }
-
-  // Verification checks:
-  if (isGroupAuth) {
-    // Phone method: verify phone format
-    const rawPhoneDigits = String(guardianPhone || "").replace(/\D/g, "");
-    if (!rawPhoneDigits || rawPhoneDigits.length < 9) {
-      return res.status(400).json({
-        success: false,
-        error: "رقم الجوال غير صحيح للتحقق.",
-      });
-    }
-  } else {
-    // Code method: verify code
-    if (!invite && candidateStudentId) {
-      const stableCode = getStableCodeForStudent(candidateStudentId);
-      if (cleanedCode === stableCode || cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
-        invite = {
-          studentId: candidateStudentId,
-          code: stableCode,
-          token: token || getStableTokenForStudent(candidateStudentId),
-        };
-      }
-    }
-
-    const isGeneralCode = cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447";
-    const isInviteCode = invite && String(invite.code || "").trim() === cleanedCode;
-    const isStable = candidateStudentId && cleanedCode === getStableCodeForStudent(candidateStudentId);
-
-    if (!isGeneralCode && !isInviteCode && !isStable) {
-      return res.status(400).json({
-        success: false,
-        error: "رمز التفعيل غير صالح.",
-      });
-    }
-  }
-
-  // Unified deduplication check (by studentId, guardianPhone, or token)
-  const phone9 = guardianPhone ? String(guardianPhone).replace(/\D/g, "").slice(-9) : (invite?.guardianPhone ? String(invite.guardianPhone).replace(/\D/g, "").slice(-9) : "");
-  if (!parentCouncilsStore.votes) parentCouncilsStore.votes = {};
-
-  const existingVote = Object.values(parentCouncilsStore.votes).find((v: any) => {
-    if (!v) return false;
-    if (token && v.token === token) return true;
-    if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
-    if (phone9 && v.guardianPhone) {
-      const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
-      if (vp && vp === phone9) return true;
-    }
-    return false;
-  });
-
-  if (existingVote) {
-    return res.status(400).json({
-      success: false,
-      alreadyVoted: true,
-      vote: existingVote,
-      error: "لقد تم تسجيل وتوثيق تصويتكم مسبقاً، ولا يمكن تكرار التصويت.",
-    });
-  }
-
-  const effectivePhone = guardianPhone || invite?.guardianPhone || "";
-  const effectiveStudentName = studentName || invite?.studentName || "";
-  const voteKey = candidateStudentId || (phone9 ? `p_${phone9}` : token) || `v_${Date.now()}`;
-
-  const newVote = {
-    id: `vote_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    studentId: candidateStudentId || "",
-    studentName: effectiveStudentName,
-    guardianPhone: effectivePhone,
-    token: token || "",
-    authMethod: isGroupAuth ? "phone" : "code",
-    selectedCandidateIds,
-    votedAt: new Date().toISOString(),
-    codeUsed: isGroupAuth ? "التحقق برقم الجوال المعتمد" : cleanedCode,
-  };
-
-  parentCouncilsStore.votes[voteKey] = newVote;
-  saveParentCouncilsStore(true);
-
-  res.json({
-    success: true,
-    message: "تم تسجيل وتوثيق تصويتكم بنجاح في سجلات المدرسة، شكراً لمشاركتكم.",
-    vote: newVote,
-  });
-});
-
-// 12. Reset Votes
-app.post("/api/parent-councils/voting/reset", (req, res) => {
-  parentCouncilsStore.votes = {};
-  saveParentCouncilsStore(true);
-  res.json({ success: true, message: "تمت إعادة تعيين أصوات أولياء الأمور بنجاح." });
 });
 
 // 5. Seed Realistic Sample Applicants (Disabled to preserve real data)
@@ -3304,52 +2492,53 @@ app.post("/api/app-state/settings", (req, res) => {
 });
 
 app.post("/api/app-state/students", (req, res) => {
-  const { students } = req.body || {};
+  const { students, forceOverwrite = false } = req.body || {};
   if (Array.isArray(students)) {
-    // Rely solely on the provided/uploaded student roster
-    activeStudentsList = students.map((s: any) => {
-      const { isArchived, archivedAt, ...rest } = s;
-      return rest;
-    });
+    // Safety guard against empty payload destroying the student roster
+    if (students.length === 0 && !req.body.forceEmpty) {
+      return res.json({
+        success: true,
+        count: activeStudentsList.length,
+        warning: "تم تجاهل القائمة الفارغة لحماية بيانات الطلاب والعمليات المسجلة",
+      });
+    }
+
+    if (forceOverwrite) {
+      activeStudentsList = students;
+    } else {
+      // Reconcile incoming students against existing database:
+      // Preserves persistent IDs, historical attendance, health profiles, surveys, messages,
+      // and retains removed students in the safe archive.
+      const reconciliation = reconcileStudentsRoster(activeStudentsList, students);
+      activeStudentsList = reconciliation.reconciledStudents;
+    }
     saveStudentsList();
-    syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
   }
   res.json({
     success: true,
-    count: activeStudentsList.length,
+    count: activeStudentsList.filter((s: any) => !s.isArchived).length,
     totalCombined: activeStudentsList.length,
   });
 });
 
-// Dedicated endpoint for student roster upload
+// Dedicated endpoint for student roster reconciliation & upload report
 app.post("/api/students/reconcile-upload", (req, res) => {
   const { students } = req.body || {};
   if (!Array.isArray(students) || students.length === 0) {
     return res.status(400).json({ success: false, error: "كشف الطلاب فارغ أو غير صالح" });
   }
 
-  // Rely strictly and solely on the uploaded roster without historical accumulation or multiplying
-  activeStudentsList = students.map((s: any) => {
-    const { isArchived, archivedAt, ...rest } = s;
-    return rest;
-  });
+  const reconciliation = reconcileStudentsRoster(activeStudentsList, students);
+  activeStudentsList = reconciliation.reconciledStudents;
   saveStudentsList();
-  syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
 
   res.json({
     success: true,
     students: activeStudentsList,
-    activeCount: activeStudentsList.length,
-    archivedCount: 0,
-    stats: {
-      totalCombined: activeStudentsList.length,
-      activeCount: activeStudentsList.length,
-      archivedPreservedCount: 0,
-      matchedExistingCount: 0,
-      newlyAddedCount: activeStudentsList.length,
-      updatedInfoCount: 0,
-    },
-    message: `تم اعتماد كشف الطلاب المرفوع بنجاح (${activeStudentsList.length} طالب) بالاعتماد الكامل على الكشف المرفوع دون أي دمج تاريخي.`,
+    activeCount: reconciliation.stats.activeCount,
+    archivedCount: reconciliation.stats.archivedPreservedCount,
+    stats: reconciliation.stats,
+    message: reconciliation.summaryMessage,
   });
 });
 
@@ -3962,7 +3151,15 @@ app.get("/api/whatsapp/campaigns", (req, res) => {
   })));
 });
 
-// Background Campaign Processing with Anti-Ban Protection & Smart Human Pacing
+// Injects an invisible unique zero-width character sequence so every message has a unique payload hash
+function injectAntiSpamVariation(text: string): string {
+  if (!text) return text;
+  const zeroWidthChars = ["\u200B", "\u200C", "\u200D", "\uFEFF"];
+  const randomChars = Array.from({ length: 3 }, () => zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)]).join("");
+  return text + randomChars;
+}
+
+// Background Campaign Processing with Anti-Ban Protection
 async function processCampaign(campaignId: string, baseDelayMs: number) {
   const campaign = campaigns[campaignId];
   if (!campaign || campaign.status !== "running") return;
@@ -3981,20 +3178,13 @@ async function processCampaign(campaignId: string, baseDelayMs: number) {
 
     log.status = "sending";
     
-    // Anti-Ban Protection: Safe 15-second base interval with dynamic human jitter (-2s to +5s)
-    const effectiveBaseDelay = Math.max(14000, Number(baseDelayMs || 15000));
-    const jitter = Math.floor(Math.random() * 7000) - 2000; // variance between -2s and +5s
+    // Anti-Ban Protection: Safe 15-second base interval with dynamic human jitter (+/- 2500ms)
+    const effectiveBaseDelay = Math.max(15000, Number(baseDelayMs || 15000));
+    const jitter = Math.floor(Math.random() * 5000) - 2500; // variance between -2.5s and +2.5s
     const actualDelay = Math.max(12000, effectiveBaseDelay + jitter);
 
     if (i > 0) {
-      // Smart Micro-Break: take 25s - 38s pause after every 7 messages to emulate realistic human pacing
-      if (messagesInCurrentBatch >= 6 && messagesInCurrentBatch % 7 === 0) {
-        const microBreakDuration = Math.floor(Math.random() * 13000) + 25000;
-        console.log(`[WhatsApp Campaign Anti-Ban] Taking smart human micro-break: ${Math.round(microBreakDuration / 1000)}s`);
-        await new Promise(resolve => setTimeout(resolve, microBreakDuration));
-      } else {
-        await new Promise(resolve => setTimeout(resolve, actualDelay));
-      }
+      await new Promise(resolve => setTimeout(resolve, actualDelay));
     }
 
     // Check again after delay
@@ -4353,12 +3543,14 @@ async function startServer() {
         }
         if (Array.isArray(cloudState.activeStudentsList) && cloudState.activeStudentsList.length > 0) {
           if (activeStudentsList.length === 0) {
-            activeStudentsList = cloudState.activeStudentsList.map((s: any) => {
-              const { isArchived, archivedAt, ...rest } = s;
-              return rest;
-            });
-            saveStudentsList();
+            activeStudentsList = cloudState.activeStudentsList;
+          } else {
+            // Reconcile and deep-merge disk students with cloud students:
+            // Prevents data loss across container rebuilds, code updates, and roster variations
+            const reconciliation = reconcileStudentsRoster(cloudState.activeStudentsList, activeStudentsList);
+            activeStudentsList = reconciliation.reconciledStudents;
           }
+          saveStudentsList();
         } else if (activeStudentsList.length > 0) {
           syncServerStateToFirestore({ activeStudentsList }).catch(() => {});
         }
@@ -4496,7 +3688,7 @@ async function startServer() {
           }
 
           // Deep-reconcile config
-          const localConfig: any = parentCouncilsStore.config || {};
+          const localConfig = parentCouncilsStore.config || {};
           const mergedSelected = Array.from(new Set([
             ...(cloudConfig.selectedMemberIds || []),
             ...(localConfig.selectedMemberIds || []),
@@ -4509,11 +3701,6 @@ async function startServer() {
           parentCouncilsStore = {
             applications: mergedApps,
             invites: { ...cloudInvites, ...(parentCouncilsStore.invites || {}) },
-            votes: { ...(cloudState.parentCouncils.votes || {}), ...(parentCouncilsStore.votes || {}) },
-            votingConfig: {
-              ...(parentCouncilsStore.votingConfig || {}),
-              ...(cloudState.parentCouncils.votingConfig || {}),
-            },
             config: {
               ...parentCouncilsStore.config,
               ...cloudConfig,

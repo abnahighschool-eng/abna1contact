@@ -18,14 +18,13 @@ import {
   School,
   RefreshCw,
   ShieldCheck,
+  Archive,
+  RotateCcw,
   Info
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Student } from "../types";
-import { 
-  cleanAndDeduplicateStudentRows,
-  executeStudentsImport,
-} from "../utils/rosterReconciliation";
+import { reconcileStudentsRoster, ReconcileStudentsResult } from "../utils/rosterReconciliation";
 
 interface ExcelUploaderProps {
   onStudentsLoaded: (students: Student[]) => void;
@@ -43,8 +42,7 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
   const [isParsing, setIsParsing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedGrade, setSelectedGrade] = useState<string>("all");
-  const [selectedSection, setSelectedSection] = useState<string>("all");
+  const [rosterTab, setRosterTab] = useState<"all" | "active" | "archived">("active");
   const [reconcileStats, setReconcileStats] = useState<any | null>(null);
   const [reconcileNotification, setReconcileNotification] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -80,9 +78,16 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     setSelectedGradeCol("الصف");
     setSelectedClassCol("الفصل");
     
-    onStudentsLoaded(demoStudents);
-    setReconcileStats(null);
-    setReconcileNotification("تم توليد كشف الطلاب التجريبي بنجاح.");
+    if (students && students.length > 0) {
+      const reconcileRes = reconcileStudentsRoster(students, demoStudents);
+      onStudentsLoaded(reconcileRes.reconciledStudents);
+      setReconcileStats(reconcileRes.stats);
+      setReconcileNotification(reconcileRes.summaryMessage);
+    } else {
+      onStudentsLoaded(demoStudents);
+      setReconcileStats(null);
+      setReconcileNotification("تم توليد كشف الطلاب التجريبي بنجاح وهو محصن في النظام.");
+    }
     setErrorMsg("");
   };
 
@@ -292,37 +297,8 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
         setSelectedGradeCol(bestGrade);
         setSelectedClassCol(bestClass);
 
-        // Clean rows & strip junk/empty/footer rows and internal duplicates
-        const { cleanRows, junkCount, duplicateCount } = cleanAndDeduplicateStudentRows(
-          parsedRows,
-          bestName,
-          bestPhone,
-          bestGrade,
-          bestClass
-        );
-
-        if (cleanRows.length === 0) {
-          setErrorMsg("لم يتم العثور على صفوف صالحة لأسماء الطلاب في الملف المرفوع بعد استبعاد صفوف التذييل والمجاميع.");
-          return;
-        }
-
-        // Directly rely ONLY on the uploaded roster in full replacement mode (no historical accumulation)
-        const result = executeStudentsImport(
-          [],
-          cleanRows,
-          { mode: "full_replace" },
-          bestName,
-          bestPhone,
-          bestGrade,
-          bestClass
-        );
-        onStudentsLoaded(result.reconciledStudents);
-        setReconcileStats({
-          ...result.stats,
-          removedJunkCount: junkCount,
-          removedDuplicatesCount: duplicateCount,
-        });
-        setReconcileNotification(`تم اعتماد كشف الطلاب المرفوع بنجاح: ${result.reconciledStudents.length} طالباً وفق بيانات الملف فقط.`);
+        // Build formatted students list
+        buildAndLoadStudents(parsedRows, bestName, bestPhone, bestGrade, bestClass);
 
       } catch (err: any) {
         setErrorMsg(err.message || "حدث خطأ أثناء معالجة ملف Excel. يرجى التأكد من صياغة الملف بشكل صحيح.");
@@ -346,31 +322,42 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     gradeCol: string, 
     classCol: string
   ) => {
-    const { cleanRows, junkCount, duplicateCount } = cleanAndDeduplicateStudentRows(
-      rows,
-      nameCol,
-      phoneCol,
-      gradeCol,
-      classCol
-    );
+    const formatted: Student[] = rows.map((row, idx) => {
+      const nameVal = nameCol && row[nameCol] ? String(row[nameCol]).trim() : `طالب ${idx + 1}`;
+      const phoneVal = phoneCol && row[phoneCol] ? String(row[phoneCol]).trim() : "";
+      const gradeVal = gradeCol && row[gradeCol] ? String(row[gradeCol]).trim() : "";
+      const classVal = classCol && row[classCol] ? String(row[classCol]).trim() : "";
 
-    const result = executeStudentsImport(
-      [],
-      cleanRows,
-      { mode: "full_replace" },
-      nameCol,
-      phoneCol,
-      gradeCol,
-      classCol
-    );
+      const nidVal = row["السجل المدني"] || row["رقم الهوية"] || row["الهوية"] || row.nationalId || "";
 
-    onStudentsLoaded(result.reconciledStudents);
-    setReconcileStats({
-      ...result.stats,
-      removedJunkCount: junkCount,
-      removedDuplicatesCount: duplicateCount,
+      const studentObj: Student = {
+        id: row.id || String(idx + 1),
+        name: nameVal,
+        phone: phoneVal,
+        grade: gradeVal,
+        className: classVal,
+        nationalId: nidVal ? String(nidVal).trim() : undefined,
+        // Standard Arabic aliases for message templates
+        "اسم الطالب": nameVal,
+        "الاسم": nameVal,
+        "رقم الجوال": phoneVal,
+        "الجوال": phoneVal,
+        "الصف": gradeVal,
+        "الفصل": classVal,
+        ...row // keep all other original row fields for custom tags
+      };
+
+      return studentObj;
     });
-    setReconcileNotification(`تم تحديث كشف الطلاب المعتمد: ${result.reconciledStudents.length} طالباً.`);
+
+    // Smart Reconciliation against existing students:
+    // Matches existing students by (National ID -> ID -> Name+Grade -> Phone),
+    // preserves existing stable IDs, links with attendance/health/inquiry/messages,
+    // and archives students from previous sheets without losing any records.
+    const reconcileResult = reconcileStudentsRoster(students, formatted);
+    onStudentsLoaded(reconcileResult.reconciledStudents);
+    setReconcileStats(reconcileResult.stats);
+    setReconcileNotification(reconcileResult.summaryMessage);
   };
 
   const handleRemapColumns = (nameCol: string, phoneCol: string, gradeCol: string, classCol: string) => {
@@ -440,9 +427,21 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
     }
   };
 
-  // Student Actions: Delete & Edit
-  const deleteStudent = (id: string) => {
-    const confirmed = window.confirm("هل أنت متأكد من حذف هذا الطالب من الكشف المرفوع؟");
+  // Student Actions: Archive, Restore & Permanent Delete
+  const archiveStudent = (id: string) => {
+    const updated = students.map(s => s.id === id ? { ...s, isArchived: true, archivedAt: new Date().toISOString() } : s);
+    onStudentsLoaded(updated);
+    setReconcileNotification("تم نقل الطالب إلى الأرشيف المحصن مع الاحتفاظ بكافة سجلاته التاريخية.");
+  };
+
+  const restoreStudent = (id: string) => {
+    const updated = students.map(s => s.id === id ? { ...s, isArchived: false, archivedAt: undefined } : s);
+    onStudentsLoaded(updated);
+    setReconcileNotification("تمت استعادة الطالب بنجاح إلى الكشف النشط.");
+  };
+
+  const permanentlyDeleteStudent = (id: string) => {
+    const confirmed = window.confirm("هل أنت متأكد من الحذف النهائي لهذا السجل؟ (يُفضل إبقاؤه في الأرشيف لحفظ السجلات التاريخية)");
     if (confirmed) {
       const updated = students.filter(s => s.id !== id);
       onStudentsLoaded(updated);
@@ -517,69 +516,38 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
 
   const clearRoster = () => {
     if (students.length > 0) {
-      const confirmClear = window.confirm("هل أنت متأكد من مسح كشف الطلاب بالكامل؟\n\n- موافق (OK): مسح الكشف المرفوع.\n- إلغاء (Cancel): التراجع.");
-      if (confirmClear) {
-        onStudentsLoaded([]);
-        setReconcileStats(null);
-        setReconcileNotification("تم مسح كشف الطلاب بنجاح.");
+      const confirmArchive = window.confirm("هل ترغب في أرشفة الطلاب الحاليين لحفظ سجلاتهم التاريخية (الغياب، الرعاية، الرسائل) بدلاً من الحذف الكامل؟\n\n- موافق (OK): أرشفة وحفظ السجلات بأمان.\n- إلغاء (Cancel): البقاء دون تغيير.");
+      if (confirmArchive) {
+        const archived = students.map(s => ({ ...s, isArchived: true, archivedAt: new Date().toISOString() }));
+        onStudentsLoaded(archived);
+        setReconcileNotification("تمت أرشفة الكشف بنجاح مع تحصين وحفظ كافة السجلات التاريخية.");
       }
     }
   };
 
-  // Extract unique grades and sections
-  const uniqueGrades = useMemo(() => {
-    const grades = new Set<string>();
-    students.forEach((s) => {
-      const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
-      if (g) grades.add(g);
-    });
-    return Array.from(grades).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
-  }, [students]);
+  const activeStudentsCount = useMemo(() => students.filter(s => !s.isArchived).length, [students]);
+  const archivedStudentsCount = useMemo(() => students.filter(s => !!s.isArchived).length, [students]);
 
-  // Extract unique sections dynamically based on selected grade
-  const availableSections = useMemo(() => {
-    const sections = new Set<string>();
-    students.forEach((s) => {
-      const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
-      if (selectedGrade === "all" || g === selectedGrade.trim()) {
-        const cls = (s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || (s as any)["الشعبه"] || (s as any)["الفصل / الشعبة"] || "").trim();
-        if (cls) sections.add(cls);
-      }
-    });
-    return Array.from(sections).sort((a, b) => a.localeCompare(b, "ar", { numeric: true }));
-  }, [students, selectedGrade]);
-
-  // Filter students by search, grade, section
+  // Filter students by search and active/archived tab
   const filteredStudents = useMemo(() => {
     let list = students;
-
-    // Filter by Grade
-    if (selectedGrade !== "all") {
-      list = list.filter(s => {
-        const g = (s.grade || (s as any)["الصف"] || (s as any)["المستوى"] || (s as any)["الصف الدراسي"] || (s as any)["رقم الصف"] || "").trim();
-        return g === selectedGrade.trim();
-      });
-    }
-
-    // Filter by Section
-    if (selectedSection !== "all") {
-      list = list.filter(s => {
-        const cls = (s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || (s as any)["الشعبه"] || (s as any)["الفصل / الشعبة"] || "").trim();
-        return cls === selectedSection.trim();
-      });
+    if (rosterTab === "active") {
+      list = list.filter(s => !s.isArchived);
+    } else if (rosterTab === "archived") {
+      list = list.filter(s => !!s.isArchived);
     }
 
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase().trim();
     return list.filter(s => {
-      const name = (s.name || (s as any)["اسم الطالب"] || (s as any)["الاسم"] || "").toLowerCase();
-      const phone = (s.phone || (s as any)["رقم الجوال"] || (s as any)["الجوال"] || "").toLowerCase();
-      const grade = (s.grade || (s as any)["الصف"] || (s as any)["الصف الدراسي"] || "").toLowerCase();
-      const cls = (s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || "").toLowerCase();
-      const nid = (s.nationalId || (s as any)["السجل المدني"] || (s as any)["رقم الهوية"] || (s as any)["رقم الطالب"] || s.id || "").toLowerCase();
+      const name = (s.name || s["اسم الطالب"] || "").toLowerCase();
+      const phone = (s.phone || s["رقم الجوال"] || "").toLowerCase();
+      const grade = (s.grade || s["الصف"] || "").toLowerCase();
+      const cls = (s.className || s["الفصل"] || "").toLowerCase();
+      const nid = (s.nationalId || s["السجل المدني"] || s["رقم الهوية"] || "").toLowerCase();
       return name.includes(q) || phone.includes(q) || grade.includes(q) || cls.includes(q) || nid.includes(q);
     });
-  }, [students, searchQuery, selectedGrade, selectedSection]);
+  }, [students, searchQuery, rosterTab]);
 
   // Phone stats
   const validPhonesCount = useMemo(() => {
@@ -589,18 +557,6 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
   return (
     <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col gap-6" id="excel-uploader">
       
-      {/* Hidden File Input - accessible in all application states */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        accept=".xlsx,.xls,.csv"
-        onChange={(e) => {
-          handleChange(e);
-          e.target.value = ""; // Reset to allow re-uploading the same file
-        }}
-      />
-
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5 text-right">
         <div>
@@ -617,12 +573,11 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
           <div className="flex items-center gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-              title="رفع كشف إكسل جديد واختيار آلية التحديث"
-              id="btn-upload-new-excel"
+              className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+              title="رفع ملف إكسل آخر"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
-              <span>رفع كشف جديد / استبدال</span>
+              <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
+              <span>استبدال الملف</span>
             </button>
             <button
               onClick={clearRoster}
@@ -652,6 +607,14 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
             }`}
             id="excel-dropzone"
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleChange}
+            />
+
             <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 shadow-sm border border-emerald-100/50">
               <Upload className="w-7 h-7" />
             </div>
@@ -902,24 +865,15 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                   </p>
                   {reconcileStats && (
                     <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] font-bold">
-                      {((reconcileStats.matchedExistingCount ?? 0) > 0 || (reconcileStats.matchedCount ?? 0) > 0) && (
-                        <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
-                          ✓ مطابقة {reconcileStats.matchedExistingCount ?? reconcileStats.matchedCount} طالب والاحتفاظ بهوياتهم وسجلاتهم
-                        </span>
-                      )}
-                      {((reconcileStats.newlyAddedCount ?? 0) > 0 || (reconcileStats.newCount ?? 0) > 0) && (
-                        <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
-                          + إضافة {reconcileStats.newlyAddedCount ?? reconcileStats.newCount} طالب جديد
-                        </span>
-                      )}
-                      {(reconcileStats.removedJunkCount ?? 0) > 0 && (
-                        <span className="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 shadow-xs">
-                          تنظيف: استبعاد {reconcileStats.removedJunkCount} صف تذييل/مجاميع
-                        </span>
-                      )}
-                      {(reconcileStats.removedDuplicatesCount ?? 0) > 0 && (
-                        <span className="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 shadow-xs">
-                          تنظيف: إزالة {reconcileStats.removedDuplicatesCount} تكرارات داخلية
+                      <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
+                        ✓ مطابقة {reconcileStats.matchedCount} طالب والاحتفاظ بهوياتهم وسجلاتهم
+                      </span>
+                      <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-emerald-900 shadow-xs">
+                        + إضافة {reconcileStats.newCount} طالب جديد
+                      </span>
+                      {reconcileStats.archivedPreservedCount > 0 && (
+                        <span className="bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 text-amber-950 shadow-xs">
+                          🛡️ حفظ {reconcileStats.archivedPreservedCount} طالب سابق في الأرشيف الآمن دون فقد سجلاتهم
                         </span>
                       )}
                     </div>
@@ -936,94 +890,74 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
             </div>
           )}
 
-          {/* Quick Search, Filter & Table Controls */}
-          <div className="flex flex-col gap-3.5">
+          {/* Quick Search, Filter Tabs & Table Controls */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             
-            {/* Top row: Roster count badge */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200 w-fit">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span className="text-xs font-bold text-emerald-950">
-                  كشف الطلاب المعتمد الحالي: <strong className="text-emerald-700 font-mono text-sm">{students.length}</strong> طالباً (مطابق لملف الكشف المرفوع فقط)
-                </span>
-              </div>
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setRosterTab("active")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  rosterTab === "active"
+                    ? "bg-white text-emerald-800 shadow-xs border border-emerald-200"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>الكشف الحالي النشط ({activeStudentsCount})</span>
+              </button>
 
-              {/* Status / Clear Filter */}
-              <div className="flex items-center gap-3 self-end sm:self-auto">
-                <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
-                  عرض <strong>{filteredStudents.length}</strong> من إجمالي {students.length}
-                </span>
-                {(searchQuery || selectedGrade !== "all" || selectedSection !== "all") && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery("");
-                      setSelectedGrade("all");
-                      setSelectedSection("all");
-                    }}
-                    className="text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-xl transition-colors cursor-pointer border border-rose-200/60 flex items-center gap-1"
-                  >
-                    <span>إلغاء التصفية</span>
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => setRosterTab("archived")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  rosterTab === "archived"
+                    ? "bg-white text-amber-900 shadow-xs border border-amber-300"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Archive className="w-3.5 h-3.5 text-amber-600" />
+                <span>السجلات المحفوظة تاريخياً ({archivedStudentsCount})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRosterTab("all")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  rosterTab === "all"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-300"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <span>الكل ({students.length})</span>
+              </button>
             </div>
 
-            {/* Filter Bar: Matching قسم الاستعلام عن طالب */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Search input */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
+            {/* Search Box */}
+            <div className="flex items-center gap-3">
+              <div className="relative w-full sm:w-72">
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="ابحث بالاسم أو رقم الطالب..."
-                  className="w-full pr-9 pl-7 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium"
+                  placeholder="بحث بالاسم، الجوال، الصف، الهوية..."
+                  className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                 />
+                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
                 {searchQuery && (
                   <button 
-                    type="button"
                     onClick={() => setSearchQuery("")}
-                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
                   >
                     ✕
                   </button>
                 )}
               </div>
 
-              {/* Grade select */}
-              <div>
-                <select
-                  value={selectedGrade}
-                  onChange={(e) => {
-                    setSelectedGrade(e.target.value);
-                    setSelectedSection("all");
-                  }}
-                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer"
-                >
-                  <option value="all">جميع الصفوف الدراسية</option>
-                  {uniqueGrades.map((g) => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Section select */}
-              <div>
-                <select
-                  value={selectedSection}
-                  onChange={(e) => setSelectedSection(e.target.value)}
-                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer"
-                >
-                  <option value="all">
-                    {selectedGrade === "all" ? "جميع الشعب والصفوف" : `جميع شعب ${selectedGrade}`}
-                  </option>
-                  {availableSections.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
+              <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                عرض <strong>{filteredStudents.length}</strong>
+              </span>
             </div>
 
           </div>
@@ -1046,7 +980,9 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                   {filteredStudents.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="text-center py-8 text-slate-400 font-medium text-xs">
-                        لا توجد نتائج مطابقة للبحث أو لم يتم رفع كشف طلاب بعد
+                        {rosterTab === "archived" 
+                          ? "لا توجد سجلات مؤرشفة، كافة الطلاب متواجدون في الكشف النشط الحالي" 
+                          : "لا توجد نتائج مطابقة للبحث"}
                       </td>
                     </tr>
                   ) : (
@@ -1056,15 +992,24 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                       const sGrade = student.grade || student["الصف"] || "-";
                       const sClass = student.className || student["الفصل"] || "-";
                       const phoneValid = isValidPhone(sPhone);
+                      const isArchived = !!student.isArchived;
 
                       return (
                         <tr 
                           key={student.id || idx} 
-                          className="hover:bg-slate-50/90 transition-colors"
+                          className={`transition-colors ${isArchived ? "bg-amber-50/40 hover:bg-amber-50/80" : "hover:bg-slate-50/90"}`}
                         >
                           <td className="px-4 py-3 font-mono text-slate-400 text-center">{idx + 1}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">
-                            <span>{sName}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{sName}</span>
+                              {isArchived && (
+                                <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs">
+                                  <ShieldCheck className="w-3 h-3 text-amber-700" />
+                                  محفوظ من كشف سابق
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-700">
                             <div className="flex items-center gap-1.5">
@@ -1088,6 +1033,28 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                           </td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex items-center justify-center gap-1.5">
+                              {/* If archived: show Restore button */}
+                              {isArchived ? (
+                                <button
+                                  onClick={() => restoreStudent(student.id)}
+                                  className="p-1.5 text-emerald-700 hover:bg-emerald-100 bg-white rounded-lg transition-colors border border-emerald-300 cursor-pointer shadow-xs"
+                                  title="استعادة الطالب إلى الكشف النشط"
+                                  id={`btn-restore-${student.id}`}
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                              ) : (
+                                /* If active: show Archive button (preserves history safely) */
+                                <button
+                                  onClick={() => archiveStudent(student.id)}
+                                  className="p-1.5 text-amber-700 hover:bg-amber-100 bg-white rounded-lg transition-colors border border-amber-200 cursor-pointer shadow-xs"
+                                  title="أرشفة الطالب (حفظه في الأرشيف دون فقد سجلاته)"
+                                  id={`btn-archive-${student.id}`}
+                                >
+                                  <Archive className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
                               {/* Edit Action */}
                               <button
                                 onClick={() => openEditStudent(student)}
@@ -1098,11 +1065,11 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
 
-                              {/* Delete Action */}
+                              {/* Permanent Delete Action */}
                               <button
-                                onClick={() => deleteStudent(student.id)}
+                                onClick={() => permanentlyDeleteStudent(student.id)}
                                 className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 bg-white rounded-lg transition-colors border border-slate-200 hover:border-rose-300 cursor-pointer"
-                                title="حذف الطالب من الكشف"
+                                title="حذف نهائي للسجل"
                                 id={`btn-delete-${student.id}`}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />

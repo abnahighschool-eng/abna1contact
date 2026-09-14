@@ -9,8 +9,6 @@ import {
   Sparkles, 
   Smartphone, 
   ShieldCheck, 
-  ShieldAlert,
-  Clock,
   Database, 
   User, 
   Printer,
@@ -25,8 +23,7 @@ import {
   CloudCheck,
   Cloud,
   Menu,
-  X,
-  LogOut
+  X
 } from "lucide-react";
 import ConnectionPanel from "./components/ConnectionPanel";
 import ExcelUploader from "./components/ExcelUploader";
@@ -45,10 +42,9 @@ import StudentNeedsSurveyMain from "./components/StudentNeedsSurvey/StudentNeeds
 import ParentNeedsSurveyPortal from "./components/StudentNeedsSurvey/ParentNeedsSurveyPortal";
 import ParentCouncilDashboard from "./components/ParentCouncil/ParentCouncilDashboard";
 import ParentCouncilPortal from "./components/ParentCouncil/ParentCouncilPortal";
-import ParentCouncilVotePortal from "./components/ParentCouncil/ParentCouncilVotePortal";
 import DatabaseManagementModal from "./components/DatabaseManagementModal";
 import { SchoolSignatoriesModal, DEFAULT_MINISTRY_LOGO } from "./components/SchoolSignatoriesModal";
-import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types";
+import { StudentSupportProfile, SupportCase, HealthAuditLog } from "./types/studentSupport";
 import { Student, WhatsAppConfig, SchoolSignatories, AppUser, Teacher, ScheduleAssignment, TeacherInquiryRequest } from "./types";
 import { 
   loadInitialAppData, 
@@ -62,6 +58,7 @@ import {
   getCloudStorageStatus
 } from "./firebaseService";
 import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./utils/teachersScheduleParser";
+import { LogOut } from "lucide-react";
 
 export default function App() {
   const [mainSection, setMainSection] = useState<MainSectionType>("messages");
@@ -210,84 +207,27 @@ export default function App() {
     return [];
   });
 
-  // Direct Parent Council Voting Portal URL parameter (?portal=parent-council-vote or /v/:token or ?voting=true or ?vote=true)
-  const [parentCouncilVotePortalData, setParentCouncilVotePortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null; mode?: "group" | "code" }>(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const path = window.location.pathname;
-      const isPathVote = path.startsWith("/v/") || path === "/v";
-      const isParamVote =
-        params.get("portal") === "parent-council-vote" ||
-        params.get("portal") === "council-vote" ||
-        params.get("voting") === "true" ||
-        params.get("vote") === "true";
-
-      const isGroupMode =
-        params.get("mode") === "group" ||
-        params.get("group") === "true" ||
-        params.get("token") === "group" ||
-        path === "/v/group" ||
-        path.startsWith("/v/group/") ||
-        path === "/v" ||
-        (!params.get("code") && !params.get("c") && (!params.get("token") || params.get("token") === "group"));
-
-      if (isPathVote || isParamVote) {
-        let tok = params.get("token") || params.get("t") || params.get("council_token") || null;
-        if (!tok && isPathVote && path.length > 3) {
-          tok = path.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || null;
-        }
-        if (tok === "group") {
-          tok = null;
-        }
-        const cd = params.get("code") || params.get("c") || params.get("council_code") || null;
-        return {
-          isOpen: true,
-          token: tok,
-          code: cd,
-          mode: isGroupMode ? ("group" as const) : ("code" as const),
-        };
-      }
-    }
-    return { isOpen: false, token: null, code: null, mode: "code" as const };
-  });
-
-  // Direct Parent Council Portal URL parameter (?portal=parent-council or /c/:token or ?council_token=<token>)
+  // Direct Parent Council Portal URL parameter (?portal=parent-council or ?parent_council=true or ?council_token=<token> or ?token=pc_... or ?council_code=<code>)
   const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      const path = window.location.pathname;
-      const isPathCouncil = path.startsWith("/c/") || path === "/c";
-      let token = params.get("council_token") || params.get("token") || null;
-      if (!token && isPathCouncil && path.length > 3) {
-        token = path.replace(/^\/c\/?/, "").split("/")[0].split("?")[0] || null;
-      }
-      const isGroupMode =
-        params.get("mode") === "group" ||
-        params.get("group") === "true" ||
-        token === "group" ||
-        path === "/c/group" ||
-        path.startsWith("/c/group/") ||
-        path === "/c" ||
-        (!params.get("code") && !params.get("council_code") && (!token || token === "group"));
+      const token = params.get("council_token") || params.get("token") || null;
       const isParentCouncil =
-        isPathCouncil ||
         params.get("portal") === "parent-council" ||
         params.get("parent_council") === "true" ||
         params.get("council") === "true" ||
-        params.get("page") === "parent_council_portal" ||
         !!params.get("council_token") ||
-        (token !== null && token.startsWith("pc_") && !path.startsWith("/v/"));
+        (token !== null && token.startsWith("pc_"));
 
       if (isParentCouncil) {
         return {
           isOpen: true,
-          token: token === "group" ? null : token,
-          code: params.get("council_code") || params.get("code") || null,
-          mode: isGroupMode ? ("group" as const) : ("code" as const),
+          token: token,
+          code: null,
         };
       }
     }
-    return { isOpen: false, token: null, code: null, mode: "code" as const };
+    return { isOpen: false, token: null, code: null };
   });
 
   // Direct Parent Student Needs Survey Portal URL parameter (?survey_token=<token> or ?needs_token=<token> or ?token=<token>)
@@ -295,29 +235,20 @@ export default function App() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token");
-      const isVoting =
-        params.get("portal") === "parent-council-vote" ||
-        params.get("portal") === "council-vote" ||
-        params.get("voting") === "true" ||
-        params.get("vote") === "true";
       const isParentCouncil =
         params.get("portal") === "parent-council" ||
         params.get("parent_council") === "true" ||
         params.get("council") === "true" ||
-        params.get("page") === "parent_council_portal" ||
         !!params.get("council_token") ||
         (token !== null && token.startsWith("pc_"));
 
-      if (isParentCouncil || isVoting) {
+      if (isParentCouncil) {
         return null;
       }
       return params.get("survey_token") || params.get("needs_token") || (params.get("portal") === "needs" ? params.get("token") : null) || (!params.get("portal") && params.get("token")) || params.get("support_token") || params.get("health_token");
     }
     return null;
   });
-
-  // Track if a public portal user finished and closed the form
-  const [isPublicSessionEnded, setIsPublicSessionEnded] = useState(false);
 
   const [supportProfiles, setSupportProfiles] = useState<Record<string, StudentSupportProfile>>(() => {
     const saved = localStorage.getItem("abna_support_profiles");
@@ -346,11 +277,6 @@ export default function App() {
 
   const [healthAuditLogs, setHealthAuditLogs] = useState<HealthAuditLog[]>([]);
   const [showDatabaseModal, setShowDatabaseModal] = useState(false);
-
-  // Inactivity tracking state: Auto-logout after 5 minutes with 30-second warning
-  const [showInactivityWarning, setShowInactivityWarning] = useState(false);
-  const [inactivitySecondsLeft, setInactivitySecondsLeft] = useState(30);
-  const lastActivityTimeRef = useRef<number>(Date.now());
 
   // Clear specific or all local state sections
   const handleClearLocalSection = (scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "health" | "logs") => {
@@ -466,42 +392,9 @@ export default function App() {
         setSignatories(prev => ({ ...prev, ...cloudData.schoolSignatories }));
         localStorage.setItem("school_signatories", JSON.stringify(cloudData.schoolSignatories));
       }
-      const deduplicateStudentRoster = (arr: any[]) => {
-        if (!Array.isArray(arr)) return [];
-        const seen = new Set<string>();
-        const res: any[] = [];
-        for (const s of arr) {
-          if (!s) continue;
-          const name = String(s.name || s["اسم الطالب"] || s["الاسم"] || "").trim().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/\s+/g, " ");
-          const grade = String(s.grade || s["الصف"] || "").trim();
-          const cls = String(s.className || s["الفصل"] || s["الشعبة"] || "").trim();
-          const key = `${name}_${grade}_${cls}`;
-          if (!name || seen.has(key)) continue;
-          seen.add(key);
-          res.push(s);
-        }
-        return res;
-      };
-
       if (Array.isArray(cloudData.students) && cloudData.students.length > 0) {
-        const cleanCloud = deduplicateStudentRoster(cloudData.students.map((s: any) => {
-          const { isArchived, archivedAt, ...rest } = s;
-          return rest;
-        }));
-        setStudents(cleanCloud);
-        localStorage.setItem("whatsapp_student_list", JSON.stringify(cleanCloud));
-      } else {
-        const localSaved = localStorage.getItem("whatsapp_student_list");
-        if (localSaved) {
-          try {
-            const parsed = JSON.parse(localSaved);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const dedupedLocal = deduplicateStudentRoster(parsed);
-              setStudents(dedupedLocal);
-              localStorage.setItem("whatsapp_student_list", JSON.stringify(dedupedLocal));
-            }
-          } catch (e) {}
-        }
+        setStudents(cloudData.students);
+        localStorage.setItem("whatsapp_student_list", JSON.stringify(cloudData.students));
       }
       if (cloudData.savedTemplate) {
         setTemplate(cloudData.savedTemplate);
@@ -538,12 +431,8 @@ export default function App() {
           localStorage.setItem("school_signatories", JSON.stringify(data.settings));
         }
         if (Array.isArray(data.students) && data.students.length > 0 && (!cloudData.students || cloudData.students.length === 0)) {
-          const cleanServer = deduplicateStudentRoster(data.students.map((s: any) => {
-            const { isArchived, archivedAt, ...rest } = s;
-            return rest;
-          }));
-          setStudents(cleanServer);
-          localStorage.setItem("whatsapp_student_list", JSON.stringify(cleanServer));
+          setStudents(data.students);
+          localStorage.setItem("whatsapp_student_list", JSON.stringify(data.students));
         }
         if (data.template && !cloudData.savedTemplate) {
           setTemplate(data.template);
@@ -632,10 +521,6 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: AppUser) => {
-    // Reset inactivity tracking on login
-    lastActivityTimeRef.current = Date.now();
-    setShowInactivityWarning(false);
-
     // Update lastLogin
     const updatedUsers = users.map((u) => (u.id === user.id ? { ...u, lastLogin: new Date().toISOString() } : u));
     setUsers(updatedUsers);
@@ -658,62 +543,7 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem("abna_auth_current_user");
     setMainSection("messages");
-    setShowInactivityWarning(false);
   };
-
-  const handleExtendSession = () => {
-    lastActivityTimeRef.current = Date.now();
-    setShowInactivityWarning(false);
-  };
-
-  // Inactivity tracking (Auto-logout after 5 minutes with 30s countdown warning)
-  const INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes
-  const INACTIVITY_WARNING_MS = 30 * 1000; // Last 30 seconds
-  const INACTIVITY_THRESHOLD_MS = INACTIVITY_LIMIT_MS - INACTIVITY_WARNING_MS; // 4m 30s
-
-  useEffect(() => {
-    if (!currentUser) {
-      setShowInactivityWarning(false);
-      return;
-    }
-
-    lastActivityTimeRef.current = Date.now();
-
-    const handleUserActivity = () => {
-      const now = Date.now();
-      if (now - lastActivityTimeRef.current > 1000) {
-        lastActivityTimeRef.current = now;
-      }
-    };
-
-    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
-    events.forEach((evt) => window.addEventListener(evt, handleUserActivity, { passive: true }));
-
-    const timer = setInterval(() => {
-      const elapsed = Date.now() - lastActivityTimeRef.current;
-
-      if (elapsed >= INACTIVITY_LIMIT_MS) {
-        // Inactivity exceeded 5 minutes -> Auto logout!
-        setShowInactivityWarning(false);
-        setCurrentUser(null);
-        localStorage.removeItem("abna_auth_current_user");
-        setMainSection("messages");
-      } else if (elapsed >= INACTIVITY_THRESHOLD_MS) {
-        // Last 30 seconds -> Show countdown modal
-        const remainingSec = Math.max(1, Math.ceil((INACTIVITY_LIMIT_MS - elapsed) / 1000));
-        setInactivitySecondsLeft(remainingSec);
-        setShowInactivityWarning(true);
-      } else {
-        setShowInactivityWarning(false);
-      }
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-      events.forEach((evt) => window.removeEventListener(evt, handleUserActivity));
-    };
-  }, [currentUser]);
-
 
   const handleSaveUsers = (updatedUsers: AppUser[]) => {
     setUsers(updatedUsers);
@@ -748,12 +578,9 @@ export default function App() {
     fetchFullAppState();
 
     const interval = setInterval(() => {
-      if (document.hidden) return;
       fetchConfig();
-      if (currentUser) {
-        syncInquiriesFromServer();
-      }
-    }, 8000);
+      syncInquiriesFromServer();
+    }, 3000);
 
     // Initial local fallback if server hasn't responded yet
     const savedTemplate = localStorage.getItem("whatsapp_student_template");
@@ -772,21 +599,17 @@ export default function App() {
   }, []);
 
   const handleUpdateStudents = (newStudents: Student[]) => {
-    const cleanList = newStudents.map(s => {
-      const { isArchived, archivedAt, ...rest } = s as any;
-      return rest;
-    });
-    setStudents(cleanList);
-    localStorage.setItem("whatsapp_student_list", JSON.stringify(cleanList));
+    setStudents(newStudents);
+    localStorage.setItem("whatsapp_student_list", JSON.stringify(newStudents));
     
     // Save to Cloud Firestore (1 Single Write for all students list)
-    saveStudentsDataToCloud(cleanList).catch(() => {});
+    saveStudentsDataToCloud(newStudents).catch(() => {});
 
     // Save to server for cross-device/browser sync
     fetch("/api/app-state/students", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ students: cleanList, forceOverwrite: true }),
+      body: JSON.stringify({ students: newStudents }),
     }).catch(() => {});
   };
 
@@ -947,35 +770,17 @@ export default function App() {
     );
   }
 
-  // Direct Parent Council Voting Portal (تصويت وترشيح أعضاء المجلس)
-  if (parentCouncilVotePortalData.isOpen) {
-    return (
-      <ParentCouncilVotePortal
-        initialToken={parentCouncilVotePortalData.token}
-        initialCode={parentCouncilVotePortalData.code}
-        mode={parentCouncilVotePortalData.mode}
-        onClose={() => {
-          setParentCouncilVotePortalData({ isOpen: false, token: null, code: null, mode: "code" });
-          window.history.replaceState({}, document.title, window.location.pathname);
-          setIsPublicSessionEnded(true);
-        }}
-      />
-    );
-  }
-
   // Direct Parent Council Portal (مجالس أولياء الأمور)
   if (parentCouncilPortalData.isOpen) {
     return (
       <ParentCouncilPortal
         token={parentCouncilPortalData.token}
         initialCode={parentCouncilPortalData.code}
-        mode={parentCouncilPortalData.mode}
         signatories={signatories}
         students={students}
         onExit={() => {
-          setParentCouncilPortalData({ isOpen: false, token: null, code: null, mode: "code" });
+          setParentCouncilPortalData({ isOpen: false, token: null, code: null });
           window.history.replaceState({}, document.title, window.location.pathname);
-          setIsPublicSessionEnded(true);
         }}
       />
     );
@@ -989,68 +794,8 @@ export default function App() {
         onExit={() => {
           setParentSurveyToken(null);
           window.history.replaceState({}, document.title, window.location.pathname);
-          setIsPublicSessionEnded(true);
         }}
       />
-    );
-  }
-
-  // Final Session Termination for Parents (لا عودة للموقع أو تسجيل الدخول نهائياً)
-  if (isPublicSessionEnded) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white font-sans flex items-center justify-center p-4" dir="rtl">
-        <div className="max-w-md w-full bg-slate-800/95 border border-slate-700/80 rounded-3xl p-6 sm:p-8 text-center shadow-2xl space-y-6 backdrop-blur-xs">
-          <div className="w-20 h-20 bg-emerald-500/10 border-2 border-emerald-500/30 rounded-full flex items-center justify-center mx-auto text-emerald-400 shadow-inner">
-            <CheckCircle2 className="w-10 h-10" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-xl sm:text-2xl font-black text-white">
-              تم إغلاق الاستمارة بنجاح
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed">
-              شكراً لتعاونكم ومشاركتكم في مجالس أولياء الأمور بـ{" "}
-              <span className="text-teal-300 font-bold">{signatories.schoolName || "المدرسة"}</span>. تم حفظ وتوثيق استمارتكم بنجاح في سجلات المدرسة.
-            </p>
-          </div>
-          <div className="bg-slate-700/50 rounded-2xl p-4 border border-slate-600/50 text-xs text-slate-300 space-y-1">
-            <div className="font-bold text-emerald-400 flex items-center justify-center gap-1.5">
-              <span>تم إنهاء الجلسة والخروج بأمان</span>
-            </div>
-            <p className="text-[11px] text-slate-400 pt-0.5">
-              يمكنكم الآن إغلاق هذا التبويب أو نافذة المتصفح.
-            </p>
-          </div>
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                try { window.close(); } catch (e) {}
-                try { window.open("", "_self", ""); window.close(); } catch (e) {}
-                try {
-                  if ((window as any).opener) {
-                    (window as any).opener = null;
-                    window.open("", "_self");
-                    window.close();
-                  }
-                } catch (e) {}
-                try {
-                  if ((window as any).WeixinJSBridge) {
-                    (window as any).WeixinJSBridge.call("closeWindow");
-                  }
-                } catch (e) {}
-                try {
-                  if (window.top && window.top !== window) {
-                    window.top.close();
-                  }
-                } catch (e) {}
-              }}
-              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white rounded-xl font-bold text-xs sm:text-sm cursor-pointer transition-all shadow-md"
-            >
-              إغلاق المتصفح الآن
-            </button>
-          </div>
-        </div>
-      </div>
     );
   }
 
@@ -1359,8 +1104,6 @@ export default function App() {
 
               <div className={activeTab === "individual" ? "block" : "hidden"}>
                 <IndividualSender 
-                  students={students}
-                  teachers={teachers}
                   isWhatsAppConnected={isWhatsAppConnected} 
                   onNavigateToConnection={() => setActiveTab("connection")}
                 />
@@ -1509,92 +1252,6 @@ export default function App() {
         onRefreshAllData={fetchFullAppState}
         onClearLocalSection={handleClearLocalSection}
       />
-
-      {/* 5-Minute Inactivity Warning & 30-Second Countdown Security Modal */}
-      {showInactivityWarning && currentUser && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-fadeIn"
-          dir="rtl"
-          id="inactivity-warning-modal"
-        >
-          <div 
-            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-rose-100 overflow-hidden text-slate-800"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="inactivity-dialog-title"
-          >
-            {/* Top accent bar */}
-            <div className="h-2 bg-gradient-to-r from-amber-500 via-rose-500 to-red-600 animate-pulse" />
-
-            <div className="p-6 sm:p-7 text-center">
-              {/* Icon badge */}
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center relative shadow-sm">
-                <ShieldAlert className="w-8 h-8" />
-                <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-4 w-4 bg-rose-600"></span>
-                </span>
-              </div>
-
-              {/* Title & Description */}
-              <h3 
-                id="inactivity-dialog-title"
-                className="text-lg sm:text-xl font-black text-slate-900 mb-2"
-              >
-                تنبيه أمان: انتهاء الجلسة لعدم النشاط
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6">
-                لحماية أمان وسرية بيانات المدرسة والطلاب، سيقوم النظام بتسجيل الخروج تلقائياً بعد مرور 5 دقائق من عدم وجود نشاط.
-              </p>
-
-              {/* Circular / Countdown Timer Box */}
-              <div className="bg-slate-50 border-2 border-rose-200 rounded-2xl p-4 mb-6 shadow-inner">
-                <div className="text-[11px] font-bold text-slate-500 mb-1 flex items-center justify-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-rose-500 animate-spin" />
-                  <span>الوقت المتبقي قبل الإغلاق التلقائي:</span>
-                </div>
-
-                <div className="text-3xl sm:text-4xl font-black text-rose-600 font-mono tracking-tight my-1">
-                  {inactivitySecondsLeft}
-                  <span className="text-sm font-sans font-bold text-slate-700 mr-1.5">ثانية</span>
-                </div>
-
-                {/* Progress bar */}
-                <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
-                  <div 
-                    className="bg-rose-500 h-full transition-all duration-1000 ease-linear rounded-full"
-                    style={{ width: `${Math.min(100, Math.max(0, (inactivitySecondsLeft / 30) * 100))}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleExtendSession}
-                  className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer"
-                  id="btn-extend-inactivity-session"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                  <span>متابعة العمل (تمديد 5 دقائق)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                  id="btn-logout-immediately"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>تسجيل الخروج الآن</span>
-                </button>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

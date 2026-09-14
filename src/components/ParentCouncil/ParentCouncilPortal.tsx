@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   ShieldCheck,
   CheckCircle2,
@@ -64,6 +64,15 @@ function extractGuardianFullName(student: any): string {
   return deriveFatherFullName(student?.name || student?.["اسم الطالب"] || "", student);
 }
 
+function normalizeStudentName(name: string): string {
+  return String(name || "")
+    .trim()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ");
+}
+
 function findStudentSiblings(
   currentStudent: any,
   allStudents: any[]
@@ -79,25 +88,35 @@ function findStudentSiblings(
     currentStudent["اسم الطالب"] ||
     ""
   ).trim();
+  const currentNorm = normalizeStudentName(currentName);
   const currentParts = currentName.split(/\s+/).filter(Boolean);
   const currentFatherFamily = deriveFatherFullName(currentName, currentStudent);
 
   const siblings: Array<{ name: string; grade: string; className?: string }> = [];
+  const seenNorms = new Set<string>();
+  if (currentNorm) seenNorms.add(currentNorm);
 
   for (const st of allStudents) {
     if (st.id === currentStudent.id) continue;
-    const stPhone = (st.phone || st["رقم الجوال"] || "").replace(/\D/g, "");
     const stName = (st.name || st["اسم الطالب"] || "").trim();
+    const stNorm = normalizeStudentName(stName);
+    // A student is never a sibling to himself and never duplicate
+    if (!stNorm || seenNorms.has(stNorm)) continue;
+
+    const stPhone = (st.phone || st["رقم الجوال"] || "").replace(/\D/g, "");
     const stParts = stName.split(/\s+/).filter(Boolean);
     const stFatherFamily = deriveFatherFullName(stName, st);
 
     let isSibling = false;
+    // Siblings share guardian phone OR father family, but MUST have distinct first names
     if (
       currentPhone.length >= 8 &&
       stPhone.length >= 8 &&
-      currentPhone === stPhone
+      currentPhone.slice(-9) === stPhone.slice(-9)
     ) {
-      isSibling = true;
+      if (currentParts[0] !== stParts[0]) {
+        isSibling = true;
+      }
     } else if (
       currentFatherFamily &&
       stFatherFamily &&
@@ -108,6 +127,7 @@ function findStudentSiblings(
     }
 
     if (isSibling) {
+      seenNorms.add(stNorm);
       siblings.push({
         name: stName,
         grade: st.grade || st["الصف"] || "المرحلة الثانوية",
@@ -795,23 +815,27 @@ export default function ParentCouncilPortal({
       });
 
       const serverMatches = data.matchedStudents || [];
-      const mergedMap = new Map();
-      clientMatches.forEach((s) =>
-        mergedMap.set(s.id, {
-          id: s.id,
-          name: s.name || (s as any)["اسم الطالب"],
-          grade: s.grade || (s as any)["الصف"],
-          className: s.className || (s as any)["الفصل"] || (s as any)["الشعبة"],
-          phone: s.phone,
-        })
-      );
-      serverMatches.forEach((s: any) => {
-        if (!mergedMap.has(s.id)) {
-          mergedMap.set(s.id, s);
-        }
-      });
+      const seenMatchedNames = new Set<string>();
+      const allMatched: any[] = [];
 
-      const allMatched = Array.from(mergedMap.values());
+      const addCandidate = (s: any) => {
+        if (!s) return;
+        const name = String(s.name || (s as any)["اسم الطالب"] || (s as any)["الاسم"] || "").trim();
+        const norm = normalizeStudentName(name);
+        if (!norm || seenMatchedNames.has(norm)) return;
+        seenMatchedNames.add(norm);
+        allMatched.push({
+          id: s.id || norm,
+          name,
+          grade: s.grade || (s as any)["الصف"] || "الأول ثانوي",
+          className: s.className || (s as any)["الفصل"] || (s as any)["الشعبة"] || "1",
+          phone: s.phone || (s as any)["رقم الجوال"] || normalized,
+        });
+      };
+
+      clientMatches.forEach(addCandidate);
+      serverMatches.forEach(addCandidate);
+
       setMatchedChildren(allMatched);
       setPhone(normalized);
 
@@ -823,20 +847,24 @@ export default function ParentCouncilPortal({
         setStudentClass(primary.className || "1");
         setStudentId(primary.id || "");
 
-        // Sibling detection (Requirement 2):
+        // Sibling detection (only real siblings with different names):
         const otherChildren = allMatched.slice(1);
         const rosterSiblings = findStudentSiblings(primary, students || []);
-        const sibMap = new Map();
-        otherChildren.forEach((ch: any) =>
-          sibMap.set(ch.id || ch.name, {
-            name: ch.name,
-            grade: ch.grade || "المرحلة الثانوية",
-            className: ch.className || "1",
-          })
-        );
+        const sibMap = new Map<string, any>();
+        otherChildren.forEach((ch: any) => {
+          const chNorm = normalizeStudentName(ch.name);
+          if (chNorm !== normalizeStudentName(primary.name)) {
+            sibMap.set(chNorm, {
+              name: ch.name,
+              grade: ch.grade || "المرحلة الثانوية",
+              className: ch.className || "1",
+            });
+          }
+        });
         rosterSiblings.forEach((ch) => {
-          if (ch.name !== primary.name && !sibMap.has(ch.name)) {
-            sibMap.set(ch.name, ch);
+          const chNorm = normalizeStudentName(ch.name);
+          if (chNorm !== normalizeStudentName(primary.name) && !sibMap.has(chNorm)) {
+            sibMap.set(chNorm, ch);
           }
         });
         setDetectedSiblings(Array.from(sibMap.values()));
@@ -902,6 +930,34 @@ export default function ParentCouncilPortal({
       setPhone(selectedStudent.phone);
     }
   };
+
+  // Unified, deduplicated list of all children for this guardian (no duplicate names)
+  const allGuardianChildren = useMemo(() => {
+    const list: Array<{ id?: string; name: string; grade: string; className?: string }> = [];
+    const seen = new Set<string>();
+    if (studentName) {
+      const norm = normalizeStudentName(studentName);
+      if (norm) {
+        seen.add(norm);
+        list.push({ id: studentId, name: studentName, grade: studentGrade, className: studentClass });
+      }
+    }
+    (matchedChildren || []).forEach((ch) => {
+      const norm = normalizeStudentName(ch.name);
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        list.push({ id: ch.id, name: ch.name, grade: ch.grade, className: ch.className });
+      }
+    });
+    (detectedSiblings || []).forEach((sib) => {
+      const norm = normalizeStudentName(sib.name);
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        list.push({ name: sib.name, grade: sib.grade, className: sib.className });
+      }
+    });
+    return list;
+  }, [studentName, studentGrade, studentClass, studentId, matchedChildren, detectedSiblings]);
 
   // Submission Handler
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1640,115 +1696,97 @@ export default function ParentCouncilPortal({
                     )}
                   </div>
 
-                  {/* If multiple children detected from phone verification, allow selecting primary child */}
-                  {matchedChildren && matchedChildren.length > 1 && (
-                    <div className="bg-emerald-50/90 border border-emerald-300 rounded-2xl p-3.5 shadow-2xs">
-                      <div className="text-xs font-black text-emerald-950 flex items-center justify-between gap-1.5 mb-2">
-                        <div className="flex items-center gap-1.5">
-                          <Users className="w-4 h-4 text-emerald-700" />
-                          <span>أبناؤك المسجلون بالمدرسة ({matchedChildren.length} طلاب):</span>
-                        </div>
-                        <span className="text-[11px] font-bold text-emerald-800 bg-white/90 px-2 py-0.5 rounded-lg border border-emerald-200">
-                          انقر لاختيار الطالب الأساسي للطلب
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {matchedChildren.map((ch: any) => {
-                          const isCur = ch.name === studentName || (ch.id && ch.id === studentId);
-                          return (
-                            <button
-                              key={ch.id || ch.name}
-                              type="button"
-                              onClick={() => selectPrimaryChild(ch)}
-                              className={`p-2.5 rounded-xl text-right transition-all cursor-pointer border flex items-center justify-between gap-2 ${
-                                isCur
-                                  ? "bg-emerald-800 text-white border-emerald-900 shadow-xs"
-                                  : "bg-white text-slate-800 border-emerald-200 hover:bg-emerald-100/50"
-                              }`}
-                            >
+                  {/* Auto-detected Student / Children Display (Without Selection) */}
+                  {studentName && (
+                    <>
+                      {allGuardianChildren.length <= 1 ? (
+                        /* Single Child Display */
+                        <div className="bg-gradient-to-r from-teal-50/90 to-emerald-50/70 border border-teal-200/90 rounded-2xl p-4.5 space-y-3 shadow-2xs">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-teal-700 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                <GraduationCap className="w-5 h-5" />
+                              </div>
                               <div>
-                                <div className="text-xs font-black leading-snug">{ch.name}</div>
-                                <div className={`text-[10px] mt-0.5 ${isCur ? "text-emerald-100" : "text-slate-500"}`}>
-                                  {ch.grade} {ch.className ? `• شعبة ${ch.className}` : ""}
+                                <div className="text-[11px] font-extrabold text-teal-800">
+                                  بيانات الطالب المسجل بالمدرسة:
+                                </div>
+                                <div className="text-sm sm:text-base font-black text-slate-900 mt-0.5">
+                                  {studentName}
+                                </div>
+                                <div className="text-xs text-slate-600 flex items-center gap-2 mt-0.5 font-bold">
+                                  <span>الصف: <strong className="text-slate-800">{studentGrade}</strong></span>
+                                  <span>•</span>
+                                  <span>الشعبة: <strong className="text-slate-800">{studentClass}</strong></span>
+                                  {studentId && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-[11px] font-mono text-slate-500">رقم الطالب: {studentId}</span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
-                              {isCur ? (
-                                <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-bold rounded-lg shrink-0">
-                                  ✓ الأساسي
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-lg shrink-0">
-                                  تبديل
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                            </div>
 
-                  {/* Auto-detected Student & Siblings Card */}
-                  {studentName ? (
-                    <div className="bg-gradient-to-r from-teal-50/90 to-emerald-50/70 border border-teal-200/90 rounded-2xl p-4.5 space-y-3 shadow-2xs">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-teal-700 text-white flex items-center justify-center shrink-0 shadow-xs">
-                            <GraduationCap className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="text-[11px] font-extrabold text-teal-800">
-                              بيانات الطالب الأساسي المسجل بالمدرسة:
-                            </div>
-                            <div className="text-sm sm:text-base font-black text-slate-900 mt-0.5">
-                              {studentName}
-                            </div>
-                            <div className="text-xs text-slate-600 flex items-center gap-2 mt-0.5 font-bold">
-                              <span>الصف: <strong className="text-slate-800">{studentGrade}</strong></span>
-                              <span>•</span>
-                              <span>الشعبة: <strong className="text-slate-800">{studentClass}</strong></span>
-                              {studentId && (
-                                <>
-                                  <span>•</span>
-                                  <span className="text-[11px] font-mono text-slate-500">رقم الطالب: {studentId}</span>
-                                </>
-                              )}
-                            </div>
+                            <span className="px-2.5 py-1 bg-white border border-teal-300 text-teal-800 rounded-xl text-[11px] font-extrabold shrink-0">
+                              بيانات معتمدة
+                            </span>
                           </div>
                         </div>
-
-                        <span className="px-2.5 py-1 bg-white border border-teal-300 text-teal-800 rounded-xl text-[11px] font-extrabold shrink-0">
-                          بيانات معتمدة
-                        </span>
-                      </div>
-
-                      {/* If multiple siblings detected in school */}
-                      {detectedSiblings && detectedSiblings.length > 0 && (
-                        <div className="pt-3 border-t border-teal-200/60 mt-2">
-                          <div className="text-xs font-black text-teal-950 flex items-center gap-1.5 mb-2">
-                            <Users className="w-4 h-4 text-teal-700" />
-                            <span>الأبناء الآخرون المسجلون بالمدرسة ({detectedSiblings.length} طالب):</span>
+                      ) : (
+                        /* Multiple Children Display (Pure Informative Display Without Selection) */
+                        <div className="bg-gradient-to-r from-teal-50/90 to-emerald-50/70 border border-teal-200/90 rounded-2xl p-4.5 space-y-3.5 shadow-2xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-200/60 pb-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                <Users className="w-4.5 h-4.5" />
+                              </div>
+                              <div>
+                                <div className="text-xs sm:text-sm font-black text-teal-950">
+                                  أبناؤك المسجلون بالمدرسة ({allGuardianChildren.length} طلاب):
+                                </div>
+                                <div className="text-[11px] text-teal-800 font-medium">
+                                  يسري طلب الترشح ممثلاً لجميع أبنائك المسجلين بالمدرسة دون حاجة لاختيار أحدهم
+                                </div>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 bg-white border border-teal-300 text-teal-800 rounded-xl text-[10px] font-extrabold shrink-0 w-fit">
+                              سجلات معتمدة
+                            </span>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            {detectedSiblings.map((sib, sIdx) => (
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                            {allGuardianChildren.map((ch, idx) => (
                               <div
-                                key={sIdx}
-                                className="bg-white/95 border border-teal-200 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 text-slate-800 shadow-2xs"
+                                key={idx}
+                                className="bg-white/95 border border-teal-200/90 rounded-xl p-3 shadow-2xs flex items-center justify-between gap-2"
                               >
-                                <span className="font-black text-teal-900">{sib.name}</span>
-                                <span className="text-[11px] text-slate-500 font-bold">
-                                  ({sib.grade} {sib.className ? `- شعبة ${sib.className}` : ""})
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-xs shrink-0">
+                                    {idx + 1}
+                                  </div>
+                                  <div className="truncate">
+                                    <div className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                                      {ch.name}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 font-bold mt-0.5">
+                                      {ch.grade} {ch.className ? `• شعبة ${ch.className}` : ""}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200 shrink-0">
+                                  مسجل بالنظام
                                 </span>
                               </div>
                             ))}
                           </div>
-                          <p className="text-[11px] text-teal-800 mt-1.5 font-medium">
-                            • يسري طلب الترشيح ممثلاً لجميع أبنائك المسجلين بالمدرسة وفق القواعد المنظمة.
+                          <p className="text-[11px] text-teal-800 pt-1 font-medium">
+                            • يشمل الترشح تمثيل أولياء أمور كافة أبنائكم المسجلين بالمدرسة وفق اللائحة الرسمية المنظمة.
                           </p>
                         </div>
                       )}
-                    </div>
-                  ) : null}
+                    </>
+                  )}
 
                   {/* Relationship selector */}
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5">
