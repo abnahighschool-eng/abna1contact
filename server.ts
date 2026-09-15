@@ -2503,56 +2503,129 @@ app.post("/api/parent-councils/sync", (req, res) => {
 
 // 6.5 Delete Application and Reset Invite (Allows parent to refill the form)
 app.post("/api/parent-councils/delete-application", (req, res) => {
-  const { id, applicationId } = req.body || {};
-  const targetId = String(id || applicationId || "").trim();
+  const { id, applicationId, ids, deleteAll } = req.body || {};
 
-  if (!targetId) {
+  // 1. Delete All Applications
+  if (deleteAll === true) {
+    parentCouncilsStore.applications = {};
+
+    if (parentCouncilsStore.config) {
+      parentCouncilsStore.config.selectedMemberIds = [];
+      parentCouncilsStore.config.reserveMemberIds = [];
+    }
+
+    if (parentCouncilsStore.votingConfig) {
+      parentCouncilsStore.votingConfig.candidateIds = [];
+    }
+
+    parentCouncilsStore.votes = {};
+
+    // Reset all student invites so any parent can submit again
+    Object.values(parentCouncilsStore.invites || {}).forEach((inv: any) => {
+      if (inv) {
+        inv.isSubmitted = false;
+        delete inv.submittedAt;
+        delete inv.applicationId;
+      }
+    });
+
+    saveParentCouncilsStore(true);
+
+    return res.json({
+      success: true,
+      message: "تم حذف كافة الاستمارات بنجاح، ويمكن لجميع أولياء الأمور الآن التقديم من جديد عبر الرابط المرسل.",
+      deletedAll: true,
+      applications: parentCouncilsStore.applications,
+      config: parentCouncilsStore.config,
+      invites: parentCouncilsStore.invites,
+    });
+  }
+
+  // 2. Delete Selected or Single Application(s)
+  const targetIds: string[] = [];
+  if (Array.isArray(ids) && ids.length > 0) {
+    ids.forEach((i: any) => {
+      const s = String(i || "").trim();
+      if (s) targetIds.push(s);
+    });
+  } else {
+    const single = String(id || applicationId || "").trim();
+    if (single) targetIds.push(single);
+  }
+
+  if (targetIds.length === 0) {
     return res.status(400).json({ success: false, message: "معرف الاستمارة مطلوب لحذفها" });
   }
 
-  const existingApp = parentCouncilsStore.applications[targetId] ||
-    Object.values(parentCouncilsStore.applications || {}).find((a: any) => a && (a.id === targetId || a.id === `app_${targetId}`));
+  const deletedAppIds: string[] = [];
+  const deletedStudentIds: string[] = [];
+  const deletedTokens: string[] = [];
+  const deletedPhones: string[] = [];
 
-  const appId = existingApp ? existingApp.id : targetId;
-  const studentId = existingApp?.studentId;
-  const token = existingApp?.token || existingApp?.activationToken;
+  targetIds.forEach((targetId) => {
+    const existingApp = parentCouncilsStore.applications[targetId] ||
+      Object.values(parentCouncilsStore.applications || {}).find((a: any) => a && (a.id === targetId || a.id === `app_${targetId}`));
 
-  // 1. Remove from applications
-  if (parentCouncilsStore.applications[appId]) {
-    delete parentCouncilsStore.applications[appId];
-  }
-  if (parentCouncilsStore.applications[targetId]) {
-    delete parentCouncilsStore.applications[targetId];
-  }
+    const appId = existingApp ? existingApp.id : targetId;
+    deletedAppIds.push(appId);
+    deletedAppIds.push(targetId);
 
-  // 2. Remove from selected / reserve member lists in config
-  if (parentCouncilsStore.config) {
-    parentCouncilsStore.config.selectedMemberIds = (parentCouncilsStore.config.selectedMemberIds || []).filter(
-      (mId: string) => mId !== appId && mId !== targetId
-    );
-    parentCouncilsStore.config.reserveMemberIds = (parentCouncilsStore.config.reserveMemberIds || []).filter(
-      (mId: string) => mId !== appId && mId !== targetId
-    );
-  }
-
-  // 3. Reset matched invite so parent can refill the form
-  if (studentId && parentCouncilsStore.invites?.[studentId]) {
-    parentCouncilsStore.invites[studentId].isSubmitted = false;
-    delete parentCouncilsStore.invites[studentId].submittedAt;
-    delete parentCouncilsStore.invites[studentId].applicationId;
-  }
-  if (token) {
-    const matchedInvite: any = Object.values(parentCouncilsStore.invites || {}).find(
-      (inv: any) => inv.token === token
-    );
-    if (matchedInvite) {
-      matchedInvite.isSubmitted = false;
-      delete matchedInvite.submittedAt;
-      delete matchedInvite.applicationId;
+    if (existingApp?.studentId) deletedStudentIds.push(String(existingApp.studentId));
+    if (existingApp?.token) deletedTokens.push(String(existingApp.token));
+    if (existingApp?.activationToken) deletedTokens.push(String(existingApp.activationToken));
+    if (existingApp?.phone) {
+      const p = String(existingApp.phone).replace(/\D/g, "").slice(-9);
+      if (p) deletedPhones.push(p);
     }
-  }
+
+    // 1. Remove from applications
+    if (parentCouncilsStore.applications[appId]) {
+      delete parentCouncilsStore.applications[appId];
+    }
+    if (parentCouncilsStore.applications[targetId]) {
+      delete parentCouncilsStore.applications[targetId];
+    }
+
+    // 2. Remove from selected / reserve member lists in config
+    if (parentCouncilsStore.config) {
+      parentCouncilsStore.config.selectedMemberIds = (parentCouncilsStore.config.selectedMemberIds || []).filter(
+        (mId: string) => mId !== appId && mId !== targetId
+      );
+      parentCouncilsStore.config.reserveMemberIds = (parentCouncilsStore.config.reserveMemberIds || []).filter(
+        (mId: string) => mId !== appId && mId !== targetId
+      );
+    }
+
+    // 3. Remove from voting candidateIds
+    if (parentCouncilsStore.votingConfig) {
+      parentCouncilsStore.votingConfig.candidateIds = (parentCouncilsStore.votingConfig.candidateIds || []).filter(
+        (cId: string) => cId !== appId && cId !== targetId
+      );
+    }
+
+    // 4. Remove from votes
+    if (parentCouncilsStore.votes) {
+      Object.values(parentCouncilsStore.votes).forEach((vote: any) => {
+        if (Array.isArray(vote?.selectedCandidateIds)) {
+          vote.selectedCandidateIds = vote.selectedCandidateIds.filter(
+            (cId: string) => cId !== appId && cId !== targetId
+          );
+        }
+      });
+    }
+  });
+
+  // 5. Reset matched invites so parents can refill the form
   Object.values(parentCouncilsStore.invites || {}).forEach((inv: any) => {
-    if (inv && (inv.applicationId === appId || inv.applicationId === targetId)) {
+    if (!inv) return;
+    const invPhone = inv.guardianPhone ? String(inv.guardianPhone).replace(/\D/g, "").slice(-9) : "";
+    const shouldReset =
+      (inv.studentId && deletedStudentIds.includes(String(inv.studentId))) ||
+      (inv.token && deletedTokens.includes(String(inv.token))) ||
+      (inv.applicationId && deletedAppIds.includes(String(inv.applicationId))) ||
+      (invPhone && deletedPhones.includes(invPhone));
+
+    if (shouldReset) {
       inv.isSubmitted = false;
       delete inv.submittedAt;
       delete inv.applicationId;
@@ -2563,10 +2636,10 @@ app.post("/api/parent-councils/delete-application", (req, res) => {
 
   res.json({
     success: true,
-    message: "تم حذف الاستمارة بنجاح، ويمكن لولي الأمر الآن تعبئتها مرة أخرى.",
-    deletedId: appId,
-    studentId,
-    token,
+    message: targetIds.length > 1
+      ? `تم حذف (${targetIds.length}) استمارات بنجاح، ويمكن لأولياء الأمور الآن تعبئتها مرة أخرى.`
+      : "تم حذف الاستمارة بنجاح، ويمكن لولي الأمر الآن تعبئتها مرة أخرى.",
+    deletedIds: deletedAppIds,
     applications: parentCouncilsStore.applications,
     config: parentCouncilsStore.config,
     invites: parentCouncilsStore.invites,
@@ -2725,14 +2798,16 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
     }
   );
 
-  // Build candidate ballot cards - Fallback to selectedMemberIds if candidateIds is empty
+  // Build candidate ballot cards - Candidate pool must strictly be approved members from smart screening
   let candidateIds = votingConfig.candidateIds || [];
   if (!candidateIds || candidateIds.length === 0) {
     candidateIds = parentCouncilsStore.config?.selectedMemberIds || [];
   }
-  if (!candidateIds || candidateIds.length === 0) {
-    candidateIds = Object.keys(parentCouncilsStore.applications || {});
-  }
+  // Filter strictly to existing approved applications
+  candidateIds = (candidateIds || []).filter((cid: string) => {
+    return !!parentCouncilsStore.applications?.[cid] ||
+      Object.values(parentCouncilsStore.applications || {}).some((a: any) => a && a.id === cid);
+  });
 
   // Strictly names and basic identity - NO percentages, NO scores, NO smart evaluation numbers to parents
   const candidateApps = candidateIds
@@ -2823,14 +2898,16 @@ app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
 
   const existingVote = existingVoteByPhone || existingVoteByStudent;
 
-  // Build candidate ballot cards
+  // Build candidate ballot cards - Candidate pool must strictly be approved members from smart screening
   let candidateIds = votingConfig.candidateIds || [];
   if (!candidateIds || candidateIds.length === 0) {
     candidateIds = parentCouncilsStore.config?.selectedMemberIds || [];
   }
-  if (!candidateIds || candidateIds.length === 0) {
-    candidateIds = Object.keys(parentCouncilsStore.applications || {});
-  }
+  // Filter strictly to existing approved applications
+  candidateIds = (candidateIds || []).filter((cid: string) => {
+    return !!parentCouncilsStore.applications?.[cid] ||
+      Object.values(parentCouncilsStore.applications || {}).some((a: any) => a && a.id === cid);
+  });
 
   const candidateApps = candidateIds
     .map((cid: string) => parentCouncilsStore.applications[cid] || Object.values(parentCouncilsStore.applications).find((a: any) => a.id === cid))
@@ -4215,56 +4292,83 @@ app.post(["/api/whatsapp/send-single", "/api/whatsapp/send", "/api/send-individu
 });
 
 // Comprehensive Reports Endpoint: Aggregates all campaign logs and individual logs
-app.get("/api/whatsapp/reports", (req, res) => {
-  const allLogs: any[] = [];
-  
-  // 1. Extract from all Campaigns
-  Object.values(campaigns).forEach(camp => {
-    (camp.logs || []).forEach(log => {
-      allLogs.push({
-        id: log.id,
-        studentName: log.studentName,
-        phone: log.phone,
-        grade: log.grade || "",
-        className: log.className || "",
-        message: log.message,
-        status: log.status,
-        timestamp: log.timestamp,
-        campaignId: camp.id,
-        campaignName: camp.name,
-        type: "campaign",
-        error: log.error || ""
+app.get(["/api/whatsapp/reports", "/api/whatsapp/reports/"], (req, res) => {
+  try {
+    const allLogs: any[] = [];
+    
+    // 1. Extract from all Campaigns
+    if (campaigns && typeof campaigns === "object") {
+      Object.values(campaigns).forEach(camp => {
+        if (camp && Array.isArray(camp.logs)) {
+          camp.logs.forEach(log => {
+            if (log) {
+              allLogs.push({
+                id: log.id || `camp_log_${Date.now()}_${Math.random()}`,
+                studentName: log.studentName || "",
+                phone: log.phone || "",
+                grade: log.grade || "",
+                className: log.className || "",
+                message: log.message || "",
+                status: log.status || "success",
+                timestamp: log.timestamp || new Date().toISOString(),
+                campaignId: camp.id || "",
+                campaignName: camp.name || "",
+                type: "campaign",
+                error: log.error || ""
+              });
+            }
+          });
+        }
       });
+    }
+
+    // 2. Extract from Individual Logs
+    if (Array.isArray(individualLogs)) {
+      individualLogs.forEach(log => {
+        if (log) {
+          allLogs.push({
+            id: log.id || `ind_log_${Date.now()}_${Math.random()}`,
+            studentName: log.studentName || "إرسال فردي مباشر",
+            phone: log.phone || "",
+            grade: log.grade || "",
+            className: log.className || "",
+            message: log.message || "",
+            status: log.status || "success",
+            timestamp: log.timestamp || new Date().toISOString(),
+            campaignId: "",
+            campaignName: "إرسال فردي سريع",
+            type: "individual",
+            error: log.error || ""
+          });
+        }
+      });
+    }
+
+    // Sort descending by timestamp
+    allLogs.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
     });
-  });
 
-  // 2. Extract from Individual Logs
-  individualLogs.forEach(log => {
-    allLogs.push({
-      id: log.id,
-      studentName: log.studentName || "إرسال فردي مباشر",
-      phone: log.phone,
-      grade: log.grade || "",
-      className: log.className || "",
-      message: log.message,
-      status: log.status,
-      timestamp: log.timestamp,
-      campaignId: "",
-      campaignName: "إرسال فردي سريع",
-      type: "individual",
-      error: log.error || ""
+    res.setHeader("Content-Type", "application/json");
+    return res.status(200).json({
+      logs: allLogs,
+      total: allLogs.length,
+      sent: allLogs.filter(l => l && l.status === "success").length,
+      failed: allLogs.filter(l => l && l.status === "failed").length
     });
-  });
-
-  // Sort descending by timestamp
-  allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  res.json({
-    logs: allLogs,
-    total: allLogs.length,
-    sent: allLogs.filter(l => l.status === "success").length,
-    failed: allLogs.filter(l => l.status === "failed").length
-  });
+  } catch (err: any) {
+    console.error("Error generating reports in /api/whatsapp/reports:", err);
+    res.setHeader("Content-Type", "application/json");
+    return res.status(200).json({
+      logs: [],
+      total: 0,
+      sent: 0,
+      failed: 0,
+      error: err?.message || String(err)
+    });
+  }
 });
 
 // Clear historical logs if needed
@@ -4317,6 +4421,12 @@ app.post("/api/guidance/actions", (req, res) => {
     return res.json({ success: true, action: newAction });
   }
   res.status(400).json({ error: "بيانات الإجراء غير مكتملة" });
+});
+
+// Guard against unhandled /api requests: Always return JSON 404, never fall through to Vite SPA index.html
+app.all("/api/*", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.path}` });
 });
 
 // Setup Vite Dev Server / Serve static assets in production

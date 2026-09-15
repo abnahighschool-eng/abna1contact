@@ -532,70 +532,75 @@ export default function App() {
       // 2. Sync from local server state (Live source of truth for inquiries & real-time evaluations)
       const res = await fetch("/api/app-state");
       if (res.ok) {
-        const data = await res.json();
-        if (data.settings && !cloudData.schoolSignatories) {
-          setSignatories(prev => ({ ...prev, ...data.settings }));
-          localStorage.setItem("school_signatories", JSON.stringify(data.settings));
-        }
-        if (Array.isArray(data.students) && data.students.length > 0 && (!cloudData.students || cloudData.students.length === 0)) {
-          const cleanServer = deduplicateStudentRoster(data.students.map((s: any) => {
-            const { isArchived, archivedAt, ...rest } = s;
-            return rest;
-          }));
-          setStudents(cleanServer);
-          localStorage.setItem("whatsapp_student_list", JSON.stringify(cleanServer));
-        }
-        if (data.template && !cloudData.savedTemplate) {
-          setTemplate(data.template);
-          localStorage.setItem("whatsapp_student_template", data.template);
-        }
-        if (Array.isArray(data.users) && data.users.length > 0 && (!cloudData.users || cloudData.users.length === 0)) {
-          setUsers(data.users);
-          localStorage.setItem("abna_system_users", JSON.stringify(data.users));
-        }
-        if (Array.isArray(data.teachers) && data.teachers.length > 0 && (!cloudData.teachers || cloudData.teachers.length === 0)) {
-          setTeachers(data.teachers);
-          localStorage.setItem("abna_teachers_roster", JSON.stringify(data.teachers));
-        }
-        if (Array.isArray(data.schedule) && data.schedule.length > 0 && (!cloudData.scheduleAssignments || cloudData.scheduleAssignments.length === 0)) {
-          const cleanServerSchedule = data.schedule.filter((a: ScheduleAssignment) => {
-            if (a.id && a.id.includes("_34_")) return false;
-            const sec = (a.section || "").trim();
-            return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
-          });
-          setScheduleAssignments(cleanServerSchedule);
-          localStorage.setItem("abna_school_schedule", JSON.stringify(cleanServerSchedule));
-        }
-        if (Array.isArray(data.inquiries) && data.inquiries.length > 0) {
-          setInquiryRequests(data.inquiries);
-          localStorage.setItem("abna_inquiry_requests", JSON.stringify(data.inquiries));
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const data = await res.json().catch(() => null);
+          if (data) {
+            if (data.settings && !cloudData.schoolSignatories) {
+              setSignatories(prev => ({ ...prev, ...data.settings }));
+              localStorage.setItem("school_signatories", JSON.stringify(data.settings));
+            }
+            if (Array.isArray(data.students) && data.students.length > 0 && (!cloudData.students || cloudData.students.length === 0)) {
+              const cleanServer = deduplicateStudentRoster(data.students.map((s: any) => {
+                const { isArchived, archivedAt, ...rest } = s;
+                return rest;
+              }));
+              setStudents(cleanServer);
+              localStorage.setItem("whatsapp_student_list", JSON.stringify(cleanServer));
+            }
+            if (data.template && !cloudData.savedTemplate) {
+              setTemplate(data.template);
+              localStorage.setItem("whatsapp_student_template", data.template);
+            }
+            if (Array.isArray(data.users) && data.users.length > 0 && (!cloudData.users || cloudData.users.length === 0)) {
+              setUsers(data.users);
+              localStorage.setItem("abna_system_users", JSON.stringify(data.users));
+            }
+            if (Array.isArray(data.teachers) && data.teachers.length > 0 && (!cloudData.teachers || cloudData.teachers.length === 0)) {
+              setTeachers(data.teachers);
+              localStorage.setItem("abna_teachers_roster", JSON.stringify(data.teachers));
+            }
+            if (Array.isArray(data.schedule) && data.schedule.length > 0 && (!cloudData.scheduleAssignments || cloudData.scheduleAssignments.length === 0)) {
+              const cleanServerSchedule = data.schedule.filter((a: ScheduleAssignment) => {
+                if (a.id && a.id.includes("_34_")) return false;
+                const sec = (a.section || "").trim();
+                return sec !== "شعبة 12" && sec !== "شعبة 18" && sec !== "12" && sec !== "18";
+              });
+              setScheduleAssignments(cleanServerSchedule);
+              localStorage.setItem("abna_school_schedule", JSON.stringify(cleanServerSchedule));
+            }
+            if (Array.isArray(data.inquiries) && data.inquiries.length > 0) {
+              setInquiryRequests(data.inquiries);
+              localStorage.setItem("abna_inquiry_requests", JSON.stringify(data.inquiries));
+            }
+          }
         }
       }
 
       // Fetch Health Tracker data
       try {
         const hRes = await fetch("/api/health-tracker/profiles");
-        if (hRes.ok) {
-          const hData = await hRes.json();
-          if (hData.success && hData.profiles) {
+        if (hRes.ok && (hRes.headers.get("content-type") || "").includes("application/json")) {
+          const hData = await hRes.json().catch(() => null);
+          if (hData && hData.success && hData.profiles) {
             setSupportProfiles(prev => ({ ...prev, ...hData.profiles }));
             localStorage.setItem("abna_support_profiles", JSON.stringify(hData.profiles));
           }
         }
 
         const cRes = await fetch("/api/health-tracker/cases");
-        if (cRes.ok) {
-          const cData = await cRes.json();
-          if (cData.success && Array.isArray(cData.cases)) {
+        if (cRes.ok && (cRes.headers.get("content-type") || "").includes("application/json")) {
+          const cData = await cRes.json().catch(() => null);
+          if (cData && cData.success && Array.isArray(cData.cases)) {
             setSupportCases(cData.cases);
             localStorage.setItem("abna_support_cases", JSON.stringify(cData.cases));
           }
         }
 
         const aRes = await fetch("/api/health-tracker/audit-logs");
-        if (aRes.ok) {
-          const aData = await aRes.json();
-          if (aData.success && Array.isArray(aData.logs)) {
+        if (aRes.ok && (aRes.headers.get("content-type") || "").includes("application/json")) {
+          const aData = await aRes.json().catch(() => null);
+          if (aData && aData.success && Array.isArray(aData.logs)) {
             setHealthAuditLogs(aData.logs);
           }
         }
@@ -611,9 +616,9 @@ export default function App() {
   const syncInquiriesFromServer = async () => {
     try {
       const res = await fetch("/api/inquiries");
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.inquiries)) {
+      if (res.ok && (res.headers.get("content-type") || "").includes("application/json")) {
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.inquiries)) {
           setInquiryRequests((prev) => {
             // Check if there are changes before triggering re-renders
             const prevSerialized = JSON.stringify(prev);

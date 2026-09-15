@@ -148,8 +148,14 @@ export default function ReportsPrinter({
     try {
       const res = await fetch("/api/whatsapp/reports");
       if (res.ok) {
-        const data = await res.json();
-        let serverLogs: ReportItem[] = data.logs || [];
+        const contentType = res.headers.get("content-type") || "";
+        let serverLogs: ReportItem[] = [];
+        if (contentType.includes("application/json")) {
+          const data = await res.json().catch(() => null);
+          if (data && Array.isArray(data.logs)) {
+            serverLogs = data.logs;
+          }
+        }
         
         // Merge with client individual history if any exists
         const localIndHistory = localStorage.getItem("whatsapp_individual_history");

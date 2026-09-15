@@ -52,11 +52,11 @@ export default function ParentCouncilPrintSheet({
       className="parent-council-print-page min-h-screen bg-slate-100 p-4 sm:p-8 text-slate-950 font-sans print:p-0 print:m-0 print:bg-white print:min-h-0"
       dir="rtl"
     >
-      {/* Dynamic Print CSS for Standard A4 (1.15cm margin) & Ink-Saving */}
+      {/* Dynamic Print CSS for Standard A4 (2cm margin) & Ink-Saving */}
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 1.15cm;
+          margin: 2cm;
         }
         @media print {
           *, *::before, *::after {
@@ -119,12 +119,16 @@ export default function ParentCouncilPrintSheet({
           )}
           <div className="h-6 w-px bg-slate-200" />
           <span className="text-xs font-bold text-slate-600">
-            معاينة استمارة الترشيح الرسمية (نسخة موفرة للحبر):{" "}
+            معاينة استمارة الترشيح الرسمية:{" "}
             <span className="text-slate-900 font-extrabold">{application.fullName}</span>
           </span>
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 border border-teal-200 text-teal-800 text-[11px] font-bold rounded-lg">
             <span>الخط:</span>
             <span className="font-extrabold text-teal-950 font-ah-manal">(AH) Manal Medium</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-bold rounded-lg">
+            <span>الهوامش:</span>
+            <span className="font-extrabold text-amber-950">2 سم من جميع الجهات</span>
           </div>
         </div>
 
@@ -140,42 +144,45 @@ export default function ParentCouncilPrintSheet({
         </div>
       </div>
 
-      {/* Official A4 Document Canvas - Full Page & Ultra Ink-Saving Design */}
+      {/* Official A4 Document Canvas - 2cm Margins & Enlarged Font */}
       <div 
-        className="parent-council-sheet-canvas font-ah-manal max-w-4xl mx-auto bg-white p-6 sm:p-10 shadow-lg border border-slate-300 rounded-sm print:p-0 print:m-0 print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print-avoid-break"
-        style={{ fontFamily: "'(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', sans-serif" }}
+        className="parent-council-sheet-canvas font-ah-manal max-w-4xl mx-auto bg-white shadow-lg border border-slate-300 rounded-sm print:p-0 print:m-0 print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print-avoid-break"
+        style={{ 
+          fontFamily: "'(AH) Manal Medium', 'AH Manal Medium', 'AH Manal', 'Cairo', sans-serif",
+          padding: "2cm",
+        }}
       >
         
         {/* Document Header */}
-        <div className="flex items-start justify-between border-b-2 border-slate-900 pb-3 mb-4.5">
+        <div className="flex items-start justify-between border-b-2 border-slate-900 pb-3.5 mb-4.5">
           <div className="text-right leading-tight">
-            <div className="text-xs sm:text-sm font-bold text-slate-800">{signatories.countryName || "المملكة العربية السعودية"}</div>
-            <div className="text-sm sm:text-base font-black text-slate-950 mt-0.5">{signatories.ministryName || "وزارة التعليم"}</div>
-            <div className="text-xs sm:text-sm font-bold text-slate-700">{signatories.administrationName || "الإدارة العامة للتعليم"}</div>
-            <div className="text-sm sm:text-base font-black text-slate-950 mt-0.5">{signatories.schoolName || "ثانوية الأبناء الأولى"}</div>
+            <div className="text-base sm:text-lg font-bold text-slate-800">{signatories.countryName || "المملكة العربية السعودية"}</div>
+            <div className="text-lg sm:text-xl font-black text-slate-950 mt-0.5">{signatories.ministryName || "وزارة التعليم"}</div>
+            <div className="text-base sm:text-lg font-bold text-slate-700">{signatories.administrationName || "الإدارة العامة للتعليم"}</div>
+            <div className="text-lg sm:text-xl font-black text-slate-950 mt-0.5">{signatories.schoolName || "ثانوية الأبناء الأولى"}</div>
           </div>
 
           <div className="text-center pt-0.5">
-            <div className="text-xl sm:text-2xl font-black text-slate-950 tracking-wide border-b-2 border-slate-900 pb-1 inline-block px-5">
+            <div className="text-2xl sm:text-3xl font-black text-slate-950 tracking-wide border-b-2 border-slate-900 pb-1.5 inline-block px-6">
               طلب عضوية مجلس أولياء الأمور
             </div>
-            <div className="text-xs sm:text-sm font-black text-slate-800 mt-1.5">
+            <div className="text-base sm:text-lg font-black text-slate-800 mt-2">
               العام الدراسي 1447 - 1448هـ (2026 - 2027م)
             </div>
           </div>
 
           <div className="text-left flex flex-col items-end leading-tight">
-            <div className="text-sm sm:text-base font-black text-slate-950">مجالس أولياء الأمور</div>
-            <div className="text-xs sm:text-sm font-bold text-slate-700">في التعليم العام</div>
+            <div className="text-lg sm:text-xl font-black text-slate-950">مجالس أولياء الأمور</div>
+            <div className="text-base sm:text-lg font-bold text-slate-700">في التعليم العام</div>
             {signatories.logoUrl ? (
               <img
                 src={signatories.logoUrl}
                 alt="شعار المدرسة"
-                className="w-12 h-12 object-contain mt-1"
+                className="w-16 h-16 object-contain mt-1"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="text-[11px] font-mono font-bold text-slate-800 border-2 border-slate-800 px-2 py-0.5 rounded mt-1 bg-white">
+              <div className="text-sm font-mono font-black text-slate-800 border-2 border-slate-800 px-2.5 py-0.5 rounded mt-1 bg-white">
                 كود: {application.activationCode || "PCA-1447"}
               </div>
             )}
@@ -184,64 +191,64 @@ export default function ParentCouncilPrintSheet({
 
         {/* Section 1: بيانات ولي الأمر ومقدم الطلب */}
         <div className="mb-4">
-          <div className="text-sm sm:text-base font-black text-slate-950 mb-2 flex items-center justify-between">
+          <div className="text-lg sm:text-xl font-black text-slate-950 mb-2.5 flex items-center justify-between">
             <span>أولاً: بيانات ولي الأمر ومقدم الطلب:</span>
             {application.relationLabel && (
-              <span className="text-xs font-black text-slate-950 border-2 border-slate-900 px-3 py-0.5 rounded bg-white">
+              <span className="text-base font-black text-slate-950 border-2 border-slate-900 px-3.5 py-0.5 rounded bg-white">
                 صفة مقدم الطلب: {application.relationLabel}
               </span>
             )}
           </div>
           
-          <table className="w-full border-collapse border-2 border-slate-900 text-sm sm:text-base">
+          <table className="w-full border-collapse border-2 border-slate-900 text-base sm:text-lg">
             <tbody>
               <tr className="border-b-2 border-slate-900">
-                <td className="w-36 sm:w-44 font-black p-2.5 sm:p-3 border-l-2 border-slate-900 text-slate-950 bg-slate-50/70">
+                <td className="w-44 sm:w-52 font-black py-3 px-4 border-l-2 border-slate-900 text-slate-950 bg-slate-50/80 text-base sm:text-lg">
                   الاسم الرباعي:
                 </td>
-                <td className="p-2.5 sm:p-3 font-black text-slate-950 text-base sm:text-lg">
+                <td className="py-3 px-4 font-black text-slate-950 text-xl sm:text-2xl">
                   {application.fullName}
                   {application.relationLabel && application.relationLabel !== "الأب" && (
-                    <span className="text-sm font-bold text-slate-700 mr-2">
+                    <span className="text-base font-bold text-slate-700 mr-2">
                       ({application.relationLabel})
                     </span>
                   )}
                 </td>
-                <td className="w-28 sm:w-32 font-black p-2.5 sm:p-3 border-l-2 border-r-2 border-slate-900 text-slate-950 bg-slate-50/70">
+                <td className="w-36 sm:w-40 font-black py-3 px-4 border-l-2 border-r-2 border-slate-900 text-slate-950 bg-slate-50/80 text-base sm:text-lg">
                   رقم الهوية:
                 </td>
-                <td className="p-2.5 sm:p-3 font-mono font-bold text-slate-950 text-base sm:text-lg tracking-wider" dir="ltr">
+                <td className="py-3 px-4 font-mono font-black text-slate-950 text-xl tracking-wider" dir="ltr">
                   {application.nationalId}
                 </td>
               </tr>
               <tr className="border-b-2 border-slate-900">
-                <td className="w-36 sm:w-44 font-black p-2.5 sm:p-3 border-l-2 border-slate-900 text-slate-950 bg-slate-50/70">
+                <td className="w-44 sm:w-52 font-black py-3 px-4 border-l-2 border-slate-900 text-slate-950 bg-slate-50/80 text-base sm:text-lg">
                   رقم الجوال:
                 </td>
-                <td className="p-2.5 sm:p-3 font-mono font-bold text-slate-950 text-sm sm:text-base" dir="ltr">
+                <td className="py-3 px-4 font-mono font-black text-slate-950 text-lg sm:text-xl" dir="ltr">
                   {application.phone}
                 </td>
-                <td className="w-28 sm:w-32 font-black p-2.5 sm:p-3 border-l-2 border-r-2 border-slate-900 text-slate-950 bg-slate-50/70">
+                <td className="w-36 sm:w-40 font-black py-3 px-4 border-l-2 border-r-2 border-slate-900 text-slate-950 bg-slate-50/80 text-base sm:text-lg">
                   البريد الإلكتروني:
                 </td>
-                <td className="p-2.5 sm:p-3 font-mono text-slate-950 text-xs sm:text-sm" dir="ltr">
+                <td className="py-3 px-4 font-mono font-bold text-slate-950 text-base sm:text-lg" dir="ltr">
                   {application.email || "—"}
                 </td>
               </tr>
               <tr>
-                <td className="w-36 sm:w-44 font-black p-2.5 sm:p-3 border-l-2 border-slate-900 text-slate-950 bg-slate-50/70">
+                <td className="w-44 sm:w-52 font-black py-3 px-4 border-l-2 border-slate-900 text-slate-950 bg-slate-50/80 text-base sm:text-lg">
                   اسم الطالب / الأبناء:
                 </td>
-                <td className="p-2.5 sm:p-3 font-bold text-slate-950" colSpan={3}>
+                <td className="py-3 px-4 font-bold text-slate-950" colSpan={3}>
                   <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-x-4 gap-y-1.5">
                     <div>
-                      <span className="font-black text-slate-950 text-sm sm:text-base">{application.studentName}</span>
-                      <span className="text-slate-700 text-xs sm:text-sm font-bold mr-1.5">
+                      <span className="font-black text-slate-950 text-lg sm:text-xl">{application.studentName}</span>
+                      <span className="text-slate-800 text-base font-bold mr-2">
                         (الصف: {application.studentGrade}{application.studentClass ? ` - شعبة ${application.studentClass}` : ""})
                       </span>
                     </div>
                     {application.additionalStudents && application.additionalStudents.length > 0 && (
-                      <div className="text-xs sm:text-sm text-slate-900 border-r-2 border-slate-400 pr-3 font-bold">
+                      <div className="text-base text-slate-900 border-r-2 border-slate-400 pr-3 font-bold">
                         أبناء آخرون بالمدرسة:{" "}
                         {application.additionalStudents.map((s, idx) => (
                           <span key={idx} className="mr-1">
@@ -260,27 +267,27 @@ export default function ParentCouncilPrintSheet({
 
         {/* Section 2: الخبرات والمهارات ذات العلاقة */}
         <div className="mb-4">
-          <div className="text-sm sm:text-base font-black text-slate-950 mb-2 mt-3">
+          <div className="text-lg sm:text-xl font-black text-slate-950 mb-2.5 mt-3">
             ثانياً: الخبرات والمهارات ذات العلاقة المنصوص عليها في لائحة المجالس:
           </div>
-          <table className="w-full border-collapse border-2 border-slate-900 text-sm sm:text-base">
+          <table className="w-full border-collapse border-2 border-slate-900 text-base sm:text-lg">
             <tbody>
               {skillsList.map((skill, index) => {
                 const isChecked = application.skills?.[skill.key];
                 return (
                   <tr key={index} className="border-b border-slate-800 last:border-b-0">
-                    <td className="w-14 text-center p-2 sm:p-2.5 border-l-2 border-slate-900 font-extrabold">
+                    <td className="w-16 text-center py-2.5 px-3 border-l-2 border-slate-900 font-extrabold">
                       {isChecked ? (
-                        <span className="inline-block font-black text-lg text-slate-950">✓</span>
+                        <span className="inline-block font-black text-2xl text-slate-950 leading-none">✓</span>
                       ) : (
-                        <span className="inline-block w-4.5 h-4.5 border-2 border-slate-700 rounded-xs bg-white" />
+                        <span className="inline-block w-6 h-6 border-2 border-slate-800 rounded-xs bg-white" />
                       )}
                     </td>
-                    <td className="p-2 sm:p-2.5 text-slate-950 font-bold">
+                    <td className="py-2.5 px-3.5 text-slate-950 font-bold">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-extrabold">{skill.label}</span>
+                        <span className="font-black text-base sm:text-lg">{skill.label}</span>
                         {isChecked && skill.details && (
-                          <span className="text-xs font-semibold text-slate-800 border border-slate-400 px-2.5 py-0.5 rounded bg-white">
+                          <span className="text-sm sm:text-base font-bold text-slate-800 border border-slate-400 px-3 py-0.5 rounded bg-white">
                             البيان: {skill.details}
                           </span>
                         )}
@@ -295,14 +302,14 @@ export default function ParentCouncilPrintSheet({
 
         {/* Section 3: أهدافي من الانضمام للمجلس */}
         <div className="mb-4">
-          <div className="text-sm sm:text-base font-black text-slate-950 mb-2 mt-3">
+          <div className="text-lg sm:text-xl font-black text-slate-950 mb-2.5 mt-3">
             ثالثاً: أهدافي وتطلعاتي من الانضمام لمجلس أولياء الأمور:
           </div>
-          <div className="space-y-2.5 border-2 border-slate-900 p-3.5 rounded-xs bg-white text-sm sm:text-base">
+          <div className="space-y-2.5 border-2 border-slate-900 p-4 rounded-xs bg-white text-base sm:text-lg">
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-baseline gap-2.5">
-                <span className="font-black text-slate-950 text-base">.{i + 1}</span>
-                <div className="flex-1 border-b border-dotted border-slate-700 pb-1 font-bold text-slate-950 min-h-[26px]">
+                <span className="font-black text-slate-950 text-lg">.{i + 1}</span>
+                <div className="flex-1 border-b border-dotted border-slate-700 pb-1 font-bold text-slate-950 min-h-[28px] text-base sm:text-lg">
                   {application.goals?.[i] ? (
                     application.goals[i]
                   ) : (
@@ -315,27 +322,27 @@ export default function ParentCouncilPrintSheet({
         </div>
 
         {/* Section 4: التعهد والتوقيع */}
-        <div className="mb-5 pt-1">
-          <p className="text-sm sm:text-base font-bold text-slate-950 leading-relaxed">
+        <div className="mb-4 pt-1">
+          <p className="text-base sm:text-lg font-bold text-slate-950 leading-relaxed">
             <span className="font-black">تعهد المرشح:</span> أتعهد بالالتزام بحضور الاجتماعات والمشاركة الفاعلة والإيجابية، والتقيد بالمهام والضوابط المنظمة لمجالس أولياء الأمور وفق اللائحة الوزارية.
           </p>
 
-          <div className="grid grid-cols-3 gap-4 items-center mt-3.5 text-sm sm:text-base">
+          <div className="grid grid-cols-3 gap-4 items-center mt-3 text-base sm:text-lg">
             <div>
               <span className="font-extrabold text-slate-950">الاسم الكامل: </span>
-              <span className="font-black text-slate-950 border-b-2 border-slate-800 pb-0.5 inline-block mr-1">
+              <span className="font-black text-slate-950 text-lg sm:text-xl border-b-2 border-slate-800 pb-0.5 inline-block mr-1">
                 {application.fullName}
               </span>
             </div>
             <div className="text-center">
               <span className="font-extrabold text-slate-950">التوقيع: </span>
-              <span className="font-serif italic font-black border-b-2 border-slate-800 pb-0.5 inline-block text-slate-950 mr-1 min-w-[110px]">
+              <span className="font-serif italic font-black text-lg sm:text-xl border-b-2 border-slate-800 pb-0.5 inline-block text-slate-950 mr-1 min-w-[130px]">
                 {application.signature || application.fullName}
               </span>
             </div>
             <div className="text-left">
               <span className="font-extrabold text-slate-950">التاريخ: </span>
-              <span className="font-bold border-b-2 border-slate-800 pb-0.5 inline-block mr-1 text-slate-950" dir="rtl">
+              <span className="font-black text-base sm:text-lg border-b-2 border-slate-800 pb-0.5 inline-block mr-1 text-slate-950" dir="rtl">
                 {formatHijriDisplayDate(application.submissionDateHijri)}
               </span>
             </div>
@@ -343,29 +350,26 @@ export default function ParentCouncilPrintSheet({
         </div>
 
         {/* Section 5: الاعتماد والتذييل الرسمي */}
-        <div className="pt-4 border-t-2 border-slate-900 grid grid-cols-2 gap-8 text-center text-sm sm:text-base">
+        <div className="pt-4 border-t-2 border-slate-900 grid grid-cols-2 gap-8 text-center text-base sm:text-lg">
           <div className="flex flex-col items-center">
-            <div className="font-black text-slate-950 text-base sm:text-lg">لجنة التوجيه الطلابي</div>
-            <div className="text-xs sm:text-sm font-bold text-slate-800 mt-1">
-              {signatories.counselorName ? `أ. ${signatories.counselorName}` : "الموجه الطلابي وأعضاء اللجنة"}
-            </div>
+            <div className="font-black text-slate-950 text-xl sm:text-2xl">لجنة التوجيه الطلابي</div>
             <div className="mt-8 flex flex-col items-center">
-              <div className="w-44 border-b border-dotted border-slate-800 pb-1 text-xs text-slate-500 font-bold">
+              <div className="w-52 border-b border-dotted border-slate-800 pb-1 text-sm sm:text-base text-slate-600 font-bold">
                 التوقيع والاعتماد
               </div>
             </div>
           </div>
 
           <div className="flex flex-col items-center">
-            <div className="font-black text-slate-950 text-base sm:text-lg">مدير المدرسة</div>
-            <div className="text-xs sm:text-sm font-bold text-slate-800 mt-1">
+            <div className="font-black text-slate-950 text-xl sm:text-2xl">مدير المدرسة</div>
+            <div className="text-base sm:text-lg font-bold text-slate-800 mt-1">
               {signatories.principalName ? `أ. ${signatories.principalName}` : "مدير المدرسة"}
             </div>
-            <div className="mt-8 flex flex-col items-center">
-              <div className="w-44 border-b border-dotted border-slate-800 pb-1 text-xs text-slate-500 font-bold">
+            <div className="mt-6 flex flex-col items-center">
+              <div className="w-52 border-b border-dotted border-slate-800 pb-1 text-sm sm:text-base text-slate-600 font-bold">
                 التوقيع والختم الرسمي
               </div>
-              <div className="w-20 h-20 border-2 border-dashed border-slate-600 rounded-full mt-2.5 flex items-center justify-center text-[10px] text-slate-500 font-bold">
+              <div className="w-22 h-22 border-2 border-dashed border-slate-600 rounded-full mt-2 flex items-center justify-center text-xs text-slate-600 font-bold">
                 الختم الرسمي
               </div>
             </div>
@@ -373,10 +377,10 @@ export default function ParentCouncilPrintSheet({
         </div>
 
         {/* Footer Badge */}
-        <div className="mt-4 pt-2.5 border-t border-slate-300 text-xs text-slate-600 flex items-center justify-between">
-          <span>رمز التحقق للمرشح: <span className="font-mono font-black text-slate-900">{application.activationCode}</span></span>
-          <span className="flex items-center gap-1 text-slate-800 font-bold">
-            <ShieldCheck className="w-3.5 h-3.5 text-teal-800" />
+        <div className="mt-3.5 pt-2.5 border-t border-slate-300 text-xs sm:text-sm text-slate-700 font-bold flex items-center justify-between">
+          <span>رمز التحقق للمرشح: <span className="font-mono font-black text-slate-950">{application.activationCode}</span></span>
+          <span className="flex items-center gap-1 text-slate-900 font-extrabold">
+            <ShieldCheck className="w-4 h-4 text-teal-800" />
             استمارة ترشيح رسمية معتمدة عبر نظام {signatories.schoolName || "المدرسة"}
           </span>
           <span>تاريخ التقديم: {application.submittedAt ? new Date(application.submittedAt).toLocaleDateString("ar-SA") : "—"}</span>

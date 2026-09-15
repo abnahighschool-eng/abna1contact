@@ -648,6 +648,15 @@ export default function ParentCouncilPortal({
                 localStorage.setItem(`pc_submitted_student_${effectiveStudentId}`, "true");
               }
             } catch (e) {}
+          } else {
+            setAlreadySubmittedApplication(null);
+            setSubmittedApplication(null);
+            setIsPageClosed(false);
+            try {
+              if (effectiveStudentId) {
+                localStorage.removeItem(`pc_submitted_student_${effectiveStudentId}`);
+              }
+            } catch (e) {}
           }
         })
         .catch(() => {});
@@ -766,21 +775,7 @@ export default function ParentCouncilPortal({
     setPhoneError(null);
 
     try {
-      // 1. Check local submissions first
-      const localSub =
-        localStorage.getItem(`pc_submitted_phone_${normalized}`) ||
-        localStorage.getItem(`pc_submitted_phone_${normalized.slice(-9)}`);
-      if (localSub) {
-        try {
-          const parsed = JSON.parse(localSub);
-          setAlreadySubmittedApplication(parsed);
-          setIsCodeVerified(true);
-          setVerifyingPhone(false);
-          return;
-        } catch (e) {}
-      }
-
-      // 2. Call backend /api/parent-councils/verify-phone
+      // 1. Call backend /api/parent-councils/verify-phone as the authoritative source of truth
       const res = await fetch("/api/parent-councils/verify-phone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -796,7 +791,7 @@ export default function ParentCouncilPortal({
         throw new Error(data.error || "تعذر التحقق من رقم الجوال، يرجى التأكد من الرقم والمحاولة مرة أخرى");
       }
 
-      // Check if application already submitted
+      // Check if application already submitted on server
       if (data.alreadySubmitted && data.application) {
         setAlreadySubmittedApplication(data.application as ParentCouncilApplication);
         setIsCodeVerified(true);
@@ -805,6 +800,13 @@ export default function ParentCouncilPortal({
           localStorage.setItem(`pc_submitted_phone_${normalized.slice(-9)}`, JSON.stringify(data.application));
         } catch (e) {}
         return;
+      } else {
+        // Not submitted on server, or previous application was deleted by administration - allow fresh submission
+        setAlreadySubmittedApplication(null);
+        try {
+          localStorage.removeItem(`pc_submitted_phone_${normalized}`);
+          localStorage.removeItem(`pc_submitted_phone_${normalized.slice(-9)}`);
+        } catch (e) {}
       }
 
       // Find matching students in client students list AND server response

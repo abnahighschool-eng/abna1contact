@@ -145,9 +145,12 @@ export default function DisciplineReportsPrinter({
       let combined: any[] = [];
       const res = await fetch("/api/whatsapp/reports").catch(() => null);
       if (res && res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.logs)) {
-          combined = [...data.logs];
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const data = await res.json().catch(() => null);
+          if (data && Array.isArray(data.logs)) {
+            combined = [...data.logs];
+          }
         }
       }
       const localIndHistory = localStorage.getItem("whatsapp_individual_history");

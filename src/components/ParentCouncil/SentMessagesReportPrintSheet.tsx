@@ -299,43 +299,34 @@ export default function SentMessagesReportPrintSheet({
 
         {/* Official Signatures */}
         <div className="border-t-2 border-slate-800 pt-4 mt-8">
-          <div className="text-[11px] font-bold text-slate-700 mb-6 text-center">
+          <div className="text-sm font-bold text-slate-700 mb-6 text-center">
             تم استخراج هذا التقرير آلياً من منصة متابعة مجالس أولياء الأمور بالتعليم العام وتعتبر بياناته معتمدة رسمياً.
           </div>
 
-          <div className="grid grid-cols-4 gap-4 text-center">
-            {/* Student Counselor */}
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-600">موجه الطلاب / مقرر المجلس</div>
-              <div className="text-xs font-black text-slate-900 min-h-[1.5rem] flex items-center justify-center">
-                {signatories.counselorName || "أ. أحمد الغامدي"}
+          <div className="grid grid-cols-2 gap-8 text-center text-base sm:text-lg">
+            {/* Student Guidance Committee */}
+            <div className="flex flex-col items-center">
+              <div className="font-black text-slate-950 text-xl sm:text-2xl">لجنة التوجيه الطلابي</div>
+              <div className="mt-8 flex flex-col items-center">
+                <div className="w-52 border-b border-dotted border-slate-800 pb-1 text-sm sm:text-base text-slate-600 font-bold">
+                  التوقيع والاعتماد
+                </div>
               </div>
-              <div className="text-[10px] text-slate-400 pt-5">التوقيع: .....................</div>
-            </div>
-
-            {/* Activity Leader / Vice Principal */}
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-600">وكيل الشؤون التعليمية / النشاط</div>
-              <div className="text-xs font-black text-slate-900 min-h-[1.5rem] flex items-center justify-center">
-                {signatories.vicePrincipalName || "أ. خالد العتيبي"}
-              </div>
-              <div className="text-[10px] text-slate-400 pt-5">التوقيع: .....................</div>
             </div>
 
             {/* School Principal */}
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-600">مدير المدرسة / رئيس المجلس</div>
-              <div className="text-xs font-black text-slate-900 min-h-[1.5rem] flex items-center justify-center">
-                {signatories.principalName || "أ. محمد بن عبدالله العمري"}
+            <div className="flex flex-col items-center">
+              <div className="font-black text-slate-950 text-xl sm:text-2xl">مدير المدرسة</div>
+              <div className="text-base sm:text-lg font-bold text-slate-800 mt-1">
+                {signatories.principalName ? `أ. ${signatories.principalName}` : "مدير المدرسة"}
               </div>
-              <div className="text-[10px] text-slate-400 pt-5">التوقيع: .....................</div>
-            </div>
-
-            {/* Official Stamp Box */}
-            <div className="space-y-1 flex flex-col items-center">
-              <div className="text-[11px] font-bold text-slate-600">الختم الرسمي للمدرسة</div>
-              <div className="w-20 h-16 border-2 border-dashed border-slate-400 rounded-lg flex items-center justify-center text-[10px] text-slate-400 mt-1">
-                موضع الختم
+              <div className="mt-8 flex flex-col items-center">
+                <div className="w-52 border-b border-dotted border-slate-800 pb-1 text-sm sm:text-base text-slate-600 font-bold">
+                  التوقيع والختم الرسمي
+                </div>
+                <div className="w-22 h-22 border-2 border-dashed border-slate-600 rounded-full mt-2.5 flex items-center justify-center text-xs text-slate-600 font-bold">
+                  الختم الرسمي
+                </div>
               </div>
             </div>
           </div>

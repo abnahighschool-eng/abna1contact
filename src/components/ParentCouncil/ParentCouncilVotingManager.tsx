@@ -191,15 +191,16 @@ ${groupVoteUrl}
     return `${origin}/v/${token}`;
   };
 
-  // Build candidate pool items
+  // Build candidate pool items - strictly candidates approved from smart screening
   const candidatePoolIds = useMemo(() => {
+    let ids: string[] = [];
     if (votingConfig?.candidateIds && votingConfig.candidateIds.length > 0) {
-      return votingConfig.candidateIds;
+      ids = votingConfig.candidateIds;
+    } else if (config.selectedMemberIds && config.selectedMemberIds.length > 0) {
+      ids = config.selectedMemberIds;
     }
-    if (config.selectedMemberIds && config.selectedMemberIds.length > 0) {
-      return config.selectedMemberIds;
-    }
-    return Object.keys(applications);
+    // Strictly filter out deleted or missing applications
+    return ids.filter((id) => !!(applications[id] || Object.values(applications || {}).find((a) => a?.id === id)));
   }, [votingConfig?.candidateIds, config.selectedMemberIds, applications]);
 
   // Tallied votes for each candidate
@@ -539,32 +540,38 @@ ${groupVoteUrl}
                 </p>
               </div>
 
-              {/* Action: Apply Top 9 Candidates to Council */}
+              {/* Action: Apply Top Candidates to Council based on configured seats */}
               <button
                 type="button"
                 onClick={async () => {
-                  const top9 = rankedCandidates.slice(0, 9).map(c => c.id);
-                  const reserves = rankedCandidates.slice(9, 13).map(c => c.id);
-                  if (top9.length === 0) {
+                  const seatsCount = Number(config.seatsCount) || 9;
+                  const reserveCount = Number(config.reserveSeatsCount) || 4;
+                  const topSelected = rankedCandidates.slice(0, seatsCount).map(c => c.id);
+                  const reserves = rankedCandidates.slice(seatsCount, seatsCount + reserveCount).map(c => c.id);
+                  if (topSelected.length === 0) {
                     alert("لا يوجد مرشحون لاعتمادهم حالياً.");
                     return;
                   }
-                  if (window.confirm(`هل ترغب في اعتماد أكثر 9 مرشحين حصولاً على الأصوات كأعضاء أساسيين بمجلس أولياء الأمور؟`)) {
-                    await onApplyTopCandidatesToCouncil(top9, reserves);
-                    if (showToast) showToast("تم اعتماد أعلى 9 مرشحين بالمجلس بنجاح");
-                    setNotification("تم اعتماد أعلى 9 مرشحين بناء على أصوات أولياء الأمور بنجاح.");
+                  if (window.confirm(`هل ترغب في اعتماد أكثر (${topSelected.length}) مرشحين حصولاً على الأصوات كأعضاء أساسيين بمجلس أولياء الأمور؟`)) {
+                    await onApplyTopCandidatesToCouncil(topSelected, reserves);
+                    if (showToast) showToast(`تم اعتماد أكثر ${topSelected.length} مرشحاً بالمجلس بنجاح`);
+                    setNotification(`تم اعتماد أكثر ${topSelected.length} مرشحين بناء على أصوات أولياء الأمور بنجاح.`);
                   }
                 }}
                 className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-2 cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>اعتماد أكثر 9 ترشيحاً بالمجلس</span>
+                <span>اعتماد أكثر {Number(config.seatsCount) || 9} ترشيحاً بالمجلس</span>
               </button>
             </div>
 
             {rankedCandidates.length === 0 ? (
-              <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-500 text-xs">
-                لا يوجد مرشحون مسجلون في بطاقة الاقتراع بعد.
+              <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-600 text-xs space-y-2">
+                <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
+                <div className="font-extrabold text-sm text-slate-800">لا يوجد مرشحون معتمدون في بطاقة الاقتراع بعد</div>
+                <p className="text-slate-500 max-w-md mx-auto">
+                  وفقاً للائحة، لا ينتقل أي عضو لمرحلة التصويت إلا بعد اعتماده من خلال قسم "فرز وترتيب المتقدمين الذكي". يرجى التوجه إلى قسم الفرز الذكي وتحديد المرشحين المطلوب انتقالهم للاقتراع.
+                </p>
               </div>
             ) : (
               <div className="space-y-3 pt-2">

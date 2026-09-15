@@ -134,6 +134,42 @@ export default function ParentCouncilDashboard({
   const [copiedLink, setCopiedLink] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Batch Selection for Applications (Delete / Selection)
+  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
+
+  const toggleSelectBatch = (id: string) => {
+    setSelectedBatchIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllDisplayed = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const allSelected = ids.every((id) => selectedBatchIds.includes(id));
+    if (allSelected) {
+      setSelectedBatchIds((prev) => prev.filter((id) => !ids.includes(id)));
+    } else {
+      setSelectedBatchIds((prev) => Array.from(new Set([...prev, ...ids])));
+    }
+  };
+
+  // Helper to clear localStorage tokens for deleted applications
+  const clearAppFromClientStorage = (app?: ParentCouncilApplication) => {
+    if (!app) return;
+    try {
+      const anyApp = app as any;
+      if (anyApp.activationToken) localStorage.removeItem(`pc_submitted_${anyApp.activationToken}`);
+      if (anyApp.token) localStorage.removeItem(`pc_submitted_${anyApp.token}`);
+      if (app.studentId) localStorage.removeItem(`pc_submitted_student_${app.studentId}`);
+      if (app.phone) {
+        const raw = String(app.phone).replace(/\D/g, "");
+        localStorage.removeItem(`pc_submitted_phone_${raw}`);
+        localStorage.removeItem(`pc_submitted_phone_${raw.slice(-9)}`);
+        localStorage.removeItem(`pc_submitted_phone_0${raw.slice(-9)}`);
+      }
+    } catch (e) {}
+  };
+
   // WhatsApp Batch Invite
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
   const [customWhatsAppMsg, setCustomWhatsAppMsg] = useState(
@@ -725,14 +761,18 @@ export default function ParentCouncilDashboard({
 
   // Helper: Quick-mark top N candidates based on smart rank (الترتيب استرشادي)
   const handleSelectTopCandidates = () => {
-    const appsList = Object.values(applications) as ParentCouncilApplication[];
-    const sorted = [...appsList].sort((a, b) => {
+    const validApps = (Object.values(applications || {}) as ParentCouncilApplication[]).filter(
+      (a) => a && a.id && a.fullName
+    );
+    const sorted = [...validApps].sort((a, b) => {
       const scoreA = a.smartEvaluation?.overallScore || 0;
       const scoreB = b.smartEvaluation?.overallScore || 0;
       return scoreB - scoreA;
     });
-    const seats = config.seatsCount || 9;
+    const seats = Number(config.seatsCount) || 9;
+    const reserveSeats = Number(config.reserveSeatsCount) || 4;
     const topIds = sorted.slice(0, seats).map((a) => a.id);
+    const reserveIds = sorted.slice(seats, seats + reserveSeats).map((a) => a.id);
     const updatedApps = { ...applications };
     topIds.forEach((id) => {
       if (updatedApps[id]) {
@@ -742,11 +782,17 @@ export default function ParentCouncilDashboard({
         }
       }
     });
+    reserveIds.forEach((id) => {
+      if (updatedApps[id]) {
+        updatedApps[id].status = "reserve";
+      }
+    });
     syncUpdates(updatedApps, {
       ...config,
       selectedMemberIds: topIds,
+      reserveMemberIds: reserveIds,
     });
-    showToast(`تم تحديد أعلى ${topIds.length} في الترتيب كأعضاء أساسيين تلقائياً.`);
+    showToast(`تم تحديد أعلى ${topIds.length} كأعضاء أساسيين، و ${reserveIds.length} كأعضاء احتياط بناء على الفرز الذكي.`);
   };
 
   // Action: Toggle Survey Closed / Open globally
@@ -764,18 +810,21 @@ export default function ParentCouncilDashboard({
     }
   };
 
-  // Action: Delete application so parent can refill it
+  // Action: Delete single application so parent can refill it
   const handleDeleteApplication = async (appId: string, applicantName: string) => {
     const confirmDelete = window.confirm(
       `هل أنت متأكد من حذف استمارة الترشح لولي الأمر: "${applicantName}"؟\n\n` +
       `عند الحذف:\n` +
-      `1. سيتم حذف الاستمارة نهائياً من النظام.\n` +
-      `2. سيتمكن ولي الأمر من الدخول وتعبئة الاستمارة مرة أخرى.\n` +
+      `1. سيتم حذف الاستمارة نهائياً من النظام ومن الفرز والتصويت وقائمة الاعتماد.\n` +
+      `2. سيتمكن ولي الأمر من الدخول وإعادة إرسال الاستمارة مرة أخرى عبر الرابط دون ظهور تنبيه "سبق وعبيت الاستمارة".\n` +
       `3. سيتم إلغاء اعتماده من مقاعد المجلس أو الاحتياط إن كان محدداً.`
     );
     if (!confirmDelete) return;
 
     try {
+      const targetApp = applications[appId];
+      clearAppFromClientStorage(targetApp);
+
       const res = await fetch("/api/parent-councils/delete-application", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -809,6 +858,14 @@ export default function ParentCouncilDashboard({
         }));
       }
 
+      setSelectedBatchIds((prev) => prev.filter((id) => id !== appId));
+
+      try {
+        const bc = new BroadcastChannel("parent_councils_channel");
+        bc.postMessage({ type: "APPLICATION_DELETED", id: appId });
+        bc.close();
+      } catch (e) {}
+
       showToast(`تم حذف استمارة (${applicantName}) بنجاح، ويمكن لولي الأمر الآن تعبئتها مرة أخرى.`);
     } catch (err: any) {
       console.error("Error deleting application:", err);
@@ -823,7 +880,145 @@ export default function ParentCouncilDashboard({
       };
       setConfig(newConfig);
       syncUpdates(newApps, newConfig);
+      setSelectedBatchIds((prev) => prev.filter((id) => id !== appId));
       showToast(`تم حذف الاستمارة بنجاح، ويمكن لولي الأمر تعبئتها مرة أخرى.`);
+    }
+  };
+
+  // Action: Batch Delete Selected Applications
+  const handleDeleteSelectedApplications = async () => {
+    if (selectedBatchIds.length === 0) {
+      alert("يرجى تحديد استمارة واحدة على الأقل لحذفها.");
+      return;
+    }
+    const count = selectedBatchIds.length;
+    const confirmDelete = window.confirm(
+      `هل أنت متأكد من حذف (${count}) استمارات ترشح محددة؟\n\n` +
+      `عند الحذف:\n` +
+      `1. سيتم حذف الاستمارات المحددة نهائياً من النظام.\n` +
+      `2. لن تظهر في الفرز ولا في التصويت ولا في قائمة الاعتماد.\n` +
+      `3. سيتمكن أولياء الأمور من الدخول وإعادة إرسال الاستمارة من جديد عبر الرابط المرسل دون أي تنبيه.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      selectedBatchIds.forEach((id) => {
+        clearAppFromClientStorage(applications[id]);
+      });
+
+      const res = await fetch("/api/parent-councils/delete-application", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedBatchIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "فشل حذف الاستمارات المحددة");
+      }
+
+      const newApps = { ...applications };
+      selectedBatchIds.forEach((id) => {
+        delete newApps[id];
+      });
+      setApplications(newApps);
+
+      const newConfig: ParentCouncilConfig = {
+        ...config,
+        selectedMemberIds: (config.selectedMemberIds || []).filter((id) => !selectedBatchIds.includes(id)),
+        reserveMemberIds: (config.reserveMemberIds || []).filter((id) => !selectedBatchIds.includes(id)),
+      };
+      setConfig(newConfig);
+
+      setInvites((prev) => {
+        const updated = { ...prev };
+        Object.values(updated).forEach((inv: any) => {
+          if (inv && inv.applicationId && selectedBatchIds.includes(inv.applicationId)) {
+            inv.isSubmitted = false;
+            delete inv.submittedAt;
+            delete inv.applicationId;
+          }
+        });
+        return updated;
+      });
+
+      setSelectedBatchIds([]);
+
+      try {
+        const bc = new BroadcastChannel("parent_councils_channel");
+        bc.postMessage({ type: "APPLICATIONS_BATCH_DELETED" });
+        bc.close();
+      } catch (e) {}
+
+      showToast(`تم حذف (${count}) استمارات بنجاح، ويمكن لأولياء الأمور التقديم من جديد.`);
+    } catch (err: any) {
+      console.error("Error batch deleting applications:", err);
+      showToast(err.message || "حدث خطأ أثناء حذف الاستمارات");
+    }
+  };
+
+  // Action: Delete ALL Applications
+  const handleDeleteAllApplications = async () => {
+    const count = Object.keys(applications || {}).length;
+    if (count === 0) {
+      alert("لا توجد استمارات لحذفها حالياً.");
+      return;
+    }
+    const confirmDelete = window.confirm(
+      `⚠️ تحذير نهائي: هل أنت متأكد تماماً من حذف كافة الاستمارات (${count} استمارة)؟\n\n` +
+      `عند حذف الكل:\n` +
+      `1. سيتم مسح جميع الاستمارات نهائياً وتفريغ الفرز والتصويت وقائمة الاعتماد.\n` +
+      `2. سيعتبر كل طلب ملغياً، وسيتمكن جميع أولياء الأمور من الدخول وتعبئة الاستمارة من جديد عبر الرابط المرسل كطلب جديد تماماً.\n\n` +
+      `هل ترغب في الاستمرار وإتمام الحذف الشامل؟`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      (Object.values(applications || {}) as ParentCouncilApplication[]).forEach((app) => {
+        clearAppFromClientStorage(app);
+      });
+
+      const res = await fetch("/api/parent-councils/delete-application", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteAll: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "فشل حذف جميع الاستمارات");
+      }
+
+      setApplications({});
+      const newConfig: ParentCouncilConfig = {
+        ...config,
+        selectedMemberIds: [],
+        reserveMemberIds: [],
+      };
+      setConfig(newConfig);
+
+      setInvites((prev) => {
+        const updated = { ...prev };
+        Object.values(updated).forEach((inv: any) => {
+          if (inv) {
+            inv.isSubmitted = false;
+            delete inv.submittedAt;
+            delete inv.applicationId;
+          }
+        });
+        return updated;
+      });
+
+      setSelectedBatchIds([]);
+
+      try {
+        const bc = new BroadcastChannel("parent_councils_channel");
+        bc.postMessage({ type: "ALL_APPLICATIONS_DELETED" });
+        bc.close();
+      } catch (e) {}
+
+      showToast("تم حذف كافة الاستمارات بنجاح، وأصبح بإمكان جميع أولياء الأمور التقديم من جديد.");
+    } catch (err: any) {
+      console.error("Error deleting all applications:", err);
+      showToast(err.message || "حدث خطأ أثناء حذف كافة الاستمارات");
     }
   };
 
@@ -995,8 +1190,12 @@ export default function ParentCouncilDashboard({
     showToast("تم نسخ رابط الترشيح العام لقروب الواتساب (التفعيل برقم الجوال) بنجاح");
   };
 
-  // Filtered applications list
-  const appsList = Object.values(applications) as ParentCouncilApplication[];
+  // Filtered applications list - strictly attached submitted applications
+  const appsList = useMemo(() => {
+    return (Object.values(applications || {}) as ParentCouncilApplication[]).filter(
+      (a) => a && a.id && a.fullName
+    );
+  }, [applications]);
   const selectedApps = config.selectedMemberIds.map((id) => applications[id]).filter(Boolean);
   const reserveApps = config.reserveMemberIds.map((id) => applications[id]).filter(Boolean);
 
@@ -1449,11 +1648,44 @@ export default function ParentCouncilDashboard({
                   type="button"
                   onClick={handleSelectTopCandidates}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-colors cursor-pointer"
-                  title={`تحديد أعلى ${config.seatsCount} في الترتيب كمرشحين أساسيين تلقائياً`}
+                  title={`تحديد أعلى ${config.seatsCount} في الترتيب كمرشحين أساسيين، وتعيين ${config.reserveSeatsCount || 4} احتياط تلقائياً`}
                 >
                   <CheckSquare className="w-3.5 h-3.5 text-amber-700" />
-                  <span>تحديد أعلى {config.seatsCount} تلقائياً</span>
+                  <span>تحديد {config.seatsCount} أساسي و{config.reserveSeatsCount || 4} احتياط تلقائياً</span>
                 </button>
+
+                {sortedAllApps.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => selectAllDisplayed(sortedAllApps.map((a) => a.id))}
+                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer border border-slate-200"
+                    >
+                      {sortedAllApps.every((a) => selectedBatchIds.includes(a.id)) ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                    </button>
+
+                    {selectedBatchIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedApplications}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>حذف المحددة ({selectedBatchIds.length})</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllApplications}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition-colors cursor-pointer"
+                      title="حذف جميع الاستمارات من النظام والفرز والتصويت"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                      <span>حذف كافة الاستمارات</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1481,6 +1713,16 @@ export default function ParentCouncilDashboard({
                     >
                       {/* Member Info */}
                       <div className="flex items-start gap-3 w-full lg:w-auto">
+                        <div className="flex items-center gap-2 shrink-0 pt-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedBatchIds.includes(app.id)}
+                            onChange={() => toggleSelectBatch(app.id)}
+                            className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
+                            title="تحديد لحذف الاستمارة أو إجراءات جماعية"
+                          />
+                        </div>
+
                         <div
                           className={`w-9 h-9 rounded-xl font-mono font-black text-sm flex items-center justify-center shrink-0 shadow-xs ${
                             isTopSeat
@@ -2016,7 +2258,7 @@ export default function ParentCouncilDashboard({
               />
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
@@ -2037,15 +2279,66 @@ export default function ParentCouncilDashboard({
                 <option value="الثاني">الثاني ثانوي</option>
                 <option value="الثالث">الثالث ثانوي</option>
               </select>
+
+              {appsList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAllApplications}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition-colors cursor-pointer"
+                  title="حذف جميع الاستمارات نهائياً لإتاحة الفرصة لإعادة التقديم"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>حذف كافة الاستمارات</span>
+                </button>
+              )}
             </div>
 
           </div>
+
+          {/* Batch Actions Bar (when items are selected) */}
+          {selectedBatchIds.length > 0 && (
+            <div className="flex items-center justify-between gap-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl animate-fade-in">
+              <div className="flex items-center gap-2 text-xs font-bold text-rose-950">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                <span>تم تحديد ({selectedBatchIds.length}) استمارة</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDeleteSelectedApplications}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>حذف الاستمارات المحددة ({selectedBatchIds.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedBatchIds([])}
+                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  إلغاء التحديد
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Applications Table */}
           <div className="overflow-x-auto border border-slate-200 rounded-2xl">
             <table className="w-full text-xs text-right border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                  <th className="p-3 text-center w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredApplications.length > 0 &&
+                        filteredApplications.every((a) => selectedBatchIds.includes(a.id))
+                      }
+                      onChange={() => selectAllDisplayed(filteredApplications.map((a) => a.id))}
+                      className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
+                      title="تحديد كل المعروض"
+                    />
+                  </th>
                   <th className="p-3">اسم ولي الأمر</th>
                   <th className="p-3">الطالب والصف</th>
                   <th className="p-3">المهارات المعتمدة</th>
@@ -2061,7 +2354,20 @@ export default function ParentCouncilDashboard({
                   const isDisqualified = !app.smartEvaluation?.isEligible || app.status === "disqualified";
 
                   return (
-                    <tr key={app.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr
+                      key={app.id}
+                      className={`hover:bg-slate-50/60 transition-colors ${
+                        selectedBatchIds.includes(app.id) ? "bg-rose-50/40" : ""
+                      }`}
+                    >
+                      <td className="p-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedBatchIds.includes(app.id)}
+                          onChange={() => toggleSelectBatch(app.id)}
+                          className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
+                        />
+                      </td>
                       <td className="p-3 min-w-[150px]">
                         <div className="font-extrabold text-slate-900 break-words whitespace-normal leading-snug">{app.fullName}</div>
                         <div className="text-[10px] text-slate-400 font-mono" dir="ltr">{app.phone}</div>

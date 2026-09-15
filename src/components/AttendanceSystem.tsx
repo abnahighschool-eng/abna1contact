@@ -266,14 +266,20 @@ export default function AttendanceSystem({
     try {
       const res = await fetch("/api/whatsapp/reports");
       if (!res.ok) return;
-      const data = await res.json();
-      const logs = data.logs || [];
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        // Ignored if non-JSON (e.g. server starting or proxy response)
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (!data || !Array.isArray(data.logs)) return;
+      const logs = data.logs;
       const todayISO = getTodayISO();
 
       const map: Record<string, { time: string; phone: string; campaignName: string; status: string }> = {};
 
       logs.forEach((lg: any) => {
-        if (lg.status === "success" && lg.timestamp) {
+        if (lg && lg.status === "success" && lg.timestamp) {
           const logDateISO = new Date(lg.timestamp).toISOString().split("T")[0];
           if (logDateISO === todayISO) {
             const timeFormatted = new Date(lg.timestamp).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
@@ -299,7 +305,8 @@ export default function AttendanceSystem({
 
       setTodaySentMap(map);
     } catch (err) {
-      console.error("Error loading today's sent reports in AttendanceSystem:", err);
+      // Log subtle warning if unexpected error occurs
+      console.warn("Notice: AttendanceSystem today's report logs loading deferred:", err);
     }
   };
 
