@@ -30,7 +30,7 @@ import { DEFAULT_MINISTRY_LOGO } from "../SchoolSignatoriesModal";
 const A4_PRINT_STYLE = `
   @page {
     size: A4 portrait;
-    margin: 10mm 12mm 10mm 12mm;
+    margin: 8mm 10mm 8mm 10mm;
   }
   @media print {
     *, *::before, *::after {
@@ -60,8 +60,8 @@ const A4_PRINT_STYLE = `
     .no-print, header, nav, aside, footer, #main-header, #main-footer, [id*="sidebar"] {
       display: none !important;
     }
-    /* Force all ancestor wrapper containers to 100% width with ZERO padding and ZERO margins */
-    #root, #app-root, #primary-content-viewport, main, div[id*="viewport"], [class*="flex-1"] {
+    /* Force ancestor wrappers to clean full width WITHOUT breaking child flex/table layouts */
+    #root, #app-root, #primary-content-viewport, main, div[id*="viewport"] {
       margin: 0 !important;
       padding: 0 !important;
       width: 100% !important;
@@ -104,6 +104,24 @@ const A4_PRINT_STYLE = `
     .parent-council-sheet-canvas * {
       font-family: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
     }
+    /* Header table safety: strictly keeps 3-column layout side-by-side with zero wrapping */
+    .official-report-header-table {
+      width: 100% !important;
+      border: none !important;
+      border-collapse: collapse !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      display: table !important;
+    }
+    .official-report-header-table tr {
+      display: table-row !important;
+    }
+    .official-report-header-table td {
+      border: none !important;
+      padding: 0 4px !important;
+      vertical-align: top !important;
+      display: table-cell !important;
+    }
     /* Single-page fit for individual application: fills A4 completely without breaking */
     .single-page-sheet {
       page-break-inside: avoid !important;
@@ -143,6 +161,7 @@ const ARABIC_FONT_FAMILY =
 
 // =========================================================================
 // Official Ministry Report Header (طراز وزارة التعليم الرسمي فائق الوضوح والتحبير)
+// مبني بجدول طباعي هندسي محكم يمنع انفصال الهوامش أو انزياح الأعمدة نهائياً
 // =========================================================================
 export function OfficialReportHeader({
   countryName = "المملكة العربية السعودية",
@@ -172,62 +191,83 @@ export function OfficialReportHeader({
   const defaultTime = now.toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   return (
-    <div className="border-b-2 border-slate-900 pb-2.5 mb-3 print-avoid-break">
-      <div className="flex items-start justify-between">
-        {/* Right: Ministerial Information */}
-        <div className="text-right leading-tight flex-1">
-          <div className="text-xs font-semibold text-slate-700">
-            {countryName || "المملكة العربية السعودية"}
-          </div>
-          <div className="text-sm font-black text-slate-950 mt-0.5">
-            {ministryName || "وزارة التعليم"}
-          </div>
-          <div className="text-xs font-semibold text-slate-700 mt-0.5">
-            {administrationName || "الإدارة العامة للتعليم بمنطقة تبوك"}
-          </div>
-          <div className="text-xs sm:text-sm font-bold text-emerald-800 mt-0.5">
-            {schoolName || "ثانوية الأبناء الأولى"}
-          </div>
-        </div>
+    <div className="border-b-2 border-slate-900 pb-2 mb-2.5 print-avoid-break w-full">
+      <table
+        className="official-report-header-table w-full border-collapse m-0 p-0"
+        style={{ width: "100%", border: "none", borderCollapse: "collapse" }}
+      >
+        <tbody>
+          <tr style={{ border: "none", verticalAlign: "top" }}>
+            {/* Right: Ministerial Information (30%) */}
+            <td
+              className="text-right align-top"
+              style={{ width: "30%", verticalAlign: "top", textAlign: "right", border: "none", padding: "0 0 2px 0" }}
+            >
+              <div className="text-xs font-semibold text-slate-700 leading-tight">
+                {countryName || "المملكة العربية السعودية"}
+              </div>
+              <div className="text-sm font-black text-slate-950 mt-0.5 leading-tight">
+                {ministryName || "وزارة التعليم"}
+              </div>
+              <div className="text-xs font-semibold text-slate-700 mt-0.5 leading-tight">
+                {administrationName || "الإدارة العامة للتعليم بمنطقة تبوك"}
+              </div>
+              <div className="text-xs sm:text-sm font-bold text-emerald-800 mt-0.5 leading-tight">
+                {schoolName || "ثانوية الأبناء الأولى"}
+              </div>
+            </td>
 
-        {/* Center: Ministry Logo & Report Title */}
-        <div className="text-center flex flex-col items-center justify-center flex-[1.6]">
-          <img
-            src={logoUrl || DEFAULT_MINISTRY_LOGO}
-            alt="وزارة التعليم"
-            className="h-11 sm:h-12 w-auto object-contain mb-1"
-            referrerPolicy="no-referrer"
-          />
-          <h1 className="text-sm sm:text-base font-black text-slate-950 tracking-tight leading-snug">
-            {title}
-          </h1>
-          {subtitle && (
-            <span className="text-[10px] sm:text-xs font-semibold text-slate-600 mt-0.5 block">
-              {subtitle}
-            </span>
-          )}
-        </div>
+            {/* Center: Ministry Logo & Report Title (40%) */}
+            <td
+              className="text-center align-top"
+              style={{ width: "40%", verticalAlign: "top", textAlign: "center", border: "none", padding: "0 4px 2px 4px" }}
+            >
+              <div className="flex flex-col items-center justify-center">
+                <img
+                  src={logoUrl || DEFAULT_MINISTRY_LOGO}
+                  alt="وزارة التعليم"
+                  className="h-10 sm:h-11 w-auto max-h-11 object-contain mb-1 inline-block"
+                  style={{ maxHeight: "44px", width: "auto", display: "inline-block" }}
+                  referrerPolicy="no-referrer"
+                />
+                <h1 className="text-sm sm:text-base font-black text-slate-950 tracking-tight leading-snug m-0">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <span className="text-[10px] sm:text-xs font-semibold text-slate-600 mt-0.5 block leading-tight">
+                    {subtitle}
+                  </span>
+                )}
+              </div>
+            </td>
 
-        {/* Left: Metadata & Reference Code */}
-        <div className="text-left flex flex-col items-end text-xs leading-tight text-slate-800 flex-1">
-          <div className="flex items-center justify-end gap-1.5">
-            <span className="font-bold text-slate-900">تاريخ التقرير:</span>
-            <span className="font-bold font-mono text-slate-950">{reportDate || defaultDate}</span>
-          </div>
-          <div className="flex items-center justify-end gap-1.5 mt-0.5">
-            <span className="font-medium text-slate-600">وقت الإصدار:</span>
-            <span className="font-mono text-slate-800">{issueTime || defaultTime}</span>
-          </div>
-          {refNumber && (
-            <div className="flex items-center justify-end gap-1.5 mt-1">
-              <span className="font-medium text-slate-600">الرقم المرجعي:</span>
-              <span className="bg-slate-100 px-2 py-0.5 rounded text-[9px] font-bold font-mono text-slate-900 border border-slate-300">
-                {refNumber}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
+            {/* Left: Metadata & Reference Code (30%) */}
+            <td
+              className="text-left align-top"
+              style={{ width: "30%", verticalAlign: "top", textAlign: "left", border: "none", padding: "0 0 2px 0" }}
+            >
+              <div className="flex flex-col items-end text-xs leading-tight text-slate-800">
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="font-bold text-slate-900">تاريخ التقرير:</span>
+                  <span className="font-bold font-mono text-slate-950">{reportDate || defaultDate}</span>
+                </div>
+                <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                  <span className="font-medium text-slate-600">وقت الإصدار:</span>
+                  <span className="font-mono text-slate-800">{issueTime || defaultTime}</span>
+                </div>
+                {refNumber && (
+                  <div className="flex items-center justify-end gap-1.5 mt-1">
+                    <span className="font-medium text-slate-600">الرقم المرجعي:</span>
+                    <span className="bg-slate-100 px-2 py-0.5 rounded text-[9px] font-bold font-mono text-slate-950 border border-slate-300">
+                      {refNumber}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -245,38 +285,38 @@ export function OfficialStatsBox({
   summaryNote?: React.ReactNode;
 }) {
   return (
-    <div className="bg-slate-50/80 border border-slate-300 rounded-xl p-2.5 flex flex-col gap-1.5 text-[11px] print-avoid-break mb-3">
+    <div className="bg-slate-50/80 border border-slate-400 rounded-lg p-2.5 flex flex-col gap-1.5 text-[11px] print-avoid-break mb-3 w-full">
       {/* Metadata Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-b border-slate-200 pb-1.5 text-right">
+      <div className="grid grid-cols-4 gap-2 border-b border-slate-300 pb-1.5 text-right w-full">
         {metaItems.map((item, idx) => (
-          <div key={idx}>
-            <span className="text-slate-500 font-medium block text-[9px]">{item.label}:</span>
-            <span className="font-bold text-slate-950 text-[10px]">{item.value}</span>
+          <div key={idx} className="leading-tight">
+            <span className="text-slate-600 font-bold block text-[10px]">{item.label}:</span>
+            <span className="font-extrabold text-slate-950 text-[11px] truncate block">{item.value}</span>
           </div>
         ))}
       </div>
 
       {/* KPI Summary Row */}
-      <div className="flex items-center justify-between text-[10px] pt-0.5">
-        <div className="flex items-center gap-3 font-semibold flex-wrap">
+      <div className="flex items-center justify-between text-[10px] pt-0.5 w-full">
+        <div className="flex items-center gap-3.5 font-bold flex-wrap">
           {kpis.map((kpi, idx) => {
             const colorClass =
               kpi.color === "emerald"
-                ? "text-emerald-800"
+                ? "text-emerald-900"
                 : kpi.color === "red"
-                ? "text-red-800"
+                ? "text-red-900"
                 : kpi.color === "amber"
-                ? "text-amber-800"
-                : "text-slate-900";
+                ? "text-amber-900"
+                : "text-slate-950";
             return (
               <span key={idx} className={colorClass}>
-                <strong>{kpi.label}:</strong> {kpi.value}
+                <strong className="text-slate-700">{kpi.label}:</strong> {kpi.value}
               </span>
             );
           })}
         </div>
         {summaryNote && (
-          <div className="font-semibold text-slate-800 text-[10px]">
+          <div className="font-bold text-slate-900 text-[10px]">
             {summaryNote}
           </div>
         )}
