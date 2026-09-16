@@ -41,6 +41,7 @@ import {
 import { getStableCodeForStudent, getStableTokenForStudent } from "./ParentCouncilStudentInvites";
 import UnifiedCampaignModal, { CampaignLaunchButtons } from "../UnifiedCampaignModal";
 import { launchOfficialCampaign } from "../../utils/campaignLauncher";
+import { VotingResultsReportPrintSheet } from "./ParentCouncilPrintSheets";
 
 interface ParentCouncilVotingManagerProps {
   applications: Record<string, ParentCouncilApplication>;
@@ -92,6 +93,7 @@ export default function ParentCouncilVotingManager({
 
   // Campaign Modal
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [showPrintSheet, setShowPrintSheet] = useState(false);
 
   const defaultTemplate = `السلام عليكم ورحمة الله وبركاته،
 المكرم ولي أمر الطالب/ {اسم الطالب} ({الصف})،
@@ -376,6 +378,25 @@ ${groupVoteUrl}
       });
   }, [students, selectedStudentIds, invites, messageTemplate]);
 
+  if (showPrintSheet) {
+    return (
+      <VotingResultsReportPrintSheet
+        candidates={rankedCandidates}
+        totalVotesCast={totalVotesCast}
+        config={config}
+        signatories={
+          schoolSignatories || {
+            principalName: "مدير المدرسة",
+            vicePrincipalName: "وكيل المدرسة",
+            counselorName: "الموجه الطلابي",
+            schoolName: "ثانوية الأبناء الأولى",
+          }
+        }
+        onClose={() => setShowPrintSheet(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 text-right font-sans" dir="rtl">
       {/* Header Card */}
@@ -540,29 +561,41 @@ ${groupVoteUrl}
                 </p>
               </div>
 
-              {/* Action: Apply Top Candidates to Council based on configured seats */}
-              <button
-                type="button"
-                onClick={async () => {
-                  const seatsCount = Number(config.seatsCount) || 9;
-                  const reserveCount = Number(config.reserveSeatsCount) || 4;
-                  const topSelected = rankedCandidates.slice(0, seatsCount).map(c => c.id);
-                  const reserves = rankedCandidates.slice(seatsCount, seatsCount + reserveCount).map(c => c.id);
-                  if (topSelected.length === 0) {
-                    alert("لا يوجد مرشحون لاعتمادهم حالياً.");
-                    return;
-                  }
-                  if (window.confirm(`هل ترغب في اعتماد أكثر (${topSelected.length}) مرشحين حصولاً على الأصوات كأعضاء أساسيين بمجلس أولياء الأمور؟`)) {
-                    await onApplyTopCandidatesToCouncil(topSelected, reserves);
-                    if (showToast) showToast(`تم اعتماد أكثر ${topSelected.length} مرشحاً بالمجلس بنجاح`);
-                    setNotification(`تم اعتماد أكثر ${topSelected.length} مرشحين بناء على أصوات أولياء الأمور بنجاح.`);
-                  }
-                }}
-                className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-2 cursor-pointer"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>اعتماد أكثر {Number(config.seatsCount) || 9} ترشيحاً بالمجلس</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPrintSheet(true)}
+                  className="px-4 py-2.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-850 border-2 border-slate-300 text-xs font-black shadow-xs flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+                  id="btn-open-print-voting-results"
+                >
+                  <Printer className="w-4 h-4 text-teal-700" />
+                  <span>طباعة محضر النتائج (A4)</span>
+                </button>
+
+                {/* Action: Apply Top Candidates to Council based on configured seats */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const seatsCount = Number(config.seatsCount) || 9;
+                    const reserveCount = Number(config.reserveSeatsCount) || 4;
+                    const topSelected = rankedCandidates.slice(0, seatsCount).map(c => c.id);
+                    const reserves = rankedCandidates.slice(seatsCount, seatsCount + reserveCount).map(c => c.id);
+                    if (topSelected.length === 0) {
+                      alert("لا يوجد مرشحون لاعتمادهم حالياً.");
+                      return;
+                    }
+                    if (window.confirm(`هل ترغب في اعتماد أكثر (${topSelected.length}) مرشحين حصولاً على الأصوات كأعضاء أساسيين بمجلس أولياء الأمور؟`)) {
+                      await onApplyTopCandidatesToCouncil(topSelected, reserves);
+                      if (showToast) showToast(`تم اعتماد أكثر ${topSelected.length} مرشحاً بالمجلس بنجاح`);
+                      setNotification(`تم اعتماد أكثر ${topSelected.length} مرشحين بناء على أصوات أولياء الأمور بنجاح.`);
+                    }
+                  }}
+                  className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>اعتماد أكثر {Number(config.seatsCount) || 9} ترشيحاً بالمجلس</span>
+                </button>
+              </div>
             </div>
 
             {rankedCandidates.length === 0 ? (

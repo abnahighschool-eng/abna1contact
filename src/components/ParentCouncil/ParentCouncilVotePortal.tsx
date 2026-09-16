@@ -703,21 +703,9 @@ export default function ParentCouncilVotePortal({
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <span className="text-[10px] font-bold text-teal-700 block">بيانات ولي الأمر المصوت:</span>
-                  <span className="text-xs sm:text-sm font-black text-slate-900">
-                    {selectedStudent?.name
-                      ? `ولي أمر الطالب: ${selectedStudent.name}`
-                      : inviteData?.studentName
-                      ? `ولي أمر الطالب: ${inviteData.studentName}`
-                      : phoneInput
-                      ? `ولي أمر برقم الجوال: ${phoneInput}`
-                      : "المكرم ولي الأمر"}
+                  <span className="text-xs sm:text-sm font-black text-slate-900 block">
+                    {phoneInput ? `المكرم ولي الأمر (رقم الجوال: ${phoneInput})` : "المكرم ولي الأمر"}
                   </span>
-                  {(selectedStudent?.grade || inviteData?.studentGrade) && (
-                    <span className="text-[11px] text-slate-600 block">
-                      الصف: {selectedStudent?.grade || inviteData?.studentGrade}{" "}
-                      {(selectedStudent?.className || inviteData?.studentClass) ? `- الشعبة ${selectedStudent?.className || inviteData?.studentClass}` : ""}
-                    </span>
-                  )}
                 </div>
 
                 <div className="bg-white px-3.5 py-1.5 rounded-xl border border-teal-200 shadow-xs shrink-0 text-center">
@@ -728,38 +716,45 @@ export default function ParentCouncilVotePortal({
                 </div>
               </div>
 
-              {/* If multiple students associated with this phone number, allow selection */}
-              {matchedStudents.length > 1 && (
-                <div className="pt-2 border-t border-teal-200/60">
+              {/* Display students belonging to this parent */}
+              {matchedStudents.length > 0 ? (
+                <div className="pt-2.5 border-t border-teal-200/70">
                   <span className="text-[11px] font-bold text-teal-900 block mb-1.5">
-                    الرجاء تحديد الطالب الذي تصوت بالنيابة عنه:
+                    الطلاب التابعون لولي الأمر بالمدرسة:
                   </span>
                   <div className="flex flex-wrap gap-2">
-                    {matchedStudents.map((st) => {
-                      const isStSelected = selectedStudent?.id === st.id;
-                      return (
-                        <button
-                          key={st.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedStudent(st);
-                            setStudentId(st.id);
-                          }}
-                          className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                            isStSelected
-                              ? "bg-teal-700 text-white border-teal-800 shadow-xs"
-                              : "bg-white text-slate-700 border-teal-200 hover:bg-teal-50"
-                          }`}
-                        >
-                          <User className="w-3 h-3" />
-                          <span>{st.name}</span>
-                          {st.grade && <span className="text-[10px] opacity-80">({st.grade})</span>}
-                        </button>
-                      );
-                    })}
+                    {matchedStudents.map((st) => (
+                      <div
+                        key={st.id}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-slate-800 border border-teal-200 shadow-xs flex items-center gap-1.5"
+                      >
+                        <User className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                        <span>{st.name}</span>
+                        {(st.grade || st.className) && (
+                          <span className="text-[10px] text-teal-800 bg-teal-50 px-1.5 py-0.5 rounded-md font-medium">
+                            {[st.grade, st.className].filter(Boolean).join(" - ")}
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
+              ) : inviteData?.studentName ? (
+                <div className="pt-2 border-t border-teal-200/70">
+                  <span className="text-[11px] font-bold text-teal-900 block mb-1.5">
+                    الطالب التابع لولي الأمر بالمدرسة:
+                  </span>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-slate-800 border border-teal-200 shadow-xs">
+                    <User className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                    <span>{inviteData.studentName}</span>
+                    {(inviteData.studentGrade || inviteData.studentClass) && (
+                      <span className="text-[10px] text-teal-800 bg-teal-50 px-1.5 py-0.5 rounded-md font-medium">
+                        {[inviteData.studentGrade, inviteData.studentClass].filter(Boolean).join(" - ")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {/* Instruction Banner */}
