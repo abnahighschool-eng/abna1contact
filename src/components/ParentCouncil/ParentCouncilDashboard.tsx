@@ -123,7 +123,7 @@ export default function ParentCouncilDashboard({
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "eligible" | "disqualified" | "selected">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "eligible" | "disqualified" | "selected" | "reserve">("all");
   const [gradeFilter, setGradeFilter] = useState<string>("all");
 
   // Modals & Preview Sheets

@@ -381,9 +381,9 @@ export default function Sidebar({
             ${isCollapsed ? "p-2.5 flex justify-center" : "p-3.5 flex items-center gap-2 text-slate-600"}
           `}>
             {isWhatsAppConnected ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" title="واتساب متصل وجاهز" />
+              <span title="واتساب متصل وجاهز" className="inline-flex"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /></span>
             ) : (
-              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" title="واتساب غير مرتبط" />
+              <span title="واتساب غير مرتبط" className="inline-flex"><AlertCircle className="w-4 h-4 text-amber-500 shrink-0" /></span>
             )}
 
             {!isCollapsed && (

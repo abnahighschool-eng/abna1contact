@@ -739,7 +739,20 @@ export function CouncilFormationPrintSheet({
     .map((id) => applications[id])
     .filter(Boolean);
 
-  // Flexible capacity controls: allows printing blank rows for manual entry or subsequent completion
+  // Default mode: official ministerial approval form matching the required standard
+  const [printMode, setPrintMode] = useState<"official_form" | "administrative_minutes">("official_form");
+
+  // Specific state for the official ministerial form requested by user
+  const [eduAdmin, setEduAdmin] = useState("إدارة تعليم تبوك");
+  const [schoolName, setSchoolName] = useState(signatories.schoolName || "ثانوية الأبناء الأولى");
+  const [educationLevel, setEducationLevel] = useState<"primary" | "intermediate" | "secondary">("secondary");
+  const [statCode, setStatCode] = useState("");
+  const [buildingType, setBuildingType] = useState<"government" | "rented">("government");
+  const [buildingIndependence, setBuildingIndependence] = useState<"independent" | "shared">("independent");
+  const [semester, setSemester] = useState<"first" | "second">("first");
+  const [academicYear, setAcademicYear] = useState(config.academicYear || "1447 - 1448 هـ");
+
+  // Flexible capacity controls for administrative minutes
   const [targetSeatsCount, setTargetSeatsCount] = useState<number>(() => {
     return Math.max(8, selectedMembers.length);
   });
@@ -776,7 +789,9 @@ export function CouncilFormationPrintSheet({
     day: "numeric",
   });
 
-  // Calculate actual rows to render
+  // Exactly 15 numbered rows as specified in the official template
+  const official15Rows = Array.from({ length: 15 }, (_, i) => selectedMembers[i] || null);
+
   const primaryRowsCount = includeManualRows
     ? Math.max(targetSeatsCount, selectedMembers.length)
     : Math.max(1, selectedMembers.length);
@@ -805,12 +820,31 @@ export function CouncilFormationPrintSheet({
             </button>
           )}
           <div className="h-5 w-px bg-slate-200" />
-          <span className="text-xs font-bold text-slate-800">
-            معاينة محضر تشكيل المجلس
-          </span>
-          <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-lg">
-            <Leaf className="w-3.5 h-3.5 text-emerald-700" />
-            <span>طباعة اقتصادية A4</span>
+          
+          {/* Mode Switcher */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setPrintMode("official_form")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                printMode === "official_form"
+                  ? "bg-teal-800 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              نموذج اعتماد نتائج الترشيح (الوزاري المعتمد)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrintMode("administrative_minutes")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                printMode === "administrative_minutes"
+                  ? "bg-teal-800 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              محضر التشكيل والمهام الإدارية
+            </button>
           </div>
         </div>
 
@@ -820,230 +854,316 @@ export function CouncilFormationPrintSheet({
           id="btn-print-council-formation"
         >
           <Printer className="w-4 h-4" />
-          <span>طباعة محضر الاعتماد النهائي (A4)</span>
+          <span>طباعة النموذج الرسمي المعتمد (A4)</span>
         </button>
       </div>
 
-      {/* Flexible Roster & Manual Fill Control Panel (no-print) */}
-      <div className="max-w-[210mm] mx-auto mb-4 bg-white border border-teal-200 rounded-xl p-3 shadow-xs space-y-2.5 text-xs no-print">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-teal-100 pb-2">
-          <div className="flex items-center gap-2 text-teal-950 font-bold">
-            <PenLine className="w-4 h-4 text-teal-700" />
-            <span>خيارات مرونة التقرير واستيعاب الأسماء اليدوية لاحقاً:</span>
-          </div>
-          <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-teal-900 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200 hover:bg-teal-100 transition-colors">
-            <input
-              type="checkbox"
-              checked={includeManualRows}
-              onChange={(e) => setIncludeManualRows(e.target.checked)}
-              className="accent-teal-700 w-3.5 h-3.5"
-            />
-            <span>إتاحة أسطر فارغة للتعبئة اليدوية بالمحضر</span>
-          </label>
-        </div>
+      {/* ========================================================================= */}
+      {/* 1. OFFICIAL NOMINATION RESULTS APPROVAL FORM (النموذج الوزاري المعتمد) */}
+      {/* ========================================================================= */}
+      {printMode === "official_form" ? (
+        <div
+          className="parent-council-sheet-canvas w-full max-w-[210mm] mx-auto bg-white shadow-xl border border-slate-300 rounded-none text-black leading-tight p-6 sm:p-9 print:p-0 print:m-0 print:shadow-none print:border-none print:max-w-none print:w-full print:text-black"
+          style={{
+            fontFamily: ARABIC_FONT_FAMILY,
+            boxSizing: "border-box",
+          }}
+        >
+          {/* Official Header with School Signatures Branding */}
+          <div className="flex items-start justify-between border-b-2 border-transparent pb-1 mb-2">
+            {/* Right: School-specific Header */}
+            <div className="text-right text-xs leading-relaxed text-black font-semibold">
+              <div>المملكة العربية السعودية</div>
+              <div>وزارة التعليم</div>
+              <div>{eduAdmin}</div>
+              <div>{schoolName}</div>
+            </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-slate-700">
-          <span className="font-semibold text-slate-900">سعة مقاعد المجلس:</span>
-          <div className="flex items-center gap-1.5">
-            {[8, 10, 12].map((count) => (
-              <button
-                key={count}
-                type="button"
-                onClick={() => {
-                  setTargetSeatsCount(count);
-                  setIncludeManualRows(true);
-                }}
-                className={`px-2.5 py-1 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
-                  targetSeatsCount === count && includeManualRows
-                    ? "bg-teal-800 text-white border-teal-800"
-                    : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
-                }`}
-              >
-                {count} مقاعد {count === 8 ? "(المعيار الوزاري)" : ""}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setIncludeManualRows(false)}
-              className={`px-2.5 py-1 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
-                !includeManualRows
-                  ? "bg-teal-800 text-white border-teal-800"
-                  : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
-              }`}
-            >
-              المعتمدون فقط ({selectedMembers.length})
-            </button>
-          </div>
-          <span className="text-slate-500 text-[11px] mr-auto">
-            (يطبع المحضر بـ {primaryRowsCount} صفاً أساسياً منظماً لا يتأثر بأي إضافات)
-          </span>
-        </div>
-      </div>
-
-      {/* Official A4 Canvas */}
-      <div
-        className="parent-council-sheet-canvas w-full max-w-[210mm] mx-auto bg-white shadow-xl border border-slate-300 rounded-none text-slate-900 leading-normal p-6 sm:p-9 print:p-0 print:m-0 print:shadow-none print:border-none print:max-w-none print:w-full"
-        style={{
-          fontFamily: ARABIC_FONT_FAMILY,
-          boxSizing: "border-box",
-        }}
-      >
-        {/* Header */}
-        <OfficialReportHeader
-          countryName={signatories.countryName}
-          ministryName={signatories.ministryName}
-          administrationName={signatories.administrationName}
-          schoolName={signatories.schoolName}
-          logoUrl={signatories.logoUrl}
-          title="محضر تشكيل واعتماد مجلس أولياء الأمور"
-          subtitle={`(نظام مجالس أولياء الأمور ولائحة التعليم العام — العام الدراسي ${config.academicYear || "1447 - 1448 هـ"})`}
-          reportDate={todayDisplayDate}
-          issueTime={new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-          refNumber={`PC-COUNCIL-${new Date().getFullYear()}`}
-        />
-
-        {/* Statistical & Metadata Box (الصندوق المنظم) */}
-        <OfficialStatsBox
-          metaItems={[
-            { label: "نطاق المحضر", value: `تشكيل المجلس للعام ${config.academicYear || "1447 - 1448هـ"}` },
-            { label: "المقاعد المقررة", value: `${primaryRowsCount} مقاعد أساسية` },
-            { label: "المقاعد الاحتياطية", value: `${reserveRowsCount} مقاعد احتياط` },
-            { label: "حالة الاعتماد", value: "معتمد رسمياً من الإدارة المدرسية" },
-          ]}
-          kpis={[
-            { label: "إجمالي المقاعد", value: `${primaryRowsCount + reserveRowsCount} مقعد` },
-            { label: "المقيدون أساسي", value: `${selectedMembers.length} من ${primaryRowsCount}`, color: "emerald" },
-            { label: "الاحتياط", value: `${reserveMembers.length} عضو`, color: "amber" },
-            { label: "نسبة اكتمال التشكيل", value: `${Math.min(100, Math.round((selectedMembers.length / primaryRowsCount) * 100))}%`, color: "emerald" },
-          ]}
-          summaryNote={`المجلس المعتمد: ${selectedMembers.length} عضو`}
-        />
-
-        {/* Primary Council Members Table - Mathematical Fixed Geometry */}
-        <div className="mb-4">
-          <div className="border border-slate-800 bg-slate-100/90 text-slate-950 text-xs font-bold px-3 py-1.5 flex items-center justify-between border-b-0">
-            <span>
-              أولاً: الأعضاء الأساسيون لمجلس أولياء الأمور (العدد المقيد: {selectedMembers.length} من {primaryRowsCount} مقعداً)
-            </span>
-            <span className="text-[11px] font-normal text-slate-700">الترتيب بحسب نتائج الفرز والاعتماد النظامي</span>
+            {/* Left: Ministry Branding & Parent Council in General Education */}
+            <div className="flex items-center gap-3">
+              <div className="text-left text-xs font-bold leading-tight text-slate-800 border-r-2 border-slate-400 pr-3">
+                <div className="font-extrabold text-slate-900">مجالس أولياء الأمور</div>
+                <div className="text-[11px] text-slate-600 font-semibold">في التعليم العام</div>
+              </div>
+              <img
+                src={signatories.logoUrl || DEFAULT_MINISTRY_LOGO}
+                alt="شعار وزارة التعليم"
+                className="w-16 h-12 object-contain"
+              />
+            </div>
           </div>
 
-          <table className="w-full border-collapse border border-slate-800 text-xs multi-page-table table-fixed">
-            <thead>
-              <tr className="border-b border-slate-800 bg-slate-50/80 text-slate-950 font-bold">
-                <th className="border-l border-slate-400 py-2 px-1 text-center w-[5%]">م</th>
-                <th className="border-l border-slate-400 py-2 px-3 text-right w-[28%]">الاسم الرباعي لولي الأمر</th>
-                <th className="border-l border-slate-400 py-2 px-2 text-center w-[18%]">الصفة في المجلس</th>
-                <th className="border-l border-slate-400 py-2 px-3 text-right w-[23%]">اسم الطالب والصف</th>
-                <th className="border-l border-slate-400 py-2 px-2 text-center w-[14%]">رقم الجوال</th>
-                <th className="py-2 px-2 text-center w-[12%]">التوقيع</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: primaryRowsCount }).map((_, index) => {
-                const member = selectedMembers[index];
-                if (member) {
-                  const defaultRole =
-                    index === 0
-                      ? "رئيس المجلس"
-                      : index === 1
-                      ? "نائب رئيس المجلس"
-                      : index === 2
-                      ? "أمين المجلس"
-                      : "عضو مجلس";
-                  const currentRole =
-                    localRoles[member.id] !== undefined
-                      ? localRoles[member.id]
-                      : member.assignedRole || defaultRole;
+          {/* Form Title */}
+          <div className="text-center my-3.5">
+            <h1 className="text-base sm:text-lg font-black text-black tracking-normal">
+              نموذج اعتماد نتائج الترشيح لمجلس أولياء الأمور
+            </h1>
+          </div>
 
-                  return (
-                    <tr key={member.id} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
-                      <td className="border-l border-slate-400 py-2.5 px-1 text-center font-mono font-bold text-slate-950">
-                        {index + 1}
-                      </td>
-                      <td className="border-l border-slate-400 py-2.5 px-3 font-bold text-slate-950 text-sm truncate">
-                        {member.fullName}
-                      </td>
-                      <td className="border-l border-slate-400 py-2.5 px-2 text-center font-bold text-slate-950">
-                        <span className="hidden print:inline-block text-xs font-bold text-slate-950">
-                          {currentRole}
+          {/* Section: بيانات المدرسة */}
+          <div className="mb-4">
+            <div className="text-right font-bold text-xs sm:text-sm text-black mb-1">
+              بيانات المدرسة:
+            </div>
+
+            <table className="w-full border-collapse border border-black text-xs">
+              <tbody>
+                {/* 1. الإدارة التعليمية */}
+                <tr className="border-b border-black">
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black w-[30%]">
+                    الإدارة التعليمية
+                  </td>
+                  <td className="py-1.5 px-3 text-right font-bold text-black w-[70%]">
+                    {eduAdmin}
+                  </td>
+                </tr>
+
+                {/* 2. اسم المدرسة */}
+                <tr className="border-b border-black">
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black">
+                    اسم المدرسة
+                  </td>
+                  <td className="py-1.5 px-3 text-right font-bold text-black">
+                    {schoolName}
+                  </td>
+                </tr>
+
+                {/* 3. المرحلة التعليمية */}
+                <tr className="border-b border-black">
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black">
+                    المرحلة التعليمية
+                  </td>
+                  <td className="py-1.5 px-3 text-right">
+                    <div className="flex items-center justify-around text-xs">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span>ابتدائي</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {educationLevel === "primary" ? "✓" : ""}
                         </span>
-                        <input
-                          type="text"
-                          value={currentRole}
-                          onChange={(e) => handleRoleChange(member.id, e.target.value)}
-                          placeholder="الصفة بالمجلس..."
-                          className="print:hidden w-full text-center text-xs font-bold text-slate-950 bg-transparent border border-transparent hover:border-slate-300 focus:border-teal-600 focus:bg-white rounded px-1 py-0.5 outline-none"
-                        />
+                      </span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span>متوسط</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {educationLevel === "intermediate" ? "✓" : ""}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <span>ثانوي</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {educationLevel === "secondary" ? "✓" : ""}
+                        </span>
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* 4. الرقم الإحصائي للمدرسة (فارغ تماماً حسب التوجيه) */}
+                <tr className="border-b border-black">
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black">
+                    الرقم الإحصائي للمدرسة
+                  </td>
+                  <td className="py-1.5 px-3 text-right font-bold text-black">
+                    {statCode || ""}
+                  </td>
+                </tr>
+
+                {/* 5. نوع المبنى */}
+                <tr className="border-b border-black">
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black">
+                    نوع المبنى
+                  </td>
+                  <td className="py-1.5 px-3 text-right">
+                    <div className="flex items-center justify-around text-xs">
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <span>حكومي</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {buildingType === "government" ? "✓" : ""}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span>مستأجر</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {buildingType === "rented" ? "✓" : ""}
+                        </span>
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* 6. استقلالية المبنى */}
+                <tr className="border-b border-black">
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black">
+                    استقلالية المبنى
+                  </td>
+                  <td className="py-1.5 px-3 text-right">
+                    <div className="flex items-center justify-around text-xs">
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <span>مستقل</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {buildingIndependence === "independent" ? "✓" : ""}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span>مشترك</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {buildingIndependence === "shared" ? "✓" : ""}
+                        </span>
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* 7. الفصل الدراسي */}
+                <tr>
+                  <td className="bg-slate-100 border-l border-black py-1.5 px-3 text-right font-bold text-black">
+                    الفصل الدراسي
+                  </td>
+                  <td className="py-1.5 px-3 text-right">
+                    <div className="flex items-center justify-around text-xs">
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <span>الأول</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {semester === "first" ? "✓" : ""}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span>الثاني</span>
+                        <span className="w-3.5 h-3.5 border border-black inline-flex items-center justify-center text-[10px] font-bold">
+                          {semester === "second" ? "✓" : ""}
+                        </span>
+                      </span>
+                      <span className="text-black font-semibold">
+                        / لعام {academicYear}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Section: بيانات أعضاء المجلس المعتمدين */}
+          <div className="mb-5">
+            <div className="text-right font-bold text-xs sm:text-sm text-black mb-1">
+              بيانات أعضاء المجلس المعتمدين:
+            </div>
+
+            <table className="w-full border-collapse border border-black text-xs table-fixed">
+              <thead>
+                <tr className="bg-slate-100 border-b border-black font-bold text-black text-center">
+                  <th className="border-l border-black py-1.5 px-1 w-[6%] text-center">رقم</th>
+                  <th className="border-l border-black py-1.5 px-2 w-[34%] text-center">الاسم الرباعي</th>
+                  <th className="border-l border-black py-1.5 px-1.5 w-[20%] text-center">الصفة (ولي أمر / معلم)</th>
+                  <th className="border-l border-black py-1.5 px-1.5 w-[18%] text-center">رقم الجوال</th>
+                  <th className="py-1.5 px-2 w-[22%] text-center">البريد الإلكتروني</th>
+                </tr>
+              </thead>
+              <tbody>
+                {official15Rows.map((member, index) => {
+                  return (
+                    <tr key={`member-row-${index}`} className="border-b border-black last:border-b-0 h-[26px]">
+                      <td className="border-l border-black py-1 px-1 text-center font-mono font-bold text-black">
+                        .{index + 1}
                       </td>
-                      <td className="border-l border-slate-400 py-2.5 px-3 text-slate-950">
-                        <div className="font-bold text-xs truncate">{member.studentName}</div>
-                        <div className="text-[11px] text-slate-600 truncate">
-                          {member.studentGrade}
-                          {member.studentClass ? ` - شعبة ${member.studentClass}` : ""}
-                        </div>
+                      <td className="border-l border-black py-1 px-2 font-bold text-black text-right truncate">
+                        {member ? member.fullName : ""}
                       </td>
-                      <td className="border-l border-slate-400 py-2.5 px-2 text-center font-mono font-bold text-slate-950 text-xs" dir="ltr">
-                        {member.phone}
+                      <td className="border-l border-black py-1 px-1.5 text-center font-semibold text-black">
+                        {member ? "ولي أمر" : ""}
                       </td>
-                      <td className="py-2.5 px-2 text-center font-serif text-slate-400 text-xs select-none">
-                        ...................
+                      <td className="border-l border-black py-1 px-1.5 text-center font-mono text-black text-xs" dir="ltr">
+                        {member ? member.phone : ""}
+                      </td>
+                      <td className="py-1 px-2 text-center font-mono text-black text-xs truncate" dir="ltr">
+                        {member ? (member.email || "—") : ""}
                       </td>
                     </tr>
                   );
-                }
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                // Placeholder row for manual handwriting or subsequent completion
-                const defaultBlankRole =
-                  index === 0
-                    ? "رئيس المجلس"
-                    : index === 1
-                    ? "نائب رئيس المجلس"
-                    : index === 2
-                    ? "أمين المجلس"
-                    : "عضو مجلس";
+          {/* Signatures Block - Names left empty for manual handwriting */}
+          <div className="print-avoid-break mt-5 pt-1">
+            <div className="grid grid-cols-2 gap-8 text-xs font-bold text-black mb-5">
+              {/* Committee Member Right */}
+              <div className="text-right space-y-1.5 pr-4">
+                <div className="text-sm font-black text-black">عضو لجنة التوجيه الطلابي:</div>
+                <div className="pt-1 text-slate-800">الاسم: ................................................................</div>
+                <div className="text-slate-800">التوقيع: .............................................................</div>
+                <div className="text-slate-800">التاريخ: _____ / _____ / 14هـ</div>
+              </div>
 
-                return (
-                  <tr key={`blank-seat-${index}`} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
-                    <td className="border-l border-slate-400 py-2.5 px-1 text-center font-mono font-bold text-slate-500">
-                      {index + 1}
-                    </td>
-                    <td className="border-l border-slate-400 py-2.5 px-3">
-                      <div className="font-mono text-slate-400 text-xs">................................................</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5 print:hidden sm:block">
-                        (الاسم الرباعي لولي الأمر)
-                      </div>
-                    </td>
-                    <td className="border-l border-slate-400 py-2.5 px-2 text-center">
-                      <div className="text-slate-800 font-semibold text-xs">{defaultBlankRole}</div>
-                    </td>
-                    <td className="border-l border-slate-400 py-2.5 px-3">
-                      <div className="font-mono text-slate-400 text-xs">..............................................</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5 print:hidden sm:block">
-                        (اسم الطالب والصف)
-                      </div>
-                    </td>
-                    <td className="border-l border-slate-400 py-2.5 px-2 text-center" dir="ltr">
-                      <div className="font-mono text-slate-400 text-xs">......................</div>
-                    </td>
-                    <td className="py-2.5 px-2 text-center font-serif text-slate-400 text-xs select-none">
-                      ...................
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+              {/* Committee Member Left */}
+              <div className="text-right space-y-1.5 pr-4">
+                <div className="text-sm font-black text-black">عضو لجنة التوجيه الطلابي:</div>
+                <div className="pt-1 text-slate-800">الاسم: ................................................................</div>
+                <div className="text-slate-800">التوقيع: .............................................................</div>
+                <div className="text-slate-800">التاريخ: _____ / _____ / 14هـ</div>
+              </div>
+            </div>
+
+            {/* Committee Head Center */}
+            <div className="flex justify-center mt-3">
+              <div className="text-right space-y-1.5 w-80">
+                <div className="text-sm font-black text-black text-center">رئيس لجنة التوجيه الطلابي:</div>
+                <div className="pt-1 text-slate-800">الاسم: ................................................................</div>
+                <div className="text-slate-800">التوقيع: .............................................................</div>
+                <div className="text-slate-800">التاريخ: _____ / _____ / 14هـ</div>
+              </div>
+            </div>
+          </div>
         </div>
+      ) : (
+        /* ========================================================================= */
+        /* 2. ADMINISTRATIVE MINUTES VIEW (محضر التشكيل والمهام الإدارية) */
+        /* ========================================================================= */
+        <div
+          className="parent-council-sheet-canvas w-full max-w-[210mm] mx-auto bg-white shadow-xl border border-slate-300 rounded-none text-slate-900 leading-normal p-6 sm:p-9 print:p-0 print:m-0 print:shadow-none print:border-none print:max-w-none print:w-full"
+          style={{
+            fontFamily: ARABIC_FONT_FAMILY,
+            boxSizing: "border-box",
+          }}
+        >
+          {/* Header */}
+          <OfficialReportHeader
+            countryName={signatories.countryName}
+            ministryName={signatories.ministryName}
+            administrationName={signatories.administrationName}
+            schoolName={signatories.schoolName}
+            logoUrl={signatories.logoUrl}
+            title="محضر تشكيل واعتماد مجلس أولياء الأمور"
+            subtitle={`(نظام مجالس أولياء الأمور ولائحة التعليم العام — العام الدراسي ${config.academicYear || "1447 - 1448 هـ"})`}
+            reportDate={todayDisplayDate}
+            issueTime={new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            refNumber={`PC-COUNCIL-${new Date().getFullYear()}`}
+          />
 
-        {/* Reserve Members Table (الأعضاء الاحتياط) */}
-        {(reserveRowsCount > 0 || reserveMembers.length > 0) && (
+          {/* Statistical & Metadata Box */}
+          <OfficialStatsBox
+            metaItems={[
+              { label: "نطاق المحضر", value: `تشكيل المجلس للعام ${config.academicYear || "1447 - 1448هـ"}` },
+              { label: "المقاعد المقررة", value: `${primaryRowsCount} مقاعد أساسية` },
+              { label: "المقاعد الاحتياطية", value: `${reserveRowsCount} مقاعد احتياط` },
+              { label: "حالة الاعتماد", value: "معتمد رسمياً من الإدارة المدرسية" },
+            ]}
+            kpis={[
+              { label: "إجمالي المقاعد", value: `${primaryRowsCount + reserveRowsCount} مقعد` },
+              { label: "المقيدون أساسي", value: `${selectedMembers.length} من ${primaryRowsCount}`, color: "emerald" },
+              { label: "الاحتياط", value: `${reserveMembers.length} عضو`, color: "amber" },
+              { label: "نسبة اكتمال التشكيل", value: `${Math.min(100, Math.round((selectedMembers.length / primaryRowsCount) * 100))}%`, color: "emerald" },
+            ]}
+            summaryNote={`المجلس المعتمد: ${selectedMembers.length} عضو`}
+          />
+
+          {/* Primary Council Members Table */}
           <div className="mb-4">
             <div className="border border-slate-800 bg-slate-100/90 text-slate-950 text-xs font-bold px-3 py-1.5 flex items-center justify-between border-b-0">
               <span>
-                ثانياً: الأعضاء الاحتياط لمجلس أولياء الأمور (العدد: {reserveMembers.length} من {reserveRowsCount})
+                أولاً: الأعضاء الأساسيون لمجلس أولياء الأمور (العدد المقيد: {selectedMembers.length} من {primaryRowsCount} مقعداً)
               </span>
-              <span className="text-[11px] font-normal text-slate-700">الاحتياط بحسب أسبقية الفرز أو التعيين الإضافي</span>
+              <span className="text-[11px] font-normal text-slate-700">الترتيب بحسب نتائج الفرز والاعتماد النظامي</span>
             </div>
 
             <table className="w-full border-collapse border border-slate-800 text-xs multi-page-table table-fixed">
@@ -1051,29 +1171,51 @@ export function CouncilFormationPrintSheet({
                 <tr className="border-b border-slate-800 bg-slate-50/80 text-slate-950 font-bold">
                   <th className="border-l border-slate-400 py-2 px-1 text-center w-[5%]">م</th>
                   <th className="border-l border-slate-400 py-2 px-3 text-right w-[28%]">الاسم الرباعي لولي الأمر</th>
-                  <th className="border-l border-slate-400 py-2 px-2 text-center w-[18%]">الصفة</th>
+                  <th className="border-l border-slate-400 py-2 px-2 text-center w-[18%]">الصفة في المجلس</th>
                   <th className="border-l border-slate-400 py-2 px-3 text-right w-[23%]">اسم الطالب والصف</th>
                   <th className="border-l border-slate-400 py-2 px-2 text-center w-[14%]">رقم الجوال</th>
                   <th className="py-2 px-2 text-center w-[12%]">التوقيع</th>
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: reserveRowsCount }).map((_, index) => {
-                  const member = reserveMembers[index];
+                {Array.from({ length: primaryRowsCount }).map((_, index) => {
+                  const member = selectedMembers[index];
                   if (member) {
+                    const defaultRole =
+                      index === 0
+                        ? "رئيس المجلس"
+                        : index === 1
+                        ? "نائب رئيس المجلس"
+                        : index === 2
+                        ? "أمين المجلس"
+                        : "عضو مجلس";
+                    const currentRole =
+                      localRoles[member.id] !== undefined
+                        ? localRoles[member.id]
+                        : member.assignedRole || defaultRole;
+
                     return (
                       <tr key={member.id} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
                         <td className="border-l border-slate-400 py-2.5 px-1 text-center font-mono font-bold text-slate-950">
                           {index + 1}
                         </td>
-                        <td className="border-l border-slate-400 py-2.5 px-3 font-semibold text-slate-950 text-sm truncate">
+                        <td className="border-l border-slate-400 py-2.5 px-3 font-bold text-slate-950 text-sm truncate">
                           {member.fullName}
                         </td>
-                        <td className="border-l border-slate-400 py-2.5 px-2 text-center font-medium text-slate-800 text-xs">
-                          عضو احتياط #{index + 1}
+                        <td className="border-l border-slate-400 py-2.5 px-2 text-center font-bold text-slate-950">
+                          <span className="hidden print:inline-block text-xs font-bold text-slate-950">
+                            {currentRole}
+                          </span>
+                          <input
+                            type="text"
+                            value={currentRole}
+                            onChange={(e) => handleRoleChange(member.id, e.target.value)}
+                            placeholder="الصفة بالمجلس..."
+                            className="print:hidden w-full text-center text-xs font-bold text-slate-950 bg-transparent border border-transparent hover:border-slate-300 focus:border-teal-600 focus:bg-white rounded px-1 py-0.5 outline-none"
+                          />
                         </td>
                         <td className="border-l border-slate-400 py-2.5 px-3 text-slate-950">
-                          <div className="font-semibold text-xs truncate">{member.studentName}</div>
+                          <div className="font-bold text-xs truncate">{member.studentName}</div>
                           <div className="text-[11px] text-slate-600 truncate">
                             {member.studentGrade}
                             {member.studentClass ? ` - شعبة ${member.studentClass}` : ""}
@@ -1089,16 +1231,25 @@ export function CouncilFormationPrintSheet({
                     );
                   }
 
+                  const defaultBlankRole =
+                    index === 0
+                      ? "رئيس المجلس"
+                      : index === 1
+                      ? "نائب رئيس المجلس"
+                      : index === 2
+                      ? "أمين المجلس"
+                      : "عضو مجلس";
+
                   return (
-                    <tr key={`blank-reserve-${index}`} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
+                    <tr key={`blank-seat-${index}`} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
                       <td className="border-l border-slate-400 py-2.5 px-1 text-center font-mono font-bold text-slate-500">
                         {index + 1}
                       </td>
                       <td className="border-l border-slate-400 py-2.5 px-3">
                         <div className="font-mono text-slate-400 text-xs">................................................</div>
                       </td>
-                      <td className="border-l border-slate-400 py-2.5 px-2 text-center font-medium text-slate-600 text-xs">
-                        عضو احتياط #{index + 1}
+                      <td className="border-l border-slate-400 py-2.5 px-2 text-center">
+                        <div className="text-slate-800 font-semibold text-xs">{defaultBlankRole}</div>
                       </td>
                       <td className="border-l border-slate-400 py-2.5 px-3">
                         <div className="font-mono text-slate-400 text-xs">..............................................</div>
@@ -1115,64 +1266,145 @@ export function CouncilFormationPrintSheet({
               </tbody>
             </table>
           </div>
-        )}
 
-        {/* Official Signatures Block (محمي من الانقطاع في الطباعة) */}
-        <div className="print-avoid-break border border-slate-800 p-3.5 bg-white mb-3.5">
-          <div className="text-center font-bold text-xs text-slate-950 border-b border-slate-400 pb-1 mb-3">
-            الاعتماد والتوثيق الرسمي لمحضر التشكيل
+          {/* Reserve Members Table */}
+          {(reserveRowsCount > 0 || reserveMembers.length > 0) && (
+            <div className="mb-4">
+              <div className="border border-slate-800 bg-slate-100/90 text-slate-950 text-xs font-bold px-3 py-1.5 flex items-center justify-between border-b-0">
+                <span>
+                  ثانياً: الأعضاء الاحتياط لمجلس أولياء الأمور (العدد: {reserveMembers.length} من {reserveRowsCount})
+                </span>
+                <span className="text-[11px] font-normal text-slate-700">الاحتياط بحسب أسبقية الفرز أو التعيين الإضافي</span>
+              </div>
+
+              <table className="w-full border-collapse border border-slate-800 text-xs multi-page-table table-fixed">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-50/80 text-slate-950 font-bold">
+                    <th className="border-l border-slate-400 py-2 px-1 text-center w-[5%]">م</th>
+                    <th className="border-l border-slate-400 py-2 px-3 text-right w-[28%]">الاسم الرباعي لولي الأمر</th>
+                    <th className="border-l border-slate-400 py-2 px-2 text-center w-[18%]">الصفة</th>
+                    <th className="border-l border-slate-400 py-2 px-3 text-right w-[23%]">اسم الطالب والصف</th>
+                    <th className="border-l border-slate-400 py-2 px-2 text-center w-[14%]">رقم الجوال</th>
+                    <th className="py-2 px-2 text-center w-[12%]">التوقيع</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: reserveRowsCount }).map((_, index) => {
+                    const member = reserveMembers[index];
+                    if (member) {
+                      return (
+                        <tr key={member.id} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
+                          <td className="border-l border-slate-400 py-2.5 px-1 text-center font-mono font-bold text-slate-950">
+                            {index + 1}
+                          </td>
+                          <td className="border-l border-slate-400 py-2.5 px-3 font-semibold text-slate-950 text-sm truncate">
+                            {member.fullName}
+                          </td>
+                          <td className="border-l border-slate-400 py-2.5 px-2 text-center font-medium text-slate-800 text-xs">
+                            عضو احتياط #{index + 1}
+                          </td>
+                          <td className="border-l border-slate-400 py-2.5 px-3 text-slate-950">
+                            <div className="font-semibold text-xs truncate">{member.studentName}</div>
+                            <div className="text-[11px] text-slate-600 truncate">
+                              {member.studentGrade}
+                              {member.studentClass ? ` - شعبة ${member.studentClass}` : ""}
+                            </div>
+                          </td>
+                          <td className="border-l border-slate-400 py-2.5 px-2 text-center font-mono font-bold text-slate-950 text-xs" dir="ltr">
+                            {member.phone}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-serif text-slate-400 text-xs select-none">
+                            ...................
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr key={`blank-reserve-${index}`} className="border-b border-slate-300 last:border-b-0 min-h-[44px]">
+                        <td className="border-l border-slate-400 py-2.5 px-1 text-center font-mono font-bold text-slate-500">
+                          {index + 1}
+                        </td>
+                        <td className="border-l border-slate-400 py-2.5 px-3">
+                          <div className="font-mono text-slate-400 text-xs">................................................</div>
+                        </td>
+                        <td className="border-l border-slate-400 py-2.5 px-2 text-center font-medium text-slate-600 text-xs">
+                          عضو احتياط #{index + 1}
+                        </td>
+                        <td className="border-l border-slate-400 py-2.5 px-3">
+                          <div className="font-mono text-slate-400 text-xs">..............................................</div>
+                        </td>
+                        <td className="border-l border-slate-400 py-2.5 px-2 text-center" dir="ltr">
+                          <div className="font-mono text-slate-400 text-xs">......................</div>
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-serif text-slate-400 text-xs select-none">
+                          ...................
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Official Signatures Block */}
+          <div className="print-avoid-break border border-slate-800 p-3.5 bg-white mb-3.5">
+            <div className="text-center font-bold text-xs text-slate-950 border-b border-slate-400 pb-1 mb-3">
+              الاعتماد والتوثيق الرسمي لمحضر التشكيل
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 items-start text-xs text-center">
+              {/* 1: أمين المجلس / الموجه الطلابي */}
+              <div className="border-l border-slate-300 pl-2">
+                <div className="font-bold text-slate-950 text-xs">أمين المجلس / الموجه الطلابي</div>
+                <div className="text-xs font-medium text-slate-700 mt-1">
+                  {signatories.counselorName ? `أ. ${signatories.counselorName}` : "الموجه الطلابي"}
+                </div>
+                <div className="mt-7 border-b border-dotted border-slate-600 w-36 mx-auto pb-0.5 text-xs text-slate-600">
+                  التوقيع: ...................
+                </div>
+              </div>
+
+              {/* 2: نائب رئيس المجلس */}
+              <div className="border-l border-slate-300 pl-2">
+                <div className="font-bold text-slate-950 text-xs">نائب رئيس المجلس</div>
+                <div className="text-xs font-medium text-slate-700 mt-1">
+                  ولي أمر منتخب
+                </div>
+                <div className="mt-7 border-b border-dotted border-slate-600 w-36 mx-auto pb-0.5 text-xs text-slate-600">
+                  التوقيع: ...................
+                </div>
+              </div>
+
+              {/* 3: مدير المدرسة / رئيس المجلس والختم */}
+              <div className="flex flex-col items-center">
+                <div className="font-bold text-slate-950 text-xs">مدير المدرسة / رئيس المجلس</div>
+                <div className="text-xs font-semibold text-slate-800 mt-1">
+                  {signatories.principalName ? `أ. ${signatories.principalName}` : "مدير المدرسة"}
+                </div>
+                <div className="mt-4 border-b border-dotted border-slate-600 w-40 mx-auto pb-0.5 text-xs text-slate-600">
+                  التوقيع والاعتماد
+                </div>
+                <div className="w-20 h-20 border-2 border-dashed border-slate-600 rounded-full mt-2 flex flex-col items-center justify-center text-[10px] font-bold text-slate-700 leading-tight">
+                  <span>الختم الرسمي</span>
+                  <span className="text-[9px] font-normal text-slate-500">للمدرسة</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 items-start text-xs text-center">
-            {/* 1: أمين المجلس / الموجه الطلابي */}
-            <div className="border-l border-slate-300 pl-2">
-              <div className="font-bold text-slate-950 text-xs">أمين المجلس / الموجه الطلابي</div>
-              <div className="text-xs font-medium text-slate-700 mt-1">
-                {signatories.counselorName ? `أ. ${signatories.counselorName}` : "الموجه الطلابي"}
-              </div>
-              <div className="mt-7 border-b border-dotted border-slate-600 w-36 mx-auto pb-0.5 text-xs text-slate-600">
-                التوقيع: ...................
-              </div>
-            </div>
-
-            {/* 2: نائب رئيس المجلس */}
-            <div className="border-l border-slate-300 pl-2">
-              <div className="font-bold text-slate-950 text-xs">نائب رئيس المجلس</div>
-              <div className="text-xs font-medium text-slate-700 mt-1">
-                ولي أمر منتخب
-              </div>
-              <div className="mt-7 border-b border-dotted border-slate-600 w-36 mx-auto pb-0.5 text-xs text-slate-600">
-                التوقيع: ...................
-              </div>
-            </div>
-
-            {/* 3: مدير المدرسة / رئيس المجلس والختم */}
-            <div className="flex flex-col items-center">
-              <div className="font-bold text-slate-950 text-xs">مدير المدرسة / رئيس المجلس</div>
-              <div className="text-xs font-semibold text-slate-800 mt-1">
-                {signatories.principalName ? `أ. ${signatories.principalName}` : "مدير المدرسة"}
-              </div>
-              <div className="mt-4 border-b border-dotted border-slate-600 w-40 mx-auto pb-0.5 text-xs text-slate-600">
-                التوقيع والاعتماد
-              </div>
-              <div className="w-20 h-20 border-2 border-dashed border-slate-600 rounded-full mt-2 flex flex-col items-center justify-center text-[10px] font-bold text-slate-700 leading-tight">
-                <span>الختم الرسمي</span>
-                <span className="text-[9px] font-normal text-slate-500">للمدرسة</span>
-              </div>
-            </div>
+          {/* Footer */}
+          <div className="pt-2 border-t-2 border-slate-800 text-xs text-slate-700 font-medium flex items-center justify-between">
+            <span>محضر رسمي معتمد صادر إلكترونياً من المدرسة</span>
+            <span className="flex items-center gap-1 text-slate-950 font-bold">
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-800" />
+              توثيق تشكيل مجلس أولياء الأمور
+            </span>
+            <span>تاريخ الطباعة: {todayDisplayDate}</span>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="pt-2 border-t-2 border-slate-800 text-xs text-slate-700 font-medium flex items-center justify-between">
-          <span>محضر رسمي معتمد صادر إلكترونياً من المدرسة</span>
-          <span className="flex items-center gap-1 text-slate-950 font-bold">
-            <ShieldCheck className="w-3.5 h-3.5 text-slate-800" />
-            توثيق تشكيل مجلس أولياء الأمور
-          </span>
-          <span>تاريخ الطباعة: {todayDisplayDate}</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

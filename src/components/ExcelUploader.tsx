@@ -1070,9 +1070,9 @@ export default function ExcelUploader({ onStudentsLoaded, students }: ExcelUploa
                             <div className="flex items-center gap-1.5">
                               <span dir="ltr" className="font-semibold">{sPhone || "بدون رقم"}</span>
                               {phoneValid ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="رقم جوال صالح" />
+                                <span title="رقم جوال صالح" className="inline-flex"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" /></span>
                               ) : (
-                                <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" title="يرجى مراجعة رقم الجوال" />
+                                <span title="يرجى مراجعة رقم الجوال" className="inline-flex"><AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" /></span>
                               )}
                             </div>
                           </td>

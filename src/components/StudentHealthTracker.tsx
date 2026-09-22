@@ -444,7 +444,7 @@ export default function StudentHealthTracker({
           await onSaveProfile(updated);
           onLogAudit("edit", "full_profile", `إرسال رابط استمارة الدعم عبر واتساب لولي أمر الطالب: ${p.studentName}`);
 
-          setToastMessage(`✓ تم إرسال رابط استمارة الدعم لولي أمر الطالب (${p.studentName}) بنجاح`);
+          setToastMessage({ text: `✓ تم إرسال رابط استمارة الدعم لولي أمر الطالب (${p.studentName}) بنجاح`, type: "success" });
           setTimeout(() => setToastMessage(null), 4000);
         } else {
           const errorMsg = result.error || "تعذر إرسال الرسالة عبر خادم الواتساب";

@@ -168,6 +168,7 @@ export default function AttendanceSystem({
     notes?: string;
     notified?: boolean;
     notifiedAt?: string;
+    sentMessage?: string;
   }>>>(() => {
     const saved = localStorage.getItem("school_attendance_records");
     if (saved) {

@@ -153,9 +153,13 @@ export default function TeacherEvaluationPortal({ inquiryId, onClose }: TeacherE
     value: any
   ) => {
     setEvaluations((prev) => {
-      const current = prev[studentId] || {
+      const current: any = prev[studentId] || {
         studentId,
         studentName: inquiry?.students.find((s) => s.id === studentId)?.name || "",
+        academicAchievement: "ممتاز",
+        disciplineAndCommitment: "ممتاز",
+        behaviorAndEthics: "متميز",
+        participationAndInteraction: "متفاعل دائماً",
         academicLevel: "ممتاز",
         disciplineLevel: "ممتاز",
         behaviorLevel: "متميز",

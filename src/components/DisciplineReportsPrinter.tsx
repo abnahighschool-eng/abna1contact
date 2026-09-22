@@ -1165,7 +1165,7 @@ export default function DisciplineReportsPrinter({
                           {/* Messages Received Badge */}
                           <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
                             <Send className="w-2.5 h-2.5 rotate-180 text-blue-600" />
-                            <span>رسائل: {stStats.messagesReceivedCount} ✓</span>
+                            <span>رسائل: {(stStats as any).messagesReceivedCount ?? stStats.messagesSentCount ?? 0} ✓</span>
                           </span>
 
                           <span className={`text-[10.5px] font-bold px-2 py-1 rounded-lg ${

@@ -11,6 +11,7 @@ export interface Student {
 export interface WhatsAppConfig {
   mode: "simulated" | "real" | "cloud_api";
   simulatedStatus: "disconnected" | "qr_ready" | "connecting" | "connected";
+  realStatus?: "disconnected" | "connecting" | "qr_ready" | "connected" | "error" | string;
   simulatedPhone: string;
   hasCloudApiKey: boolean;
   cloudPhoneId: string;
@@ -109,7 +110,7 @@ export interface DailyAttendanceSummary {
 
 export interface ReportPrintOptions {
   messageDisplayMode: "header_summary" | "table_column" | "both" | "hidden";
-  tableFontSize: "normal" | "compact" | "ultra_compact";
+  tableFontSize: "normal" | "compact" | "ultra_compact" | "large";
   removeBlankLines: boolean;
   showSignatures: boolean;
   showStatsBox: boolean;
@@ -249,6 +250,8 @@ export interface StudentEvaluationItem {
   // توصية أو ملاحظة عامة إضافية من المعلم (اختياري)
   generalRecommendation?: string;
   teacherNotes?: string;
+  attendanceLevel?: any;
+  notes?: string;
 
   // وقت التقييم
   evaluatedAt?: string;
@@ -264,6 +267,7 @@ export interface TeacherInquiryRequest {
   section: string; // الشعبة المستعلم عنها
   grade?: string; // الصف
   schoolName?: string;
+  isExpired?: boolean;
   
   // الطلاب المستعلم عنهم
   students: {
@@ -708,6 +712,7 @@ export interface StudentNeedsProfile {
   // Smart Engine Outputs
   overallPriority: SurveyPriorityLevel;
   primaryCategories: SurveyCategory[];
+  categories?: any;
   indicatorExplanations: IndicatorExplanation[];
   smartSummary: string;
   smartRecommendations: string[];

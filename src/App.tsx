@@ -252,7 +252,7 @@ export default function App() {
   });
 
   // Direct Parent Council Portal URL parameter (?portal=parent-council or /c/:token or ?council_token=<token>)
-  const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null }>(() => {
+  const [parentCouncilPortalData, setParentCouncilPortalData] = useState<{ isOpen: boolean; token: string | null; code: string | null; mode?: "group" | "code" }>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const path = window.location.pathname;

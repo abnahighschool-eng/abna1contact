@@ -114,6 +114,7 @@ export interface StudentNeedsProfile {
   // Smart Engine Outputs
   overallPriority: SurveyPriorityLevel;
   primaryCategories: SurveyCategory[];
+  categories?: any;
   indicatorExplanations: IndicatorExplanation[];
   smartSummary: string;
   smartRecommendations: string[];

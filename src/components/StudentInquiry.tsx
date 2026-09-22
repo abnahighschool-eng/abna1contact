@@ -551,6 +551,7 @@ export default function StudentInquiry({
         grade: t.grade,
         className: t.section,
         message,
+        customMessage: message,
       };
     });
   }, [activeSelectedTeachers, selectedStudentIds, students, schoolSignatories]);
