@@ -750,7 +750,26 @@ export function CouncilFormationPrintSheet({
   const [buildingType, setBuildingType] = useState<"government" | "rented">("government");
   const [buildingIndependence, setBuildingIndependence] = useState<"independent" | "shared">("independent");
   const [semester, setSemester] = useState<"first" | "second">("first");
-  const [academicYear, setAcademicYear] = useState(config.academicYear || "1447 - 1448 هـ");
+  const [academicYear, setAcademicYear] = useState("1448 هـ");
+
+  // Computed today's Hijri date in standard format: Day / Month / Year هـ
+  const todayFormattedHijri = React.useMemo(() => {
+    try {
+      const today = new Date();
+      const formatter = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+      const parts = formatter.formatToParts(today);
+      const day = parts.find((p) => p.type === "day")?.value || "11";
+      const month = parts.find((p) => p.type === "month")?.value || "04";
+      const year = parts.find((p) => p.type === "year")?.value || "1448";
+      return `${day} / ${month} / ${year} هـ`;
+    } catch {
+      return "11 / 04 / 1448 هـ";
+    }
+  }, []);
 
   // Flexible capacity controls for administrative minutes
   const [targetSeatsCount, setTargetSeatsCount] = useState<number>(() => {
@@ -1084,33 +1103,60 @@ export function CouncilFormationPrintSheet({
             </table>
           </div>
 
-          {/* Signatures Block - Names left empty for manual handwriting */}
-          <div className="print-avoid-break mt-5 pt-1">
-            <div className="grid grid-cols-2 gap-8 text-xs font-bold text-black mb-5">
+          {/* Signatures Block - Dedicated handwriting space and automatic today's date */}
+          <div className="print-avoid-break mt-4 pt-1">
+            <div className="grid grid-cols-2 gap-8 text-xs text-black mb-4">
               {/* Committee Member Right */}
-              <div className="text-right space-y-1.5 pr-4">
-                <div className="text-sm font-black text-black">عضو لجنة التوجيه الطلابي:</div>
-                <div className="pt-1 text-slate-800">الاسم: ................................................................</div>
-                <div className="text-slate-800">التوقيع: .............................................................</div>
-                <div className="text-slate-800">التاريخ: _____ / _____ / 14هـ</div>
+              <div className="text-right pr-2">
+                <div className="text-xs sm:text-sm font-black text-black mb-1">عضو لجنة التوجيه الطلابي:</div>
+                <div className="flex items-end gap-2 min-h-[34px] border-b border-dotted border-black pb-1 mb-1.5">
+                  <span className="font-bold text-black whitespace-nowrap">الاسم:</span>
+                  <span className="flex-1"></span>
+                </div>
+                <div className="flex items-end gap-2 min-h-[38px] border-b border-dotted border-black pb-1 mb-1.5">
+                  <span className="font-bold text-black whitespace-nowrap">التوقيع:</span>
+                  <span className="flex-1"></span>
+                </div>
+                <div className="flex items-center gap-2 pt-1 text-xs font-bold text-black">
+                  <span className="whitespace-nowrap">التاريخ:</span>
+                  <span className="font-bold text-black tracking-wide" dir="rtl">{todayFormattedHijri}</span>
+                </div>
               </div>
 
               {/* Committee Member Left */}
-              <div className="text-right space-y-1.5 pr-4">
-                <div className="text-sm font-black text-black">عضو لجنة التوجيه الطلابي:</div>
-                <div className="pt-1 text-slate-800">الاسم: ................................................................</div>
-                <div className="text-slate-800">التوقيع: .............................................................</div>
-                <div className="text-slate-800">التاريخ: _____ / _____ / 14هـ</div>
+              <div className="text-right pr-2">
+                <div className="text-xs sm:text-sm font-black text-black mb-1">عضو لجنة التوجيه الطلابي:</div>
+                <div className="flex items-end gap-2 min-h-[34px] border-b border-dotted border-black pb-1 mb-1.5">
+                  <span className="font-bold text-black whitespace-nowrap">الاسم:</span>
+                  <span className="flex-1"></span>
+                </div>
+                <div className="flex items-end gap-2 min-h-[38px] border-b border-dotted border-black pb-1 mb-1.5">
+                  <span className="font-bold text-black whitespace-nowrap">التوقيع:</span>
+                  <span className="flex-1"></span>
+                </div>
+                <div className="flex items-center gap-2 pt-1 text-xs font-bold text-black">
+                  <span className="whitespace-nowrap">التاريخ:</span>
+                  <span className="font-bold text-black tracking-wide" dir="rtl">{todayFormattedHijri}</span>
+                </div>
               </div>
             </div>
 
             {/* Committee Head Center */}
-            <div className="flex justify-center mt-3">
-              <div className="text-right space-y-1.5 w-80">
-                <div className="text-sm font-black text-black text-center">رئيس لجنة التوجيه الطلابي:</div>
-                <div className="pt-1 text-slate-800">الاسم: ................................................................</div>
-                <div className="text-slate-800">التوقيع: .............................................................</div>
-                <div className="text-slate-800">التاريخ: _____ / _____ / 14هـ</div>
+            <div className="flex justify-center mt-2">
+              <div className="text-right w-80 max-w-full">
+                <div className="text-xs sm:text-sm font-black text-black text-center mb-1">رئيس لجنة التوجيه الطلابي:</div>
+                <div className="flex items-end gap-2 min-h-[34px] border-b border-dotted border-black pb-1 mb-1.5">
+                  <span className="font-bold text-black whitespace-nowrap">الاسم:</span>
+                  <span className="flex-1"></span>
+                </div>
+                <div className="flex items-end gap-2 min-h-[38px] border-b border-dotted border-black pb-1 mb-1.5">
+                  <span className="font-bold text-black whitespace-nowrap">التوقيع:</span>
+                  <span className="flex-1"></span>
+                </div>
+                <div className="flex items-center justify-center gap-2 pt-1 text-xs font-bold text-black">
+                  <span className="whitespace-nowrap">التاريخ:</span>
+                  <span className="font-bold text-black tracking-wide" dir="rtl">{todayFormattedHijri}</span>
+                </div>
               </div>
             </div>
           </div>
