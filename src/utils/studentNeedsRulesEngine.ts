@@ -9,7 +9,7 @@ import {
   SurveyCategory,
   IndicatorExplanation,
   TeacherGuidanceCard,
-} from "../types";
+} from "../types.ts";
 
 /**
  * Generate a consistent 6-digit numeric activation code for a student

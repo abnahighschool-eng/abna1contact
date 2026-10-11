@@ -1,4 +1,4 @@
-import { Student, Teacher } from "../types";
+import { Student, Teacher } from "../types.ts";
 
 /**
  * Normalizes Arabic text for high-accuracy phonetic and semantic matching

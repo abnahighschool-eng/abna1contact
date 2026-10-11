@@ -13,12 +13,12 @@ import {
   loadServerStateFromFirestore,
   forceFlushServerStateToFirestore,
   deleteServerStateInFirestore,
-} from "./src/serverFirebase";
-import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser";
-import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine";
-import { analyzeSurveyResponses, generateActivationCode } from "./src/utils/studentNeedsRulesEngine";
-import { evaluateParentCouncilApplication } from "./src/types";
-import { reconcileTeachersRoster } from "./src/utils/rosterReconciliation";
+} from "./src/serverFirebase.ts";
+import { DEFAULT_SAMPLE_TEACHERS, DEFAULT_SAMPLE_SCHEDULE } from "./src/utils/teachersScheduleParser.ts";
+import { calculateStudentIndicators, calculateOverallPriority } from "./src/utils/studentSupportRulesEngine.ts";
+import { analyzeSurveyResponses, generateActivationCode } from "./src/utils/studentNeedsRulesEngine.ts";
+import { evaluateParentCouncilApplication } from "./src/types.ts";
+import { reconcileTeachersRoster } from "./src/utils/rosterReconciliation.ts";
 
 // Resilient resolution of makeWASocket and helpers across ESM/CJS environments
 const baileysRaw: any = (BaileysModule as any).default || BaileysModule;

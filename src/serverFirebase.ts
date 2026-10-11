@@ -2,7 +2,11 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, disableNetwork, enableNetwork, setLogLevel } from "firebase/firestore";
 import fs from "fs";
 import path from "path";
-import firebaseConfig from "../firebase-applet-config.json";
+
+const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+const firebaseConfig = fs.existsSync(firebaseConfigPath)
+  ? JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"))
+  : {};
 
 // Silence internal Firestore SDK quota backoff / error noise in the console
 try {
