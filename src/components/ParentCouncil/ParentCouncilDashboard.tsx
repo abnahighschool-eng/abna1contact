@@ -2236,6 +2236,7 @@ export default function ParentCouncilDashboard({
           onUpdateVotingConfig={handleUpdateVotingConfig}
           onApplyTopCandidatesToCouncil={handleApplyTopCandidatesToCouncil}
           onResetVotes={handleResetVotes}
+          onRefreshData={() => fetchLatestData(true)}
           showToast={showToast}
         />
       )}

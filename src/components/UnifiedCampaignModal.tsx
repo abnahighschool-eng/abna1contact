@@ -94,6 +94,8 @@ export default function UnifiedCampaignModal({
   // Initialize and auto-start when modal opens
   useEffect(() => {
     if (isOpen) {
+      (window as any).__abnaActiveSendingCount = Number((window as any).__abnaActiveSendingCount || 0) + 1;
+      window.dispatchEvent(new Event("abna-system-activity"));
       abortRef.current = false;
       setIsPaused(false);
       setIsCompleted(false);
@@ -119,6 +121,9 @@ export default function UnifiedCampaignModal({
     }
 
     return () => {
+      if (isOpen) {
+        (window as any).__abnaActiveSendingCount = Math.max(0, Number((window as any).__abnaActiveSendingCount || 1) - 1);
+      }
       abortRef.current = true;
       isRunningRef.current = false;
       if (countdownTimerRef.current) {
@@ -280,6 +285,7 @@ export default function UnifiedCampaignModal({
           await new Promise((r) => setTimeout(r, 1000));
           remainingSec -= 1;
           setCountdownSeconds(remainingSec);
+          window.dispatchEvent(new Event("abna-system-activity"));
         }
         setIsMicroBreak(false);
         setCountdownSeconds(0);

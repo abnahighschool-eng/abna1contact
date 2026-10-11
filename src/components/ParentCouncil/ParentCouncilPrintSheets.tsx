@@ -2029,4 +2029,373 @@ export function VotingResultsReportPrintSheet({
   );
 }
 
+// =========================================================================
+// 5. VotingSentReportPrintSheet (التقرير الرسمي لإثبات إرسال ومتابعة روابط التصويت)
+// يثبت من تم إرسال الرابط لهم، ومن فتح الرابط، ومن صوت، ومن شاهد فقط (فتح الرابط ولم يصوت)
+// =========================================================================
+
+export interface VotingSentReportPrintSheetProps {
+  sentItems?: Array<{
+    studentId: string;
+    studentName: string;
+    studentGrade: string;
+    studentClass?: string;
+    guardianPhone: string;
+    code: string;
+    voteSentAt?: string;
+    hasOpenedVote: boolean;
+    voteOpenedAt?: string;
+    hasVoted: boolean;
+    votedAt?: string;
+    votedCandidateName?: string;
+  }>;
+  invites?: Record<string, ParentCouncilInvite>;
+  votes?: Record<string, ParentCouncilVote>;
+  students?: Student[];
+  config: ParentCouncilConfig;
+  signatories: SchoolSignatories;
+  onClose?: () => void;
+}
+
+export function VotingSentReportPrintSheet({
+  sentItems: propSentItems,
+  invites = {},
+  votes = {},
+  students = [],
+  config,
+  signatories,
+  onClose,
+}: VotingSentReportPrintSheetProps) {
+  const [filterMode, setFilterMode] = useState<"all" | "voted" | "viewed_only" | "unopened">("all");
+
+  const sentItems = React.useMemo(() => {
+    if (propSentItems && propSentItems.length > 0) return propSentItems;
+    const allVoteObjs = Object.values(votes || {});
+    const seen = new Set<string>();
+    const list: Array<{
+      studentId: string;
+      studentName: string;
+      studentGrade: string;
+      studentClass?: string;
+      guardianPhone: string;
+      code: string;
+      voteSentAt?: string;
+      hasOpenedVote: boolean;
+      voteOpenedAt?: string;
+      hasVoted: boolean;
+      votedAt?: string;
+    }> = [];
+
+    students.forEach((student) => {
+      const sId = String(student.id);
+      const inv = invites[sId];
+      const token = inv?.token || `pc_${sId}`;
+      const sPhone = student.phone || (student as any)["رقم الجوال"] || inv?.guardianPhone || "";
+      const cleanPhone = String(sPhone).replace(/\D/g, "").slice(-9);
+      const matchedVote =
+        votes[sId] ||
+        allVoteObjs.find(
+          (v) =>
+            v.studentId === sId ||
+            v.token === token ||
+            (cleanPhone.length >= 9 && String(v.guardianPhone || "").replace(/\D/g, "").slice(-9) === cleanPhone)
+        );
+      const hasVoted = !!(matchedVote || inv?.hasVoted);
+      const hasOpenedVote = !!(inv?.isVoteLinkOpened || inv?.hasOpenedVote || hasVoted);
+      const isVoteSent = !!(inv?.isVoteSent || hasOpenedVote || hasVoted);
+
+      if (isVoteSent) {
+        seen.add(sId);
+        list.push({
+          studentId: sId,
+          studentName: student.name || (student as any)["اسم الطالب"] || inv?.studentName || "طالب",
+          studentGrade: student.grade || (student as any)["الصف"] || inv?.studentGrade || "—",
+          studentClass: student.className || (student as any)["الفصل"] || inv?.studentClass || "",
+          guardianPhone: sPhone,
+          code: inv?.code || "",
+          voteSentAt: inv?.voteSentAt || inv?.sentAt || inv?.voteOpenedAt || matchedVote?.votedAt,
+          hasOpenedVote,
+          voteOpenedAt: inv?.voteLinkOpenedAt || inv?.voteOpenedAt || matchedVote?.votedAt,
+          hasVoted,
+          votedAt: matchedVote?.votedAt || inv?.votedAt,
+        });
+      }
+    });
+
+    Object.values(invites || {}).forEach((inv) => {
+      if (!inv || !inv.studentId || seen.has(String(inv.studentId))) return;
+      const sId = String(inv.studentId);
+      const matchedVote =
+        votes[sId] ||
+        allVoteObjs.find((v) => v.studentId === sId || v.token === inv.token);
+      const hasVoted = !!(matchedVote || inv.hasVoted);
+      const hasOpenedVote = !!(inv.isVoteLinkOpened || inv.hasOpenedVote || hasVoted);
+      const isVoteSent = !!(inv.isVoteSent || hasOpenedVote || hasVoted);
+      if (isVoteSent) {
+        seen.add(sId);
+        list.push({
+          studentId: sId,
+          studentName: inv.studentName || "طالب",
+          studentGrade: inv.studentGrade || "—",
+          studentClass: inv.studentClass || "",
+          guardianPhone: inv.guardianPhone || "",
+          code: inv.code || "",
+          voteSentAt: inv.voteSentAt || inv.sentAt || inv.voteOpenedAt || matchedVote?.votedAt,
+          hasOpenedVote,
+          voteOpenedAt: inv.voteLinkOpenedAt || inv.voteOpenedAt || matchedVote?.votedAt,
+          hasVoted,
+          votedAt: matchedVote?.votedAt || inv.votedAt,
+        });
+      }
+    });
+
+    return list;
+  }, [propSentItems, invites, votes, students]);
+
+  const totalSent = sentItems.length;
+  const totalOpened = sentItems.filter((item) => item.hasOpenedVote || item.hasVoted).length;
+  const totalVoted = sentItems.filter((item) => item.hasVoted).length;
+  const totalViewedOnly = sentItems.filter((item) => (item.hasOpenedVote || item.hasVoted) && !item.hasVoted).length;
+  const totalUnopened = sentItems.filter((item) => !item.hasOpenedVote && !item.hasVoted).length;
+
+  const openRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0;
+  const voteRate = totalSent > 0 ? Math.round((totalVoted / totalSent) * 100) : 0;
+
+  const displayedItems = sentItems.filter((item) => {
+    const isOpened = item.hasOpenedVote || item.hasVoted;
+    if (filterMode === "voted") return item.hasVoted;
+    if (filterMode === "viewed_only") return isOpened && !item.hasVoted;
+    if (filterMode === "unopened") return !isOpened;
+    return true;
+  });
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const todayDate = new Date().toLocaleDateString("ar-SA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const printTime = new Date().toLocaleTimeString("ar-SA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <div
+      className="parent-council-print-page min-h-screen bg-slate-200/70 p-3 sm:p-6 text-slate-900 font-sans print:p-0 print:m-0 print:bg-white print:min-h-0"
+      dir="rtl"
+    >
+      <style>{A4_PRINT_STYLE}</style>
+
+      {/* Top Action Bar (hidden in print) */}
+      <div className="max-w-[210mm] mx-auto mb-4 bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-slate-700 hover:bg-slate-100 font-bold text-xs transition-colors cursor-pointer"
+            >
+              <ArrowRight className="w-4 h-4" />
+              <span>رجوع لسجل التصويت</span>
+            </button>
+          )}
+          <div className="h-5 w-px bg-slate-200" />
+          <span className="text-xs font-bold text-slate-800">
+            التقرير الرسمي لإثبات إرسال ومتابعة رسائل التصويت
+          </span>
+          <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-lg">
+            <Leaf className="w-3.5 h-3.5 text-emerald-700" />
+            <span>طباعة رسمية موفرة للحبر A4</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={filterMode}
+            onChange={(e) => setFilterMode(e.target.value as any)}
+            className="px-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-bold text-slate-800"
+          >
+            <option value="all">جميع المرسل لهم ({totalSent})</option>
+            <option value="voted">من قام بالتصويت ({totalVoted})</option>
+            <option value="viewed_only">من شاهد فقط ولم يصوت ({totalViewedOnly})</option>
+            <option value="unopened">لم يفتح الرابط بعد ({totalUnopened})</option>
+          </select>
+
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white font-extrabold rounded-xl shadow-md text-xs cursor-pointer transition-all active:scale-95"
+            id="btn-print-voting-sent-report"
+          >
+            <Printer className="w-4 h-4" />
+            <span>طباعة التقرير الرسمي (A4)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Official A4 Canvas */}
+      <div
+        className="parent-council-sheet-canvas w-full max-w-[210mm] mx-auto bg-white shadow-xl border border-slate-300 rounded-none text-slate-900 leading-normal p-6 sm:p-9 print:p-0 print:m-0 print:shadow-none print:border-none print:max-w-none print:w-full"
+        style={{
+          fontFamily: ARABIC_FONT_FAMILY,
+          boxSizing: "border-box",
+        }}
+      >
+        {/* Header */}
+        <OfficialReportHeader
+          countryName={signatories.countryName}
+          ministryName={signatories.ministryName}
+          administrationName={signatories.administrationName}
+          schoolName={signatories.schoolName}
+          logoUrl={signatories.logoUrl}
+          title="التقرير الرسمي لإثبات إرسال ومتابعة رسائل تصويت أولياء الأمور"
+          subtitle={`توثيق إرسال روابط التصويت وحالات الفتح والمشاهدة والاقتراع — العام الدراسي ${config.academicYear || "1447 - 1448 هـ"}`}
+          reportDate={todayDate}
+          issueTime={printTime}
+          refNumber={`VOTE-LOG-${new Date().getFullYear()}`}
+        />
+
+        {/* Statistical Summary Box */}
+        <OfficialStatsBox
+          metaItems={[
+            { label: "موضوع التقرير", value: "إثبات إرسال رسائل تصويت مجلس أولياء الأمور" },
+            { label: "إجمالي المرسل لهم", value: `${totalSent} ولي أمر` },
+            { label: "من فتح الرابط", value: `${totalOpened} ولي أمر (${openRate}%)` },
+            { label: "حالة التوثيق", value: "تقرير رسمي معتمد وموثق إلكترونياً" },
+          ]}
+          kpis={[
+            { label: "تم الإرسال لهم", value: `${totalSent}`, color: "slate" },
+            { label: "فتحوا الرابط", value: `${totalOpened}`, color: "emerald" },
+            { label: "قاموا بالتصويت فعلياً", value: `${totalVoted} (${voteRate}%)`, color: "emerald" },
+            { label: "شاهدوا فقط (دون تصويت)", value: `${totalViewedOnly}`, color: "amber" },
+            { label: "لم يفتحوا الرابط", value: `${totalUnopened}`, color: "red" },
+          ]}
+          summaryNote={`المعروض بالتقرير: ${displayedItems.length} ولي أمر`}
+        />
+
+        {/* Detailed Ruled Table */}
+        <div className="mb-4">
+          <div className="border border-slate-800 bg-slate-100/90 text-slate-950 text-xs font-bold px-3 py-1.5 flex items-center justify-between border-b-0">
+            <span>بيان أولياء الأمور المرسل لهم رابط التصويت وحالة فتح الرابط والتصويت والمشاهدة</span>
+            <span className="text-[11px] font-normal text-slate-700">توثيق رسمي معتمد</span>
+          </div>
+
+          <table className="w-full border-collapse border border-slate-800 text-xs multi-page-table table-fixed">
+            <thead>
+              <tr className="border-b border-slate-800 bg-slate-50/80 text-slate-950 font-bold">
+                <th className="border-l border-slate-400 py-2 px-1 text-center w-[5%]">م</th>
+                <th className="border-l border-slate-400 py-2 px-2.5 text-right w-[24%]">اسم الطالب (ولي الأمر)</th>
+                <th className="border-l border-slate-400 py-2 px-2 text-right w-[16%]">الصف والشعبة</th>
+                <th className="border-l border-slate-400 py-2 px-2 text-center w-[14%]">رقم الجوال</th>
+                <th className="border-l border-slate-400 py-2 px-1.5 text-center w-[11%]">إرسال الرسالة</th>
+                <th className="border-l border-slate-400 py-2 px-1.5 text-center w-[11%]">فتح الرابط</th>
+                <th className="py-2 px-2 text-center w-[19%]">حالة التصويت / المشاهدة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center p-6 text-slate-500 font-medium">
+                    لا توجد سجلات مطابقة في هذا التقرير حالياً.
+                  </td>
+                </tr>
+              ) : (
+                displayedItems.map((item, index) => {
+                  const isOpened = item.hasOpenedVote || item.hasVoted;
+                  const isViewedOnly = isOpened && !item.hasVoted;
+
+                  return (
+                    <tr key={item.studentId || index} className="border-b border-slate-300 last:border-b-0 min-h-[38px]">
+                      <td className="border-l border-slate-400 py-2 px-1 text-center font-mono font-bold text-slate-950">
+                        {index + 1}
+                      </td>
+                      <td className="border-l border-slate-400 py-2 px-2.5 font-bold text-slate-950 truncate">
+                        {item.studentName}
+                      </td>
+                      <td className="border-l border-slate-400 py-2 px-2 text-slate-800 text-xs truncate">
+                        {item.studentGrade} {item.studentClass ? `- شعبة ${item.studentClass}` : ""}
+                      </td>
+                      <td className="border-l border-slate-400 py-2 px-2 text-center font-mono font-bold text-slate-950 text-xs" dir="ltr">
+                        {item.guardianPhone || "—"}
+                      </td>
+                      <td className="border-l border-slate-400 py-2 px-1.5 text-center">
+                        <span className="font-bold text-slate-950 text-[11px]">✓ تم الإرسال</span>
+                      </td>
+                      <td className="border-l border-slate-400 py-2 px-1.5 text-center">
+                        {isOpened ? (
+                          <span className="font-bold text-slate-950 text-[11px]">✓ فتح الرابط</span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">لم يفتح</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        {item.hasVoted ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-white text-slate-950 border border-slate-800">
+                            ✓ قام بالتصويت
+                          </span>
+                        ) : isViewedOnly ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-white text-slate-800 border border-slate-500">
+                            👁 شاهد فقط (فتح ولم يصوت)
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">بانتظار الفتح</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Official Signatures */}
+        <div className="print-avoid-break border border-slate-800 p-3.5 bg-white mb-3.5">
+          <div className="text-center font-bold text-xs text-slate-950 border-b border-slate-400 pb-1 mb-3">
+            اعتماد التقرير الرسمي لإثبات إرسال ومتابعة رسائل التصويت
+          </div>
+
+          <div className="grid grid-cols-2 gap-6 items-start text-xs">
+            <div className="text-center border-l border-slate-300 pl-4">
+              <div className="font-bold text-slate-950 text-xs">لجنة التوجيه الطلابي / مقرر المجلس</div>
+              <div className="text-xs font-medium text-slate-700 mt-1">
+                {signatories.counselorName ? `أ. ${signatories.counselorName}` : "الموجه الطلابي / أمين اللجنة"}
+              </div>
+              <div className="mt-7 border-b border-dotted border-slate-600 w-44 mx-auto pb-0.5 text-xs text-slate-600">
+                التوقيع والاعتماد
+              </div>
+            </div>
+
+            <div className="text-center flex flex-col items-center">
+              <div className="font-bold text-slate-950 text-xs">مدير المدرسة / رئيس المجلس</div>
+              <div className="text-xs font-semibold text-slate-800 mt-1">
+                {signatories.principalName ? `أ. ${signatories.principalName}` : "مدير المدرسة"}
+              </div>
+              <div className="mt-5 border-b border-dotted border-slate-600 w-44 mx-auto pb-0.5 text-xs text-slate-600">
+                التوقيع والختم الرسمي
+              </div>
+              <div className="w-20 h-20 border-2 border-dashed border-slate-600 rounded-full mt-2 flex flex-col items-center justify-center text-[10px] font-bold text-slate-700 leading-tight">
+                <span>الختم الرسمي</span>
+                <span className="text-[9px] font-normal text-slate-500">للمدرسة</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="pt-2 border-t-2 border-slate-800 text-xs text-slate-700 font-medium flex items-center justify-between">
+          <span>تقرير رسمي صادر إلكترونياً لإثبات إرسال رسائل التصويت لأولياء الأمور</span>
+          <span className="flex items-center gap-1 text-slate-950 font-bold">
+            <ShieldCheck className="w-3.5 h-3.5 text-slate-800" />
+            توثيق إرسال ومتابعة تصويت مجلس أولياء الأمور
+          </span>
+          <span>تاريخ الطباعة: {todayDate}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default ParentCouncilPrintSheet;

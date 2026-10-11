@@ -838,6 +838,12 @@ export default function ParentCouncilPortal({
       clientMatches.forEach(addCandidate);
       serverMatches.forEach(addCandidate);
 
+      if (allMatched.length === 0) {
+        throw new Error(
+          "عذراً، رقم الجوال المدخل غير مسجل في كشف طلاب المدرسة المعتمد بنظام نور. يُسمح بالدخول فقط لأولياء الأمور المسجلة أرقام جوالاتهم في كشوفات المدرسة."
+        );
+      }
+
       setMatchedChildren(allMatched);
       setPhone(normalized);
 

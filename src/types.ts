@@ -420,6 +420,15 @@ export interface ParentCouncilInvite {
   isSubmitted?: boolean;
   submittedAt?: string;
   applicationId?: string;
+  // Voting link tracking (تقرير إرسال ومتابعة رابط التصويت)
+  isVoteSent?: boolean;
+  voteSentAt?: string;
+  hasOpenedVote?: boolean;
+  voteOpenedAt?: string;
+  voteLastOpenedAt?: string;
+  voteOpenCount?: number;
+  hasVoted?: boolean;
+  votedAt?: string;
 }
 
 /**

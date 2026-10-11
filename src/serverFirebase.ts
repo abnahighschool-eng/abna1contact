@@ -220,13 +220,13 @@ export async function forceFlushServerStateToFirestore(additionalState?: Record<
     });
     await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
     
-    // Dedicated backup doc for parent councils
+    // Dedicated backup doc for parent councils (write full snapshot without merge so intentional deletions take effect immediately)
     const pcData = additionalState?.parentCouncils || pendingServerState.parentCouncils;
     if (pcData) {
-      setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"), sanitizePayload({
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"), sanitizePayload({
         ...pcData,
         lastUpdated: new Date().toISOString(),
-      }), { merge: true }).catch(() => {});
+      })).catch(() => {});
     }
 
     lastSyncedServerHash = JSON.stringify(payload);
@@ -275,6 +275,12 @@ export async function syncServerStateToFirestore(state: {
       if (hash === lastSyncedServerHash) return;
 
       await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), payload, { merge: true });
+      if (pendingServerState.parentCouncils) {
+        await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"), sanitizePayload({
+          ...pendingServerState.parentCouncils,
+          lastUpdated: new Date().toISOString(),
+        })).catch(() => {});
+      }
       lastSyncedServerHash = hash;
       pendingServerState = {};
     } catch (err: any) {
@@ -286,7 +292,7 @@ export async function syncServerStateToFirestore(state: {
 /**
  * Delete specific or all data from Firestore
  */
-export async function deleteServerStateInFirestore(scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "health" | "logs"): Promise<boolean> {
+export async function deleteServerStateInFirestore(scope: "all" | "students" | "attendance" | "teachers" | "schedule" | "inquiries" | "health" | "logs" | "parent_councils"): Promise<boolean> {
   try {
     const timestamp = new Date().toISOString();
     
@@ -401,6 +407,31 @@ export async function deleteServerStateInFirestore(scope: "all" | "students" | "
       return true;
     }
 
+    if (scope === "parent_councils") {
+      const emptyPc = {
+        applications: {},
+        invites: {},
+        votes: {},
+        config: {
+          academicYear: "1447 - 1448 هـ",
+          councilTerm: "العام الدراسي 2026 - 2027",
+          generalActivationCode: "202601",
+          seatsCount: 9,
+          reserveSeatsCount: 4,
+          formationApproved: false,
+          selectedMemberIds: [],
+          reserveMemberIds: [],
+        },
+        lastUpdated: timestamp,
+      };
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, SERVER_DATA_DOC), {
+        parentCouncils: emptyPc,
+        lastUpdated: timestamp,
+      }, { merge: true });
+      await setDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"), emptyPc);
+      return true;
+    }
+
     return false;
   } catch (err: any) {
     handleServerQuotaError(err, "deleteServerStateInFirestore");
@@ -507,18 +538,16 @@ export async function loadServerStateFromFirestore(): Promise<any> {
       } catch (e) {}
     }
 
-    // 8. Fetch parent_councils_data if parentCouncils is empty or missing
-    if (!combinedState.parentCouncils || Object.keys(combinedState.parentCouncils.applications || {}).length === 0) {
-      try {
-        const pcSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"));
-        if (pcSnap.exists()) {
-          const pcData = pcSnap.data();
-          if (pcData && (pcData.applications || pcData.config || pcData.invites)) {
-            combinedState.parentCouncils = pcData;
-          }
+    // 8. Fetch parent_councils_data as the authoritative snapshot for parent councils (so deleted names stay deleted while remaining names are preserved)
+    try {
+      const pcSnap = await getDoc(doc(firestoreDb, APP_STATE_COLLECTION, "parent_councils_data"));
+      if (pcSnap.exists()) {
+        const pcData = pcSnap.data();
+        if (pcData && (pcData.applications !== undefined || pcData.config !== undefined || pcData.invites !== undefined)) {
+          combinedState.parentCouncils = pcData;
         }
-      } catch (e) {}
-    }
+      }
+    } catch (e) {}
 
     return Object.keys(combinedState).length > 0 ? combinedState : null;
   } catch (err: any) {

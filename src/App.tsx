@@ -222,15 +222,6 @@ export default function App() {
         params.get("voting") === "true" ||
         params.get("vote") === "true";
 
-      const isGroupMode =
-        params.get("mode") === "group" ||
-        params.get("group") === "true" ||
-        params.get("token") === "group" ||
-        path === "/v/group" ||
-        path.startsWith("/v/group/") ||
-        path === "/v" ||
-        (!params.get("code") && !params.get("c") && (!params.get("token") || params.get("token") === "group"));
-
       if (isPathVote || isParamVote) {
         let tok = params.get("token") || params.get("t") || params.get("council_token") || null;
         if (!tok && isPathVote && path.length > 3) {
@@ -240,6 +231,16 @@ export default function App() {
           tok = null;
         }
         const cd = params.get("code") || params.get("c") || params.get("council_code") || null;
+
+        const isGroupMode =
+          params.get("mode") === "group" ||
+          params.get("group") === "true" ||
+          params.get("token") === "group" ||
+          path === "/v/group" ||
+          path.startsWith("/v/group/") ||
+          path === "/v" ||
+          (!cd && !tok);
+
         return {
           isOpen: true,
           token: tok,
@@ -671,10 +672,11 @@ export default function App() {
     setShowInactivityWarning(false);
   };
 
-  // Inactivity tracking (Auto-logout after 5 minutes with 30s countdown warning)
+  // Inactivity tracking (Auto-logout after 5 minutes with 30s countdown warning, paused while sending messages)
   const INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes
   const INACTIVITY_WARNING_MS = 30 * 1000; // Last 30 seconds
   const INACTIVITY_THRESHOLD_MS = INACTIVITY_LIMIT_MS - INACTIVITY_WARNING_MS; // 4m 30s
+  const isServerCampaignRunningRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!currentUser) {
@@ -686,15 +688,51 @@ export default function App() {
 
     const handleUserActivity = () => {
       const now = Date.now();
-      if (now - lastActivityTimeRef.current > 1000) {
+      if (now - lastActivityTimeRef.current > 500) {
         lastActivityTimeRef.current = now;
       }
     };
 
-    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click", "abna-system-activity"];
     events.forEach((evt) => window.addEventListener(evt, handleUserActivity, { passive: true }));
 
+    // Periodically check if any server campaign is running
+    const checkActiveServerCampaign = async () => {
+      try {
+        const activeId = localStorage.getItem("active_campaign_id");
+        if (!activeId) {
+          isServerCampaignRunningRef.current = false;
+          return;
+        }
+        const res = await fetch(`/api/whatsapp/campaign/${activeId}`);
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data && data.status === "running") {
+            isServerCampaignRunningRef.current = true;
+            lastActivityTimeRef.current = Date.now();
+            return;
+          }
+        }
+        isServerCampaignRunningRef.current = false;
+      } catch {
+        isServerCampaignRunningRef.current = false;
+      }
+    };
+
+    const campaignCheckTimer = setInterval(checkActiveServerCampaign, 5000);
+
     const timer = setInterval(() => {
+      // Check if any sending modal or active transmission is running
+      const isModalOpen = !!document.getElementById("unified-campaign-modal-backdrop");
+      const activeSendingCount = Number((window as any).__abnaActiveSendingCount || 0);
+      const isSendingActive = isModalOpen || activeSendingCount > 0 || isServerCampaignRunningRef.current;
+
+      if (isSendingActive) {
+        lastActivityTimeRef.current = Date.now();
+        setShowInactivityWarning(false);
+        return;
+      }
+
       const elapsed = Date.now() - lastActivityTimeRef.current;
 
       if (elapsed >= INACTIVITY_LIMIT_MS) {
@@ -715,6 +753,7 @@ export default function App() {
 
     return () => {
       clearInterval(timer);
+      clearInterval(campaignCheckTimer);
       events.forEach((evt) => window.removeEventListener(evt, handleUserActivity));
     };
   }, [currentUser]);

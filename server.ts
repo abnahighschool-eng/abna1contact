@@ -950,6 +950,9 @@ function saveNeedsSurveyProfiles() {
 }
 
 function saveParentCouncilsStore(immediate = false) {
+  try {
+    fs.writeFileSync(PARENT_COUNCILS_FILE, JSON.stringify(parentCouncilsStore, null, 2), "utf-8");
+  } catch (e) {}
   saveAppStateToDisk(immediate);
   if (immediate) {
     forceFlushServerStateToFirestore({ parentCouncils: parentCouncilsStore }).catch(() => {});
@@ -2400,6 +2403,39 @@ app.post("/api/parent-councils/verify-phone", (req, res) => {
     addStudent(st.id, sName, sGrade, sClass, sPhone);
   }
 
+  // STRICT CHECK: Reject any phone number not found in the student roster
+  if (matchedStudents.length === 0) {
+    return res.status(403).json({
+      success: false,
+      notInRoster: true,
+      error: "عذراً، رقم الجوال المدخل غير مسجل في كشف طلاب المدرسة المعتمد بنظام نور. يُسمح بالدخول فقط لأولياء الأمور المسجلة أرقام جوالاتهم في كشوفات المدرسة.",
+    });
+  }
+
+  // Track opening in invites store for all matched students
+  const now = new Date().toISOString();
+  if (!parentCouncilsStore.invites) parentCouncilsStore.invites = {};
+  for (const m of matchedStudents) {
+    const sId = String(m.id);
+    const existing = parentCouncilsStore.invites[sId] || {
+      studentId: sId,
+      studentName: m.name,
+      studentGrade: m.grade,
+      studentClass: m.className,
+      guardianPhone: m.phone || normalizedPhone,
+      code: getStableCodeForStudent(sId),
+      token: getStableTokenForStudent(sId),
+    };
+    existing.isSent = true;
+    if (!existing.sentAt) existing.sentAt = now;
+    existing.hasOpened = true;
+    if (!existing.openedAt) existing.openedAt = now;
+    existing.lastOpenedAt = now;
+    existing.openCount = (existing.openCount || 0) + 1;
+    parentCouncilsStore.invites[sId] = existing;
+  }
+  saveParentCouncilsStore(true);
+
   return res.json({
     success: true,
     alreadySubmitted: false,
@@ -2665,6 +2701,15 @@ app.post("/api/parent-councils/invites", (req, res) => {
         isSubmitted: incoming.isSubmitted !== undefined ? incoming.isSubmitted : (existing.isSubmitted || false),
         submittedAt: incoming.submittedAt || existing.submittedAt,
         applicationId: incoming.applicationId || existing.applicationId,
+        // Preserve voting tracking states
+        isVoteSent: incoming.isVoteSent !== undefined ? incoming.isVoteSent : (existing.isVoteSent || false),
+        voteSentAt: incoming.voteSentAt || existing.voteSentAt,
+        hasOpenedVote: incoming.hasOpenedVote !== undefined ? incoming.hasOpenedVote : (existing.hasOpenedVote || false),
+        voteOpenedAt: incoming.voteOpenedAt || existing.voteOpenedAt,
+        voteLastOpenedAt: incoming.voteLastOpenedAt || existing.voteLastOpenedAt,
+        voteOpenCount: incoming.voteOpenCount !== undefined ? incoming.voteOpenCount : existing.voteOpenCount,
+        hasVoted: incoming.hasVoted !== undefined ? incoming.hasVoted : (existing.hasVoted || false),
+        votedAt: incoming.votedAt || existing.votedAt,
       };
     });
     parentCouncilsStore.invites = merged;
@@ -2730,6 +2775,170 @@ app.post("/api/parent-councils/voting/config", (req, res) => {
   });
 });
 
+// 9.5 Track Voting Link Opening (when parent opens /v/:token)
+app.post("/api/parent-councils/vote/track-open", (req, res) => {
+  const { token, studentId } = req.body || {};
+  const votingConfig = parentCouncilsStore.votingConfig || { isActive: true, candidateIds: [], maxVotesPerParent: 1 };
+  const isVotingClosed = votingConfig.isActive === false;
+
+  let candidateStudentId = studentId ? String(studentId).trim() : "";
+  if (!candidateStudentId && token && String(token).startsWith("pc_")) {
+    candidateStudentId = String(token).split("_")[1] || "";
+  }
+
+  if (!parentCouncilsStore.invites) parentCouncilsStore.invites = {};
+
+  let invite: any = Object.values(parentCouncilsStore.invites).find(
+    (inv: any) =>
+      (token && inv.token === token) ||
+      (candidateStudentId && String(inv.studentId) === String(candidateStudentId))
+  );
+
+  // If invite doesn't exist yet in store, synthesize it from activeStudentsList so opening is always tracked
+  if (!invite && candidateStudentId) {
+    const matchedStudent = (activeStudentsList || []).find((st: any) => String(st.id) === String(candidateStudentId));
+    const sName = matchedStudent ? (matchedStudent.name || matchedStudent["اسم الطالب"] || "طالب") : "طالب";
+    const sGrade = matchedStudent ? (matchedStudent.grade || matchedStudent["الصف"] || "") : "";
+    const sClass = matchedStudent ? (matchedStudent.className || matchedStudent["الفصل"] || matchedStudent["الشعبة"] || "") : "";
+    const sPhone = matchedStudent ? (matchedStudent.phone || matchedStudent["رقم الجوال"] || "") : "";
+
+    invite = {
+      studentId: candidateStudentId,
+      studentName: sName,
+      studentGrade: sGrade,
+      studentClass: sClass,
+      guardianPhone: sPhone,
+      code: getStableCodeForStudent(candidateStudentId),
+      token: token || getStableTokenForStudent(candidateStudentId),
+    };
+    parentCouncilsStore.invites[candidateStudentId] = invite;
+  }
+
+  const now = new Date().toISOString();
+  if (invite) {
+    invite.hasOpenedVote = true;
+    invite.isVoteLinkOpened = true;
+    if (!invite.voteOpenedAt) invite.voteOpenedAt = now;
+    if (!invite.voteLinkOpenedAt) invite.voteLinkOpenedAt = now;
+    invite.voteLastOpenedAt = now;
+    invite.voteOpenCount = (invite.voteOpenCount || 0) + 1;
+    if (invite.studentId) {
+      parentCouncilsStore.invites[invite.studentId] = invite;
+    }
+    saveParentCouncilsStore(true);
+  }
+
+  // Check if this parent has ACTUALLY voted in parentCouncilsStore.votes
+  const invitePhone9 = invite?.guardianPhone ? String(invite.guardianPhone).replace(/\D/g, "").slice(-9) : "";
+  const existingVote = Object.values(parentCouncilsStore.votes || {}).find((v: any) => {
+    if (!v || !Array.isArray(v.selectedCandidateIds) || v.selectedCandidateIds.length === 0) return false;
+    if (token && v.token === token) return true;
+    if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
+    if (invitePhone9 && v.guardianPhone) {
+      const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
+      if (vp && vp === invitePhone9) return true;
+    }
+    return false;
+  });
+
+  res.json({
+    success: true,
+    isVotingClosed,
+    hasOpenedVote: true,
+    isVoteLinkOpened: true,
+    alreadyVoted: !!existingVote,
+    vote: existingVote || null,
+    invite: invite || null,
+  });
+});
+
+// 9.6 Mark Voting Link as Sent to Parent(s) (Supports both individual dispatch and WhatsApp group broadcast)
+app.post("/api/parent-councils/vote/mark-sent", (req, res) => {
+  const { items, recipients, studentIds, method, markAllRoster, studentId, studentName, studentGrade, studentClass, guardianPhone, token, code } = req.body || {};
+  if (!parentCouncilsStore.invites) parentCouncilsStore.invites = {};
+  const now = new Date().toISOString();
+
+  // If WhatsApp Group link is copied/shared, mark all students in roster as having received the group voting link
+  if (markAllRoster && Array.isArray(activeStudentsList) && activeStudentsList.length > 0) {
+    activeStudentsList.forEach((st: any) => {
+      if (!st || !st.id) return;
+      const sId = String(st.id).trim();
+      const sName = st.name || st["اسم الطالب"] || "طالب";
+      const sGrade = st.grade || st["الصف"] || "";
+      const sClass = st.className || st["الفصل"] || st["الشعبة"] || "";
+      const sPhone = st.phone || st["رقم الجوال"] || "";
+      const existing = parentCouncilsStore.invites[sId] || {
+        studentId: sId,
+        studentName: sName,
+        studentGrade: sGrade,
+        studentClass: sClass,
+        guardianPhone: sPhone,
+        token: getStableTokenForStudent(sId),
+        code: getStableCodeForStudent(sId),
+      };
+      parentCouncilsStore.invites[sId] = {
+        ...existing,
+        studentName: existing.studentName || sName,
+        studentGrade: existing.studentGrade || sGrade,
+        studentClass: existing.studentClass || sClass,
+        guardianPhone: existing.guardianPhone || sPhone,
+        isVoteSent: true,
+        voteSentAt: existing.voteSentAt || now,
+        voteSendMethod: existing.voteSendMethod || method || "whatsapp_group",
+      };
+    });
+    saveParentCouncilsStore(true);
+    return res.json({
+      success: true,
+      invites: parentCouncilsStore.invites,
+    });
+  }
+
+  let records: any[] = [];
+  if (Array.isArray(recipients) && recipients.length > 0) {
+    records = recipients;
+  } else if (Array.isArray(items) && items.length > 0) {
+    records = items;
+  } else if (Array.isArray(studentIds) && studentIds.length > 0) {
+    records = studentIds.map((id: any) => ({ studentId: String(id) }));
+  } else if (studentId) {
+    records = [{ studentId, studentName, studentGrade, studentClass, guardianPhone, token, code }];
+  }
+
+  records.forEach((rec: any) => {
+    const sId = String(rec.studentId || rec.id || "").trim();
+    if (!sId) return;
+    const matchedStudent = (activeStudentsList || []).find((st: any) => String(st.id) === sId);
+    const existing = parentCouncilsStore.invites[sId] || {
+      studentId: sId,
+      studentName: rec.studentName || rec.name || (matchedStudent ? (matchedStudent.name || matchedStudent["اسم الطالب"]) : "طالب"),
+      studentGrade: rec.studentGrade || rec.grade || (matchedStudent ? (matchedStudent.grade || matchedStudent["الصف"]) : ""),
+      studentClass: rec.studentClass || rec.className || (matchedStudent ? (matchedStudent.className || matchedStudent["الفصل"]) : ""),
+      guardianPhone: rec.guardianPhone || rec.phone || (matchedStudent ? (matchedStudent.phone || matchedStudent["رقم الجوال"]) : ""),
+      token: rec.token || getStableTokenForStudent(sId),
+      code: rec.code || getStableCodeForStudent(sId),
+    };
+    parentCouncilsStore.invites[sId] = {
+      ...existing,
+      studentName: rec.studentName || rec.name || existing.studentName,
+      studentGrade: rec.studentGrade || rec.grade || existing.studentGrade,
+      studentClass: rec.studentClass || rec.className || existing.studentClass,
+      guardianPhone: rec.guardianPhone || rec.phone || existing.guardianPhone,
+      token: rec.token || existing.token || getStableTokenForStudent(sId),
+      code: rec.code || existing.code || getStableCodeForStudent(sId),
+      isVoteSent: true,
+      voteSentAt: existing.voteSentAt || now,
+      voteSendMethod: method || existing.voteSendMethod || "whatsapp_bot",
+    };
+  });
+
+  saveParentCouncilsStore(true);
+  res.json({
+    success: true,
+    invites: parentCouncilsStore.invites,
+  });
+});
+
 // 10. Verify Code and Fetch Voting Ballot for Parents (Private Link)
 app.post("/api/parent-councils/vote/verify", (req, res) => {
   const { token, code, studentId } = req.body || {};
@@ -2763,8 +2972,13 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
   if (!invite && candidateStudentId) {
     const stableCode = getStableCodeForStudent(candidateStudentId);
     if (cleanedCode === stableCode || cleanedCode === configCode || cleanedCode === "202601" || cleanedCode === "1447") {
+      const matchedStudent = (activeStudentsList || []).find((st: any) => String(st.id) === String(candidateStudentId));
       invite = {
         studentId: candidateStudentId,
+        studentName: matchedStudent ? (matchedStudent.name || matchedStudent["اسم الطالب"] || "") : "",
+        studentGrade: matchedStudent ? (matchedStudent.grade || matchedStudent["الصف"] || "") : "",
+        studentClass: matchedStudent ? (matchedStudent.className || matchedStudent["الفصل"] || "") : "",
+        guardianPhone: matchedStudent ? (matchedStudent.phone || matchedStudent["رقم الجوال"] || "") : "",
         code: stableCode,
         token: token || getStableTokenForStudent(candidateStudentId),
       };
@@ -2783,11 +2997,27 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
     });
   }
 
-  // Check if parent already voted (by studentId, token, or guardianPhone)
+  // Record that parent opened & verified the voting link
+  const now = new Date().toISOString();
+  if (invite && invite.studentId) {
+    if (!parentCouncilsStore.invites) parentCouncilsStore.invites = {};
+    const currentInv = parentCouncilsStore.invites[invite.studentId] || invite;
+    currentInv.hasOpenedVote = true;
+    currentInv.isVoteLinkOpened = true;
+    if (!currentInv.voteOpenedAt) currentInv.voteOpenedAt = now;
+    if (!currentInv.voteLinkOpenedAt) currentInv.voteLinkOpenedAt = now;
+    currentInv.voteLastOpenedAt = now;
+    currentInv.voteOpenCount = (currentInv.voteOpenCount || 0) + 1;
+    parentCouncilsStore.invites[invite.studentId] = currentInv;
+    invite = currentInv;
+    saveParentCouncilsStore(true);
+  }
+
+  // Check if parent already voted (by studentId, token, or guardianPhone) — strictly require selectedCandidateIds
   const invitePhone9 = invite?.guardianPhone ? String(invite.guardianPhone).replace(/\D/g, "").slice(-9) : "";
   const existingVote = Object.values(parentCouncilsStore.votes || {}).find(
     (v: any) => {
-      if (!v) return false;
+      if (!v || !Array.isArray(v.selectedCandidateIds) || v.selectedCandidateIds.length === 0) return false;
       if (token && v.token === token) return true;
       if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
       if (invitePhone9 && v.guardianPhone) {
@@ -2838,9 +3068,13 @@ app.post("/api/parent-councils/vote/verify", (req, res) => {
 });
 
 // 10.1 Verify Phone and Fetch Voting Ballot for Parents (WhatsApp Group Link)
+// Strictly requires the phone number to exist in the student roster; any wrong or unregistered phone is blocked!
 app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
   const { phone } = req.body || {};
-  const rawDigits = String(phone || "").replace(/\D/g, "");
+  const rawPhoneStr = String(phone || "").trim();
+  const rawDigits = rawPhoneStr
+    .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+    .replace(/\D/g, "");
   if (!rawDigits || rawDigits.length < 9) {
     return res.status(400).json({
       success: false,
@@ -2860,9 +3094,34 @@ app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
   const phone9 = rawDigits.slice(-9);
   const normalizedPhone = rawDigits.startsWith("5") && rawDigits.length === 9 ? "0" + rawDigits : rawDigits;
 
+  // Search for all students matching this phone number in activeStudentsList roster or invites store
+  const matchedStudents: any[] = [];
+  const matchedInvites = Object.values(parentCouncilsStore.invites || {}).filter((inv: any) => {
+    if (!inv || !inv.guardianPhone) return false;
+    const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
+    return invP.length === 9 && invP === phone9;
+  });
+
+  const rosterMatches = (activeStudentsList || []).filter((st: any) => {
+    if (!st) return false;
+    const p = String(
+      st.phone || st["رقم الجوال"] || st["هاتف ولي الأمر"] || st["الجوال"] || ""
+    ).replace(/\D/g, "");
+    return p.length >= 9 && p.slice(-9) === phone9;
+  });
+
+  // STRICT CHECK: If the phone number is NOT found in the student roster or invites, block entry immediately!
+  if (matchedInvites.length === 0 && rosterMatches.length === 0) {
+    return res.status(403).json({
+      success: false,
+      notInRoster: true,
+      error: "عذراً، رقم الجوال المدخل غير مسجل في كشف طلاب المدرسة المعتمد بنظام نور. يُسمح بالدخول والتصويت فقط لأولياء الأمور المسجلة أرقام جوالاتهم في كشوفات المدرسة.",
+    });
+  }
+
   // 1. Check if ANY vote already exists matching this phone number directly
   const existingVoteByPhone = Object.values(parentCouncilsStore.votes || {}).find((v: any) => {
-    if (!v) return false;
+    if (!v || !Array.isArray(v.selectedCandidateIds) || v.selectedCandidateIds.length === 0) return false;
     if (v.guardianPhone) {
       const vp = String(v.guardianPhone).replace(/\D/g, "").slice(-9);
       if (vp && vp === phone9) return true;
@@ -2870,19 +3129,30 @@ app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
     return false;
   });
 
-  // 2. Search for all students matching this phone number in invites store
-  const matchedStudents: any[] = [];
-  const matchedInvites = Object.values(parentCouncilsStore.invites || {}).filter((inv: any) => {
-    if (!inv || !inv.guardianPhone) return false;
-    const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
-    return invP === phone9;
-  });
-
-  // Check if any matched student has already voted (via private code link or group)
+  const now = new Date().toISOString();
   let existingVoteByStudent: any = null;
-  for (const inv of matchedInvites) {
+  if (!parentCouncilsStore.invites) parentCouncilsStore.invites = {};
+
+  for (const inv of matchedInvites as any[]) {
+    inv.isVoteSent = true;
+    if (!inv.voteSentAt) inv.voteSentAt = now;
+    if (!inv.voteSendMethod) inv.voteSendMethod = "whatsapp_group";
+    inv.hasOpenedVote = true;
+    inv.isVoteLinkOpened = true;
+    if (!inv.voteOpenedAt) inv.voteOpenedAt = now;
+    if (!inv.voteLinkOpenedAt) inv.voteLinkOpenedAt = now;
+    inv.voteLastOpenedAt = now;
+    inv.voteOpenCount = (inv.voteOpenCount || 0) + 1;
+    if (inv.studentId) {
+      parentCouncilsStore.invites[inv.studentId] = inv;
+    }
+
     const v = Object.values(parentCouncilsStore.votes || {}).find(
-      (vote: any) => vote && (String(vote.studentId) === String(inv.studentId) || (vote.token && vote.token === inv.token))
+      (vote: any) =>
+        vote &&
+        Array.isArray(vote.selectedCandidateIds) &&
+        vote.selectedCandidateIds.length > 0 &&
+        (String(vote.studentId) === String(inv.studentId) || (vote.token && vote.token === inv.token))
     );
     if (v && !existingVoteByStudent) {
       existingVoteByStudent = v;
@@ -2895,6 +3165,69 @@ app.post("/api/parent-councils/vote/verify-phone", (req, res) => {
       phone: inv.guardianPhone,
     });
   }
+
+  // Also check activeStudentsList for any students with this phone not yet in invites
+  for (const st of rosterMatches) {
+    const sId = String(st.id);
+    const sName = st.name || st["اسم الطالب"] || "طالب";
+    const sGrade = st.grade || st["الصف"] || "";
+    const sClass = st.className || st["الفصل"] || st["الشعبة"] || "";
+    const sPhone = st.phone || st["رقم الجوال"] || normalizedPhone;
+
+    if (!matchedStudents.some((m) => String(m.id) === sId)) {
+      matchedStudents.push({
+        id: sId,
+        name: sName,
+        grade: sGrade,
+        className: sClass,
+        phone: sPhone,
+      });
+    }
+
+    const existingInv = parentCouncilsStore.invites[sId];
+    if (!existingInv) {
+      parentCouncilsStore.invites[sId] = {
+        studentId: sId,
+        studentName: sName,
+        studentGrade: sGrade,
+        studentClass: sClass,
+        guardianPhone: sPhone,
+        code: getStableCodeForStudent(sId),
+        token: getStableTokenForStudent(sId),
+        isVoteSent: true,
+        voteSentAt: now,
+        voteSendMethod: "whatsapp_group",
+        hasOpenedVote: true,
+        isVoteLinkOpened: true,
+        voteOpenedAt: now,
+        voteLinkOpenedAt: now,
+        voteLastOpenedAt: now,
+        voteOpenCount: 1,
+      };
+    } else {
+      existingInv.isVoteSent = true;
+      if (!existingInv.voteSentAt) existingInv.voteSentAt = now;
+      existingInv.hasOpenedVote = true;
+      existingInv.isVoteLinkOpened = true;
+      if (!existingInv.voteOpenedAt) existingInv.voteOpenedAt = now;
+      if (!existingInv.voteLinkOpenedAt) existingInv.voteLinkOpenedAt = now;
+      existingInv.voteLastOpenedAt = now;
+      existingInv.voteOpenCount = (existingInv.voteOpenCount || 0) + 1;
+      parentCouncilsStore.invites[sId] = existingInv;
+    }
+
+    const v = Object.values(parentCouncilsStore.votes || {}).find(
+      (vote: any) =>
+        vote &&
+        Array.isArray(vote.selectedCandidateIds) &&
+        vote.selectedCandidateIds.length > 0 &&
+        String(vote.studentId) === sId
+    );
+    if (v && !existingVoteByStudent) {
+      existingVoteByStudent = v;
+    }
+  }
+  saveParentCouncilsStore(true);
 
   const existingVote = existingVoteByPhone || existingVoteByStudent;
 
@@ -3007,13 +3340,34 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
 
   // Verification checks:
   if (isGroupAuth) {
-    // Phone method: verify phone format
-    const rawPhoneDigits = String(guardianPhone || "").replace(/\D/g, "");
+    // Phone method: verify phone format AND verify it exists in the student roster
+    const rawPhoneDigits = String(guardianPhone || "")
+      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+      .replace(/\D/g, "");
     if (!rawPhoneDigits || rawPhoneDigits.length < 9) {
       return res.status(400).json({
         success: false,
         error: "رقم الجوال غير صحيح للتحقق.",
       });
+    }
+    const p9 = rawPhoneDigits.slice(-9);
+    const inInvites = Object.values(parentCouncilsStore.invites || {}).some((inv: any) => {
+      if (!inv || !inv.guardianPhone) return false;
+      return String(inv.guardianPhone).replace(/\D/g, "").slice(-9) === p9;
+    });
+    const matchedRosterStudent = (activeStudentsList || []).find((st: any) => {
+      if (!st) return false;
+      const sp = String(st.phone || st["رقم الجوال"] || st["هاتف ولي الأمر"] || st["الجوال"] || "").replace(/\D/g, "");
+      return sp.length >= 9 && sp.slice(-9) === p9;
+    });
+    if (!inInvites && !matchedRosterStudent) {
+      return res.status(403).json({
+        success: false,
+        error: "عذراً، رقم الجوال غير مسجل في كشف طلاب المدرسة المعتمد بنظام نور.",
+      });
+    }
+    if (!candidateStudentId && matchedRosterStudent) {
+      candidateStudentId = String(matchedRosterStudent.id);
     }
   } else {
     // Code method: verify code
@@ -3045,7 +3399,7 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
   if (!parentCouncilsStore.votes) parentCouncilsStore.votes = {};
 
   const existingVote = Object.values(parentCouncilsStore.votes).find((v: any) => {
-    if (!v) return false;
+    if (!v || !Array.isArray(v.selectedCandidateIds) || v.selectedCandidateIds.length === 0) return false;
     if (token && v.token === token) return true;
     if (candidateStudentId && String(v.studentId) === String(candidateStudentId)) return true;
     if (phone9 && v.guardianPhone) {
@@ -3067,6 +3421,7 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
   const effectivePhone = guardianPhone || invite?.guardianPhone || "";
   const effectiveStudentName = studentName || invite?.studentName || "";
   const voteKey = candidateStudentId || (phone9 ? `p_${phone9}` : token) || `v_${Date.now()}`;
+  const now = new Date().toISOString();
 
   const newVote = {
     id: `vote_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -3076,11 +3431,54 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
     token: token || "",
     authMethod: isGroupAuth ? "phone" : "code",
     selectedCandidateIds,
-    votedAt: new Date().toISOString(),
+    votedAt: now,
     codeUsed: isGroupAuth ? "التحقق برقم الجوال المعتمد" : cleanedCode,
   };
 
   parentCouncilsStore.votes[voteKey] = newVote;
+
+  // Also update invite voting tracking state for this student (and any siblings sharing the same guardian phone)
+  if (!parentCouncilsStore.invites) parentCouncilsStore.invites = {};
+  if (candidateStudentId) {
+    const matchedSt = (activeStudentsList || []).find((st: any) => String(st.id) === String(candidateStudentId));
+    const existingInv = parentCouncilsStore.invites[candidateStudentId] || invite || {
+      studentId: candidateStudentId,
+      studentName: effectiveStudentName || (matchedSt ? (matchedSt.name || matchedSt["اسم الطالب"]) : "طالب"),
+      studentGrade: matchedSt ? (matchedSt.grade || matchedSt["الصف"]) : "",
+      studentClass: matchedSt ? (matchedSt.className || matchedSt["الفصل"]) : "",
+      guardianPhone: effectivePhone || (matchedSt ? (matchedSt.phone || matchedSt["رقم الجوال"]) : ""),
+      code: getStableCodeForStudent(candidateStudentId),
+      token: token || getStableTokenForStudent(candidateStudentId),
+    };
+    existingInv.isVoteSent = true;
+    if (!existingInv.voteSentAt) existingInv.voteSentAt = now;
+    existingInv.hasOpenedVote = true;
+    existingInv.isVoteLinkOpened = true;
+    if (!existingInv.voteOpenedAt) existingInv.voteOpenedAt = now;
+    if (!existingInv.voteLinkOpenedAt) existingInv.voteLinkOpenedAt = now;
+    existingInv.hasVoted = true;
+    existingInv.votedAt = now;
+    parentCouncilsStore.invites[candidateStudentId] = existingInv;
+  }
+
+  // If voted via phone, also mark any other invite records sharing this phone number as voted
+  if (phone9) {
+    Object.values(parentCouncilsStore.invites).forEach((inv: any) => {
+      if (!inv || !inv.guardianPhone) return;
+      const invP = String(inv.guardianPhone).replace(/\D/g, "").slice(-9);
+      if (invP === phone9) {
+        inv.isVoteSent = true;
+        if (!inv.voteSentAt) inv.voteSentAt = now;
+        inv.hasOpenedVote = true;
+        inv.isVoteLinkOpened = true;
+        if (!inv.voteOpenedAt) inv.voteOpenedAt = now;
+        if (!inv.voteLinkOpenedAt) inv.voteLinkOpenedAt = now;
+        inv.hasVoted = true;
+        inv.votedAt = now;
+      }
+    });
+  }
+
   saveParentCouncilsStore(true);
 
   res.json({
@@ -3093,6 +3491,12 @@ app.post("/api/parent-councils/vote/submit", (req, res) => {
 // 12. Reset Votes
 app.post("/api/parent-councils/voting/reset", (req, res) => {
   parentCouncilsStore.votes = {};
+  Object.values(parentCouncilsStore.invites || {}).forEach((inv: any) => {
+    if (inv) {
+      inv.hasVoted = false;
+      delete inv.votedAt;
+    }
+  });
   saveParentCouncilsStore(true);
   res.json({ success: true, message: "تمت إعادة تعيين أصوات أولياء الأمور بنجاح." });
 });
@@ -3605,6 +4009,23 @@ app.post("/api/app-state/clear", async (req, res) => {
       saveIndividualLogs();
       await deleteServerStateInFirestore("logs");
       return res.json({ success: true, message: "تم حذف أرشيف الحملات والرسائل بنجاح", scope: "logs" });
+    }
+
+    if (scope === "parent_councils") {
+      parentCouncilsStore.applications = {};
+      parentCouncilsStore.invites = {};
+      parentCouncilsStore.votes = {};
+      if (parentCouncilsStore.config) {
+        parentCouncilsStore.config.selectedMemberIds = [];
+        parentCouncilsStore.config.reserveMemberIds = [];
+        parentCouncilsStore.config.formationApproved = false;
+      }
+      if (parentCouncilsStore.votingConfig) {
+        parentCouncilsStore.votingConfig.candidateIds = [];
+      }
+      saveParentCouncilsStore(true);
+      await deleteServerStateInFirestore("parent_councils");
+      return res.json({ success: true, message: "تم حذف استمارات وترشيحات مجلس أولياء الأمور بنجاح", scope: "parent_councils" });
     }
 
     return res.status(400).json({ error: `نطاق غير معروف: ${scope}` });
@@ -4578,50 +4999,17 @@ async function startServer() {
           needsSurveyProfilesStore = { ...cloudState.needsSurveyProfiles, ...needsSurveyProfilesStore };
         }
         if (cloudState.parentCouncils && typeof cloudState.parentCouncils === "object") {
-          const cloudApps = cloudState.parentCouncils.applications || {};
+          const cloudApps = cloudState.parentCouncils.applications;
           const cloudInvites = cloudState.parentCouncils.invites || {};
           const cloudConfig = cloudState.parentCouncils.config || {};
-          
-          // Deep-reconcile applications to avoid overwriting newer or filled fields
-          const mergedApps = { ...cloudApps };
-          const localApps = parentCouncilsStore.applications || {};
-          for (const [id, localApp] of Object.entries(localApps)) {
-            if (!mergedApps[id]) {
-              mergedApps[id] = localApp;
-            } else {
-              const cloudApp = mergedApps[id];
-              mergedApps[id] = {
-                ...cloudApp,
-                ...localApp,
-                // Preserve manually assigned role if either has it non-empty
-                assignedRole: (localApp as any).assignedRole !== undefined && (localApp as any).assignedRole !== "" 
-                  ? (localApp as any).assignedRole 
-                  : ((cloudApp as any).assignedRole || ""),
-                // Preserve approval status if marked in either
-                status: (localApp as any).status === "approved" || (cloudApp as any).status === "approved"
-                  ? "approved"
-                  : ((localApp as any).status || (cloudApp as any).status || "submitted"),
-                // Keep evaluation
-                smartEvaluation: (localApp as any).smartEvaluation || (cloudApp as any).smartEvaluation,
-              };
-            }
-          }
 
-          // Deep-reconcile config
-          const localConfig: any = parentCouncilsStore.config || {};
-          const mergedSelected = Array.from(new Set([
-            ...(cloudConfig.selectedMemberIds || []),
-            ...(localConfig.selectedMemberIds || []),
-          ]));
-          const mergedReserve = Array.from(new Set([
-            ...(cloudConfig.reserveMemberIds || []),
-            ...(localConfig.reserveMemberIds || []),
-          ])).filter(id => !mergedSelected.includes(id));
+          // Use cloud applications as the authoritative truth if present in Firestore so deleted names stay deleted
+          const effectiveApps = cloudApps !== undefined ? cloudApps : (parentCouncilsStore.applications || {});
 
           parentCouncilsStore = {
-            applications: mergedApps,
-            invites: { ...cloudInvites, ...(parentCouncilsStore.invites || {}) },
-            votes: { ...(cloudState.parentCouncils.votes || {}), ...(parentCouncilsStore.votes || {}) },
+            applications: effectiveApps,
+            invites: cloudState.parentCouncils.invites !== undefined ? cloudInvites : (parentCouncilsStore.invites || {}),
+            votes: cloudState.parentCouncils.votes !== undefined ? (cloudState.parentCouncils.votes || {}) : (parentCouncilsStore.votes || {}),
             votingConfig: {
               ...(parentCouncilsStore.votingConfig || {}),
               ...(cloudState.parentCouncils.votingConfig || {}),
@@ -4629,16 +5017,16 @@ async function startServer() {
             config: {
               ...parentCouncilsStore.config,
               ...cloudConfig,
-              ...localConfig,
-              selectedMemberIds: mergedSelected.length > 0 ? mergedSelected : (cloudConfig.selectedMemberIds || localConfig.selectedMemberIds || []),
-              reserveMemberIds: mergedReserve,
-              formationApproved: !!(cloudConfig.formationApproved || localConfig.formationApproved),
-              formationApprovedAt: cloudConfig.formationApprovedAt || localConfig.formationApprovedAt,
-              isSurveyClosed: cloudConfig.isSurveyClosed !== undefined ? cloudConfig.isSurveyClosed : localConfig.isSurveyClosed,
+              selectedMemberIds: Array.isArray(cloudConfig.selectedMemberIds)
+                ? cloudConfig.selectedMemberIds.filter((id: string) => !!effectiveApps[id])
+                : (parentCouncilsStore.config.selectedMemberIds || []).filter((id: string) => !!effectiveApps[id]),
+              reserveMemberIds: Array.isArray(cloudConfig.reserveMemberIds)
+                ? cloudConfig.reserveMemberIds.filter((id: string) => !!effectiveApps[id])
+                : (parentCouncilsStore.config.reserveMemberIds || []).filter((id: string) => !!effectiveApps[id]),
             },
           };
           saveParentCouncilsStore(true);
-          console.log(`[Firebase] Restored & fortified parent councils data from Firestore (${Object.keys(parentCouncilsStore.applications).length} apps, ${parentCouncilsStore.config.selectedMemberIds.length} nominated members).`);
+          console.log(`[Firebase] Restored parent councils data from Firestore (${Object.keys(parentCouncilsStore.applications).length} apps, ${parentCouncilsStore.config.selectedMemberIds.length} nominated members).`);
         }
         console.log("[Firebase] System state successfully synchronized from Firestore.");
       }

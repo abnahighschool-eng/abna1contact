@@ -64,8 +64,8 @@ export default function ParentCouncilVotePortal({
 }: ParentCouncilVotePortalProps) {
   const [token, setToken] = useState<string>(initialToken || "");
   const [studentId, setStudentId] = useState<string>("");
-  const [code, setCode] = useState<string>(initialCode || "");
-  const [enteredCode, setEnteredCode] = useState<string>(initialCode || "202601");
+  const [code, setCode] = useState<string>("");
+  const [enteredCode, setEnteredCode] = useState<string>("");
 
   // Auth method: "phone" (for general voting link / phone verification) or "code" (for private individual token link)
   const [authMethod, setAuthMethod] = useState<"phone" | "code">(() => {
@@ -83,7 +83,10 @@ export default function ParentCouncilVotePortal({
       ) {
         return "phone";
       }
-      const tok = initialToken || p.get("token") || p.get("t");
+      let tok = initialToken || p.get("token") || p.get("t") || "";
+      if (!tok && path.startsWith("/v/") && !path.startsWith("/v/group")) {
+        tok = path.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || "";
+      }
       const cd = initialCode || p.get("code") || p.get("c");
       if (tok && tok !== "group") return "code";
       if (cd) return "code";
@@ -123,6 +126,15 @@ export default function ParentCouncilVotePortal({
     const params = new URLSearchParams(window.location.search);
     const pathname = window.location.pathname;
 
+    let resolvedToken = initialToken || params.get("token") || params.get("t") || params.get("council_token") || "";
+    if (!resolvedToken && pathname.startsWith("/v/") && !pathname.startsWith("/v/group")) {
+      resolvedToken = pathname.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || "";
+    }
+    if (resolvedToken === "group") resolvedToken = "";
+
+    const resolvedStudentId = params.get("studentId") || params.get("sid") || (resolvedToken.startsWith("pc_") ? resolvedToken.split("_")[1] : "");
+    const resolvedPhone = params.get("phone") || params.get("p") || "";
+
     const isGroupMode =
       propMode === "group" ||
       params.get("mode") === "group" ||
@@ -131,54 +143,58 @@ export default function ParentCouncilVotePortal({
       pathname === "/v/group" ||
       pathname.startsWith("/v/group/") ||
       pathname === "/v" ||
-      (!initialCode && !params.get("code") && !params.get("c") && (!initialToken || initialToken === "group") && (!params.get("token") || params.get("token") === "group"));
+      !resolvedToken;
 
     if (isGroupMode) {
       setAuthMethod("phone");
+    } else {
+      setAuthMethod("code");
     }
-
-    let resolvedToken = initialToken || params.get("token") || params.get("t") || params.get("council_token") || "";
-    if (!resolvedToken && pathname.startsWith("/v/") && !pathname.startsWith("/v/group")) {
-      resolvedToken = pathname.replace(/^\/v\/?/, "").split("/")[0].split("?")[0] || "";
-    }
-    if (resolvedToken === "group") resolvedToken = "";
-
-    const resolvedStudentId = params.get("studentId") || params.get("sid") || "";
-    const resolvedCode = initialCode || params.get("code") || params.get("c") || params.get("council_code") || "";
-    const resolvedPhone = params.get("phone") || params.get("p") || "";
 
     if (resolvedToken) setToken(resolvedToken);
     if (resolvedStudentId) setStudentId(resolvedStudentId);
-    if (resolvedPhone) setPhoneInput(resolvedPhone);
-    if (resolvedCode) {
-      setCode(resolvedCode);
-      setEnteredCode(resolvedCode);
-    }
 
-    // Check localStorage if this user already voted previously
-    const checkToken = resolvedToken;
-    const checkSid = resolvedStudentId || (resolvedToken.startsWith("pc_") ? resolvedToken.split("_")[1] : "");
-    const localVoted =
-      (checkToken && localStorage.getItem(`pc_voted_${checkToken}`)) ||
-      (checkSid && localStorage.getItem(`pc_voted_${checkSid}`)) ||
-      (resolvedPhone && localStorage.getItem(`pc_voted_phone_${cleanPhoneNumber(resolvedPhone)}`));
+    // Note: both enteredCode and phoneInput MUST always start completely empty so the parent types their code or phone manually
+    setEnteredCode("");
+    setPhoneInput("");
 
-    if (localVoted) {
-      setAlreadyVoted(true);
-      try {
-        const savedVote =
-          (checkToken && localStorage.getItem(`pc_vote_data_${checkToken}`)) ||
-          (checkSid && localStorage.getItem(`pc_vote_data_${checkSid}`)) ||
-          (resolvedPhone && localStorage.getItem(`pc_vote_data_phone_${cleanPhoneNumber(resolvedPhone)}`));
-        if (savedVote) {
-          setExistingVoteData(JSON.parse(savedVote));
-        }
-      } catch (e) {}
-    }
-
-    // Only auto-verify code if NOT group mode and a private code was supplied
-    if (!isGroupMode && resolvedCode && resolvedCode !== "202601") {
-      verifyCode(resolvedCode, resolvedToken, resolvedStudentId);
+    // Track voting link opening on the server immediately when the parent opens the link
+    if (resolvedToken || resolvedStudentId) {
+      fetch("/api/parent-councils/vote/track-open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: resolvedToken,
+          studentId: resolvedStudentId,
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.isVotingClosed) {
+            setIsVotingClosed(true);
+          }
+          if (data?.invite) {
+            setInviteData(data.invite);
+          }
+          // Only mark alreadyVoted if the server confirms an actual vote exists in the database
+          if (data?.alreadyVoted && data?.vote) {
+            setAlreadyVoted(true);
+            setExistingVoteData(data.vote);
+          } else {
+            // Clear any stale localStorage flags if the server has no vote for this parent
+            setAlreadyVoted(false);
+            setExistingVoteData(null);
+            if (resolvedToken) {
+              localStorage.removeItem(`pc_voted_${resolvedToken}`);
+              localStorage.removeItem(`pc_vote_data_${resolvedToken}`);
+            }
+            if (resolvedStudentId) {
+              localStorage.removeItem(`pc_voted_${resolvedStudentId}`);
+              localStorage.removeItem(`pc_vote_data_${resolvedStudentId}`);
+            }
+          }
+        })
+        .catch(() => {});
     }
   }, [propMode]);
 
@@ -201,26 +217,6 @@ export default function ParentCouncilVotePortal({
     setPhoneError(null);
 
     try {
-      // Check local storage for phone vote
-      const localPhoneVoted =
-        localStorage.getItem(`pc_voted_phone_${normalized}`) ||
-        localStorage.getItem(`pc_voted_phone_${normalized.slice(-9)}`);
-
-      if (localPhoneVoted) {
-        try {
-          const savedVote =
-            localStorage.getItem(`pc_vote_data_phone_${normalized}`) ||
-            localStorage.getItem(`pc_vote_data_phone_${normalized.slice(-9)}`);
-          if (savedVote) {
-            setExistingVoteData(JSON.parse(savedVote));
-          }
-        } catch (e) {}
-        setAlreadyVoted(true);
-        setCodeVerified(true);
-        setIsVerifyingPhone(false);
-        return;
-      }
-
       const res = await fetch("/api/parent-councils/vote/verify-phone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -233,26 +229,37 @@ export default function ParentCouncilVotePortal({
           setIsVotingClosed(true);
           return;
         }
-        throw new Error(data?.error || "تعذر التحقق من رقم الجوال، يرجى التأكد من الرقم والمحاولة مرة أخرى.");
+        throw new Error(
+          data?.error ||
+            "عذراً، رقم الجوال المدخل غير مسجل في كشف طلاب المدرسة المعتمد بنظام نور. يُسمح بالدخول والتصويت فقط لأولياء الأمور المسجلة أرقام جوالاتهم في كشوفات المدرسة."
+        );
+      }
+
+      // Strictly require at least one matched student from the school roster
+      const studentsList: MatchedStudentItem[] = data.matchedStudents || [];
+      if (studentsList.length === 0 && !data.alreadyVoted) {
+        throw new Error(
+          "عذراً، رقم الجوال المدخل غير مسجل في كشف طلاب المدرسة المعتمد بنظام نور. يُسمح بالدخول والتصويت فقط لأولياء الأمور المسجلة أرقام جوالاتهم في كشوفات المدرسة."
+        );
       }
 
       setCandidates(data.candidates || []);
       setCodeVerified(true);
 
-      // Handle already voted
-      if (data.alreadyVoted) {
+      // Handle already voted — strictly only when server confirms an actual vote record exists
+      if (data.alreadyVoted && data.vote) {
         setAlreadyVoted(true);
         setExistingVoteData(data.vote);
-        localStorage.setItem(`pc_voted_phone_${normalized}`, "true");
-        localStorage.setItem(`pc_voted_phone_${normalized.slice(-9)}`, "true");
-        if (data.vote) {
-          localStorage.setItem(`pc_vote_data_phone_${normalized}`, JSON.stringify(data.vote));
-        }
         return;
+      } else {
+        setAlreadyVoted(false);
+        setExistingVoteData(null);
+        localStorage.removeItem(`pc_voted_phone_${normalized}`);
+        localStorage.removeItem(`pc_voted_phone_${normalized.slice(-9)}`);
+        localStorage.removeItem(`pc_vote_data_phone_${normalized}`);
       }
 
       // Matched students
-      const studentsList: MatchedStudentItem[] = data.matchedStudents || [];
       setMatchedStudents(studentsList);
       if (studentsList.length > 0) {
         setSelectedStudent(studentsList[0]);
@@ -296,15 +303,12 @@ export default function ParentCouncilVotePortal({
       setCandidates(data.candidates || []);
       setInviteData(data.invite || null);
 
-      if (data.alreadyVoted) {
+      if (data.alreadyVoted && data.vote) {
         setAlreadyVoted(true);
         setExistingVoteData(data.vote);
-        if (t) localStorage.setItem(`pc_voted_${t}`, "true");
-        if (data.invite?.studentId) localStorage.setItem(`pc_voted_${data.invite.studentId}`, "true");
-        if (data.invite?.guardianPhone) {
-          const p9 = cleanPhoneNumber(data.invite.guardianPhone).slice(-9);
-          localStorage.setItem(`pc_voted_phone_${p9}`, "true");
-        }
+      } else {
+        setAlreadyVoted(false);
+        setExistingVoteData(null);
       }
     } catch (err: any) {
       setVerifyError(err.message || "حدث خطأ أثناء التحقق من الرمز");
@@ -523,15 +527,20 @@ export default function ParentCouncilVotePortal({
                 <div className="max-w-xs mx-auto space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
-                      رمز التفعيل (6 أرقام)
+                      أدخل رمز التفعيل المرسل في رسالة الواتساب (6 أرقام)
                     </label>
                     <input
-                      type="text"
+                      type="tel"
+                      dir="ltr"
                       maxLength={10}
                       value={enteredCode}
-                      onChange={(e) => setEnteredCode(e.target.value.replace(/\D/g, ""))}
-                      placeholder="مثال: 202601"
-                      className="w-full text-center tracking-widest text-2xl font-mono font-black py-3 px-4 rounded-2xl border-2 border-teal-300 focus:border-teal-600 focus:outline-hidden bg-slate-50 text-slate-900 shadow-inner"
+                      onChange={(e) => {
+                        setEnteredCode(e.target.value.replace(/\D/g, ""));
+                        if (verifyError) setVerifyError(null);
+                      }}
+                      placeholder="أدخل رمز التفعيل هنا"
+                      autoComplete="off"
+                      className="w-full text-center tracking-widest text-xl sm:text-2xl font-mono font-black py-3 px-4 rounded-2xl border-2 border-teal-300 focus:border-teal-600 focus:bg-white focus:outline-hidden bg-slate-50 text-slate-900 shadow-inner placeholder:text-sm placeholder:font-sans placeholder:tracking-normal placeholder:text-slate-400"
                     />
                   </div>
 

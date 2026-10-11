@@ -27,7 +27,10 @@ import {
   XSquare,
   CheckSquare,
   Square,
-  MessageCircle
+  MessageCircle,
+  FileText,
+  Eye,
+  Clock
 } from "lucide-react";
 import {
   ParentCouncilApplication,
@@ -41,7 +44,7 @@ import {
 import { getStableCodeForStudent, getStableTokenForStudent } from "./ParentCouncilStudentInvites";
 import UnifiedCampaignModal, { CampaignLaunchButtons } from "../UnifiedCampaignModal";
 import { launchOfficialCampaign } from "../../utils/campaignLauncher";
-import { VotingResultsReportPrintSheet } from "./ParentCouncilPrintSheets";
+import { VotingResultsReportPrintSheet, VotingSentReportPrintSheet } from "./ParentCouncilPrintSheets";
 
 interface ParentCouncilVotingManagerProps {
   applications: Record<string, ParentCouncilApplication>;
@@ -57,6 +60,7 @@ interface ParentCouncilVotingManagerProps {
   onUpdateVotingConfig: (newConfig: Partial<ParentCouncilVotingConfig>) => Promise<void>;
   onApplyTopCandidatesToCouncil: (topIds: string[], reserveIds: string[]) => Promise<void>;
   onResetVotes: () => Promise<void>;
+  onRefreshData?: () => Promise<void>;
   showToast?: (msg: string) => void;
 }
 
@@ -74,9 +78,10 @@ export default function ParentCouncilVotingManager({
   onUpdateVotingConfig,
   onApplyTopCandidatesToCouncil,
   onResetVotes,
+  onRefreshData,
   showToast,
 }: ParentCouncilVotingManagerProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"results" | "dispatch" | "settings">("results");
+  const [activeSubTab, setActiveSubTab] = useState<"results" | "dispatch" | "sent_report" | "settings">("results");
   const [isSaving, setIsSaving] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -86,14 +91,20 @@ export default function ParentCouncilVotingManager({
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "voted">("all");
   const [searchStudent, setSearchStudent] = useState("");
 
+  // Sent Report filtering state
+  const [reportFilter, setReportFilter] = useState<"all_sent" | "voted" | "viewed_only" | "not_opened">("all_sent");
+  const [reportGradeFilter, setReportGradeFilter] = useState("all");
+  const [reportSearch, setReportSearch] = useState("");
+
   // Student selection state
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
 
-  // Campaign Modal
+  // Campaign Modal & Print Sheets
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [showPrintSheet, setShowPrintSheet] = useState(false);
+  const [showSentReportPrintSheet, setShowSentReportPrintSheet] = useState(false);
 
   const defaultTemplate = `السلام عليكم ورحمة الله وبركاته،
 المكرم ولي أمر الطالب/ {اسم الطالب} ({الصف})،
@@ -137,6 +148,23 @@ ${groupVoteUrl}
 
   const [groupBroadcastMessage, setGroupBroadcastMessage] = useState(defaultGroupBroadcastMessage);
 
+  // Helper to mark all roster students as having received the WhatsApp Group voting link
+  const markGroupVoteLinkDispatched = async () => {
+    try {
+      await fetch("/api/parent-councils/vote/mark-sent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          markAllRoster: true,
+          method: "whatsapp_group",
+        }),
+      });
+      if (onRefreshData) {
+        onRefreshData().catch(() => {});
+      }
+    } catch (e) {}
+  };
+
   const copyGroupVoteLink = async () => {
     try {
       if (navigator.clipboard) {
@@ -151,7 +179,8 @@ ${groupVoteUrl}
       }
       setCopiedGroupVoteLink(true);
       setTimeout(() => setCopiedGroupVoteLink(false), 3000);
-      const msg = "تم نسخ رابط التصويت بالتحقق برقم الجوال بنجاح";
+      await markGroupVoteLinkDispatched();
+      const msg = "تم نسخ رابط التصويت لقروب الواتساب وتوثيق الإرسال في التقرير الرسمي";
       if (showToast) showToast(msg);
       setNotification(msg);
     } catch (e) {
@@ -174,7 +203,8 @@ ${groupVoteUrl}
       }
       setCopiedGroupMessage(true);
       setTimeout(() => setCopiedGroupMessage(false), 3000);
-      const msg = "تم نسخ نص رسالة قروب الواتساب الجاهزة بنجاح";
+      await markGroupVoteLinkDispatched();
+      const msg = "تم نسخ نص رسالة قروب الواتساب الجاهزة وتوثيق الإرسال في التقرير الرسمي";
       if (showToast) showToast(msg);
       setNotification(msg);
     } catch (e) {
@@ -183,6 +213,7 @@ ${groupVoteUrl}
   };
 
   const shareGroupToWhatsApp = () => {
+    markGroupVoteLinkDispatched();
     const text = groupBroadcastMessage.replace(/{الرابط}/g, groupVoteUrl);
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
     window.open(waUrl, "_blank");
@@ -191,6 +222,40 @@ ${groupVoteUrl}
   // Helper to build shortened voting link
   const buildVoteUrl = (token: string) => {
     return `${origin}/v/${token}`;
+  };
+
+  // Helper to record that a voting invite was sent to a student's parent
+  const recordVotingInviteSent = async (student: Student, invite: ParentCouncilInvite, method: "whatsapp_bot" | "whatsapp_direct") => {
+    const sId = String(student.id);
+    const sName = student.name || (student as any)["اسم الطالب"] || "طالب";
+    const sPhone = student.phone || (student as any)["رقم الجوال"] || "";
+    const sGrade = student.grade || (student as any)["الصف"] || "";
+    const sClass = student.className || (student as any)["الفصل"] || "";
+
+    try {
+      await fetch("/api/parent-councils/vote/mark-sent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentIds: [sId],
+          method,
+          recipients: [
+            {
+              id: sId,
+              name: sName,
+              phone: sPhone,
+              grade: sGrade,
+              className: sClass,
+              token: invite.token,
+              code: invite.code,
+            },
+          ],
+        }),
+      });
+      if (onRefreshData) {
+        onRefreshData().catch(() => {});
+      }
+    } catch (e) {}
   };
 
   // Build candidate pool items - strictly candidates approved from smart screening
@@ -253,6 +318,147 @@ ${groupVoteUrl}
     return Object.keys(votes || {}).length;
   }, [votes]);
 
+  // Compute Sent & Engagement Report Statistics
+  const votingDeliveryRecords = useMemo(() => {
+    const records: Array<{
+      studentId: string;
+      studentName: string;
+      studentGrade: string;
+      studentClass: string;
+      guardianPhone: string;
+      code: string;
+      token: string;
+      isVoteSent: boolean;
+      voteSentAt?: string;
+      voteSendMethod?: string;
+      isVoteLinkOpened: boolean;
+      voteLinkOpenedAt?: string;
+      voteOpenCount: number;
+      hasVoted: boolean;
+      votedAt?: string;
+      statusType: "voted" | "viewed_only" | "not_opened";
+    }> = [];
+
+    const allVoteObjs = Object.values(votes || {});
+    const seenStudentIds = new Set<string>();
+
+    // Check all students & invites that have been sent a voting link, opened it, or voted
+    students.forEach((student) => {
+      const sId = String(student.id);
+      const inv = invites[sId];
+      const token = inv?.token || getStableTokenForStudent(sId);
+      const code = inv?.code || getStableCodeForStudent(sId);
+      const sPhone = student.phone || (student as any)["رقم الجوال"] || inv?.guardianPhone || "";
+      const cleanPhone = String(sPhone).replace(/\D/g, "").slice(-9);
+
+      const matchedVote =
+        votes[sId] ||
+        allVoteObjs.find(
+          (v) =>
+            v.studentId === sId ||
+            v.token === token ||
+            (cleanPhone.length >= 9 && String(v.guardianPhone || "").replace(/\D/g, "").slice(-9) === cleanPhone)
+        );
+
+      const hasVoted = !!(matchedVote || inv?.hasVoted);
+      const isOpened = !!(inv?.isVoteLinkOpened || inv?.hasOpenedVote || hasVoted);
+      const isSent = !!(inv?.isVoteSent || isOpened || hasVoted);
+
+      if (isSent) {
+        seenStudentIds.add(sId);
+        records.push({
+          studentId: sId,
+          studentName: student.name || (student as any)["اسم الطالب"] || inv?.studentName || "طالب",
+          studentGrade: student.grade || (student as any)["الصف"] || inv?.studentGrade || "—",
+          studentClass: student.className || (student as any)["الفصل"] || inv?.studentClass || "—",
+          guardianPhone: sPhone,
+          code,
+          token,
+          isVoteSent: true,
+          voteSentAt: inv?.voteSentAt || inv?.sentAt || inv?.voteOpenedAt || matchedVote?.votedAt,
+          voteSendMethod: inv?.voteSendMethod || inv?.sendMethod || "whatsapp_bot",
+          isVoteLinkOpened: isOpened,
+          voteLinkOpenedAt: inv?.voteLinkOpenedAt || inv?.voteOpenedAt || matchedVote?.votedAt,
+          voteOpenCount: inv?.voteOpenCount || (isOpened ? 1 : 0),
+          hasVoted,
+          votedAt: matchedVote?.votedAt || inv?.votedAt,
+          statusType: hasVoted ? "voted" : isOpened ? "viewed_only" : "not_opened",
+        });
+      }
+    });
+
+    // Also include any invites not in current students array that were sent/opened/voted
+    Object.values(invites || {}).forEach((inv) => {
+      if (!inv || !inv.studentId || seenStudentIds.has(String(inv.studentId))) return;
+      const sId = String(inv.studentId);
+      const matchedVote =
+        votes[sId] ||
+        allVoteObjs.find((v) => v.studentId === sId || v.token === inv.token);
+      const hasVoted = !!(matchedVote || inv.hasVoted);
+      const isOpened = !!(inv.isVoteLinkOpened || inv.hasOpenedVote || hasVoted);
+      const isSent = !!(inv.isVoteSent || isOpened || hasVoted);
+
+      if (isSent) {
+        seenStudentIds.add(sId);
+        records.push({
+          studentId: sId,
+          studentName: inv.studentName || "طالب",
+          studentGrade: inv.studentGrade || "—",
+          studentClass: inv.studentClass || "—",
+          guardianPhone: inv.guardianPhone || "",
+          code: inv.code || "",
+          token: inv.token || `pc_${sId}`,
+          isVoteSent: true,
+          voteSentAt: inv.voteSentAt || inv.sentAt || inv.voteOpenedAt || matchedVote?.votedAt,
+          voteSendMethod: inv.voteSendMethod || inv.sendMethod || "whatsapp_bot",
+          isVoteLinkOpened: isOpened,
+          voteLinkOpenedAt: inv.voteLinkOpenedAt || inv.voteOpenedAt || matchedVote?.votedAt,
+          voteOpenCount: inv.voteOpenCount || (isOpened ? 1 : 0),
+          hasVoted,
+          votedAt: matchedVote?.votedAt || inv.votedAt,
+          statusType: hasVoted ? "voted" : isOpened ? "viewed_only" : "not_opened",
+        });
+      }
+    });
+
+    return records.sort((a, b) => {
+      // Order: voted first, then viewed_only, then not_opened
+      const score = (st: string) => (st === "voted" ? 3 : st === "viewed_only" ? 2 : 1);
+      if (score(b.statusType) !== score(a.statusType)) {
+        return score(b.statusType) - score(a.statusType);
+      }
+      const tA = a.voteSentAt ? new Date(a.voteSentAt).getTime() : 0;
+      const tB = b.voteSentAt ? new Date(b.voteSentAt).getTime() : 0;
+      return tB - tA;
+    });
+  }, [students, invites, votes]);
+
+  const deliveryStats = useMemo(() => {
+    const totalSent = votingDeliveryRecords.length;
+    const totalOpened = votingDeliveryRecords.filter((r) => r.isVoteLinkOpened).length;
+    const totalVoted = votingDeliveryRecords.filter((r) => r.hasVoted).length;
+    const viewedOnly = votingDeliveryRecords.filter((r) => r.statusType === "viewed_only").length;
+    const notOpened = votingDeliveryRecords.filter((r) => r.statusType === "not_opened").length;
+    return { totalSent, totalOpened, totalVoted, viewedOnly, notOpened };
+  }, [votingDeliveryRecords]);
+
+  const filteredReportRecords = useMemo(() => {
+    return votingDeliveryRecords.filter((rec) => {
+      if (reportFilter === "voted" && rec.statusType !== "voted") return false;
+      if (reportFilter === "viewed_only" && rec.statusType !== "viewed_only") return false;
+      if (reportFilter === "not_opened" && rec.statusType !== "not_opened") return false;
+      if (reportGradeFilter !== "all" && rec.studentGrade !== reportGradeFilter) return false;
+      if (reportSearch.trim()) {
+        const q = reportSearch.trim().toLowerCase();
+        const matchName = rec.studentName.toLowerCase().includes(q);
+        const matchPhone = rec.guardianPhone.includes(q);
+        const matchCode = rec.code.includes(q);
+        if (!matchName && !matchPhone && !matchCode) return false;
+      }
+      return true;
+    });
+  }, [votingDeliveryRecords, reportFilter, reportGradeFilter, reportSearch]);
+
   // Unique Grades & Classes for dropdowns
   const uniqueGrades = useMemo(() => {
     const set = new Set<string>();
@@ -307,10 +513,8 @@ ${groupVoteUrl}
     const allFilteredIds = filteredStudents.map(s => String(s.id));
     const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedStudentIds.includes(id));
     if (allSelected) {
-      // Unselect only the filtered ones
       setSelectedStudentIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
     } else {
-      // Add all filtered to selection
       setSelectedStudentIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
     }
   };
@@ -397,6 +601,26 @@ ${groupVoteUrl}
     );
   }
 
+  if (showSentReportPrintSheet) {
+    return (
+      <VotingSentReportPrintSheet
+        invites={invites}
+        votes={votes}
+        students={students}
+        config={config}
+        signatories={
+          schoolSignatories || {
+            principalName: "مدير المدرسة",
+            vicePrincipalName: "وكيل المدرسة",
+            counselorName: "الموجه الطلابي",
+            schoolName: "ثانوية الأبناء الأولى",
+          }
+        }
+        onClose={() => setShowSentReportPrintSheet(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 text-right font-sans" dir="rtl">
       {/* Header Card */}
@@ -411,11 +635,22 @@ ${groupVoteUrl}
               إدارة تصويت وفرز أولياء الأمور
             </h2>
             <p className="text-xs sm:text-sm text-teal-100/80 max-w-2xl leading-relaxed">
-              إرسال روابط التصويت المختصرة وكود التفعيل لأولياء الأمور لاختيار مرشح واحد، مع فرز النتائج وترتيب المرشحين تلقائياً حسب أعلى الأصوات.
+              إرسال روابط التصويت المختصرة وكود التفعيل لأولياء الأمور لاختيار مرشح واحد، مع فرز النتائج وتوثيق من تم إرسال الرابط لهم ومن فتح الرابط ومن صوت ومن شاهد فقط.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick Action: Print Official Delivery & Engagement Report */}
+            <button
+              type="button"
+              onClick={() => setShowSentReportPrintSheet(true)}
+              className="px-3.5 py-2 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+              title="طباعة التقرير الرسمي لإثبات إرسال روابط التصويت ومتابعة الفتح والتصويت والمشاهدة فقط"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-950" />
+              <span>طباعة تقرير إرسال ومتابعة التصويت ({deliveryStats.totalSent})</span>
+            </button>
+
             {/* Quick Action: Copy WhatsApp Group Voting Link */}
             <button
               type="button"
@@ -474,25 +709,30 @@ ${groupVoteUrl}
         </div>
 
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-white/10">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-white/10">
           <div className="bg-white/5 rounded-2xl p-3 border border-white/5">
-            <span className="text-[11px] text-teal-200/80 block">إجمالي أولياء الأمور المصوتين</span>
-            <span className="text-xl sm:text-2xl font-black text-white">{totalVotesCast}</span>
+            <span className="text-[11px] text-teal-200/80 block">تم إرسال رابط التصويت لهم</span>
+            <span className="text-xl sm:text-2xl font-black text-white">{deliveryStats.totalSent}</span>
           </div>
 
           <div className="bg-white/5 rounded-2xl p-3 border border-white/5">
+            <span className="text-[11px] text-teal-200/80 block">فتحوا رابط التصويت</span>
+            <span className="text-xl sm:text-2xl font-black text-blue-200">{deliveryStats.totalOpened}</span>
+          </div>
+
+          <div className="bg-white/5 rounded-2xl p-3 border border-white/5">
+            <span className="text-[11px] text-teal-200/80 block">أتموا التصويت فعلياً</span>
+            <span className="text-xl sm:text-2xl font-black text-emerald-300">{totalVotesCast}</span>
+          </div>
+
+          <div className="bg-white/5 rounded-2xl p-3 border border-white/5">
+            <span className="text-[11px] text-teal-200/80 block">شاهد فقط (فتح ولم يصوت)</span>
+            <span className="text-xl sm:text-2xl font-black text-amber-300">{deliveryStats.viewedOnly}</span>
+          </div>
+
+          <div className="bg-white/5 rounded-2xl p-3 border border-white/5 col-span-2 sm:col-span-1">
             <span className="text-[11px] text-teal-200/80 block">قائمة المرشحين للاقتراع</span>
             <span className="text-xl sm:text-2xl font-black text-white">{candidatePoolIds.length} مرشحاً</span>
-          </div>
-
-          <div className="bg-white/5 rounded-2xl p-3 border border-white/5">
-            <span className="text-[11px] text-teal-200/80 block">المقاعد الأساسية المعتمدة</span>
-            <span className="text-xl sm:text-2xl font-black text-amber-300">9 مقاعد أساسية</span>
-          </div>
-
-          <div className="bg-white/5 rounded-2xl p-3 border border-white/5">
-            <span className="text-[11px] text-teal-200/80 block">مقاعد الاحتياط</span>
-            <span className="text-xl sm:text-2xl font-black text-teal-200">4 مقاعد</span>
           </div>
         </div>
       </div>
@@ -534,6 +774,19 @@ ${groupVoteUrl}
 
         <button
           type="button"
+          onClick={() => setActiveSubTab("sent_report")}
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            activeSubTab === "sent_report"
+              ? "bg-white text-teal-900 shadow-xs border border-slate-200"
+              : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+          }`}
+        >
+          <FileText className="w-4 h-4 text-blue-600" />
+          <span>تقرير إرسال ومتابعة روابط التصويت ({deliveryStats.totalSent})</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveSubTab("settings")}
           className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
             activeSubTab === "settings"
@@ -561,7 +814,16 @@ ${groupVoteUrl}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSentReportPrintSheet(true)}
+                  className="px-4 py-2.5 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-black shadow-xs flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+                >
+                  <FileText className="w-4 h-4 text-teal-700" />
+                  <span>تقرير إرسال ومتابعة التصويت (A4)</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setShowPrintSheet(true)}
@@ -695,7 +957,7 @@ ${groupVoteUrl}
       {activeSubTab === "dispatch" && (
         <div className="space-y-6">
 
-          {/* HIGHLIGHTED CARD: WHATSAPP GROUP UNIVERSAL VOTING LINK (رابط التصويت العام لقروب الواتساب) */}
+          {/* HIGHLIGHTED CARD: WHATSAPP GROUP UNIVERSAL VOTING LINK */}
           <div className="bg-gradient-to-l from-emerald-950 via-teal-900 to-slate-900 text-white rounded-3xl p-6 shadow-lg border-2 border-emerald-500/40 relative overflow-hidden space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start sm:items-center gap-3.5">
@@ -805,7 +1067,7 @@ ${groupVoteUrl}
                   <span>إرسال رابط التصويت الخاص (برسالة فردية لكل ولي أمر)</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  يصل لكل ولي أمر رابط تصويت مختصر مع رمز التفعيل المخصص له لاختيار مرشح المجلس.
+                  يصل لكل ولي أمر رابط تصويت مختصر مع رمز التفعيل المخصص له لاختيار مرشح المجلس، ويقوم ولي الأمر بإدخال رمز التفعيل في الخانة الفارغة عند فتح الرابط.
                 </p>
               </div>
 
@@ -929,7 +1191,16 @@ ${groupVoteUrl}
               </div>
 
               {/* Mass Action Buttons */}
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setShowSentReportPrintSheet(true)}
+                  className="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 text-teal-700" />
+                  <span>طباعة تقرير المرسل لهم ({deliveryStats.totalSent})</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setIsCampaignModalOpen(true)}
@@ -974,6 +1245,8 @@ ${groupVoteUrl}
                       : "#";
 
                     const hasVoted = !!votes[sId] || Object.values(votes || {}).some(v => v.token === invite.token || v.studentId === sId);
+                    const isOpened = !!(invite.isVoteLinkOpened || hasVoted);
+                    const isSent = !!(invite.isVoteSent || isOpened || hasVoted);
                     const isSelected = selectedStudentIds.includes(sId);
 
                     return (
@@ -998,15 +1271,23 @@ ${groupVoteUrl}
                           </button>
 
                           <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-black text-slate-900">{sName}</span>
                               {hasVoted ? (
                                 <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
                                   ✓ قام بالتصويت
                                 </span>
+                              ) : isOpened ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800">
+                                  👁 شاهد فقط (فتح الرابط ولم يصوت)
+                                </span>
+                              ) : isSent ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-800">
+                                  تم الإرسال (لم يفتح الرابط بعد)
+                                </span>
                               ) : (
                                 <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600">
-                                  بانتظار التصويت
+                                  بانتظار الإرسال
                                 </span>
                               )}
                             </div>
@@ -1068,6 +1349,11 @@ ${groupVoteUrl}
                             href={waHref}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={() => {
+                              if (sPhone) {
+                                recordVotingInviteSent(student, invite, "whatsapp_direct");
+                              }
+                            }}
                             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer text-white shadow-xs ${
                               sPhone ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-300 pointer-events-none"
                             }`}
@@ -1086,7 +1372,239 @@ ${groupVoteUrl}
         </div>
       )}
 
-      {/* SUB-TAB 3: SETTINGS & CONFIG */}
+      {/* SUB-TAB 3: OFFICIAL SENT & ENGAGEMENT REPORT (تقرير لمن تم إرسال الرابط لهم ومن فتح الرابط ومن صوت ومن شاهد فقط) */}
+      {activeSubTab === "sent_report" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
+            {/* Top Header & Print Action */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-teal-700" />
+                  <span>التقرير الرسمي لإثبات إرسال رسائل التصويت ومتابعة التفاعل</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  يوثق هذا التقرير الرسمي كافة أولياء الأمور الذين تم إرسال رابط التصويت لهم، مع إثبات من فتح الرابط، ومن أتم التصويت فعلياً، ومن شاهد فقط دون تصويت.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSentReportPrintSheet(true)}
+                className="px-5 py-2.5 rounded-2xl bg-teal-800 hover:bg-teal-900 text-white text-xs font-black shadow-md flex items-center gap-2 cursor-pointer transition-all active:scale-95 shrink-0"
+              >
+                <Printer className="w-4 h-4 text-amber-300" />
+                <span>طباعة التقرير الرسمي المعتمد (A4)</span>
+              </button>
+            </div>
+
+            {/* Summary KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <button
+                type="button"
+                onClick={() => setReportFilter("all_sent")}
+                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${
+                  reportFilter === "all_sent"
+                    ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                    : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <span className={`text-[11px] font-bold block ${reportFilter === "all_sent" ? "text-slate-300" : "text-slate-500"}`}>
+                  إجمالي من أُرسل لهم الرابط
+                </span>
+                <span className="text-xl font-black mt-0.5 block">{deliveryStats.totalSent}</span>
+              </button>
+
+              <div className="p-3.5 rounded-2xl border border-blue-200 bg-blue-50/60 text-right">
+                <span className="text-[11px] font-bold text-blue-800 block">إجمالي من فتح الرابط</span>
+                <span className="text-xl font-black text-blue-950 mt-0.5 block">{deliveryStats.totalOpened}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setReportFilter("voted")}
+                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${
+                  reportFilter === "voted"
+                    ? "bg-emerald-700 text-white border-emerald-800 shadow-sm"
+                    : "bg-emerald-50/70 text-emerald-950 border-emerald-200 hover:bg-emerald-100/70"
+                }`}
+              >
+                <span className={`text-[11px] font-bold block ${reportFilter === "voted" ? "text-emerald-100" : "text-emerald-800"}`}>
+                  ✓ فتح الرابط وصوّت فعلياً
+                </span>
+                <span className="text-xl font-black mt-0.5 block">{deliveryStats.totalVoted}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportFilter("viewed_only")}
+                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${
+                  reportFilter === "viewed_only"
+                    ? "bg-amber-600 text-white border-amber-700 shadow-sm"
+                    : "bg-amber-50/80 text-amber-950 border-amber-200 hover:bg-amber-100/70"
+                }`}
+              >
+                <span className={`text-[11px] font-bold block ${reportFilter === "viewed_only" ? "text-amber-100" : "text-amber-800"}`}>
+                  👁 شاهد فقط (فتح ولم يصوت)
+                </span>
+                <span className="text-xl font-black mt-0.5 block">{deliveryStats.viewedOnly}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportFilter("not_opened")}
+                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+                  reportFilter === "not_opened"
+                    ? "bg-slate-700 text-white border-slate-800 shadow-sm"
+                    : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <span className={`text-[11px] font-bold block ${reportFilter === "not_opened" ? "text-slate-200" : "text-slate-500"}`}>
+                  لم يفتح الرابط بعد
+                </span>
+                <span className="text-xl font-black mt-0.5 block">{deliveryStats.notOpened}</span>
+              </button>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">تصفية حسب حالة التفاعل:</label>
+                <select
+                  value={reportFilter}
+                  onChange={(e) => setReportFilter(e.target.value as any)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800"
+                >
+                  <option value="all_sent">جميع من تم إرسال الرابط لهم ({deliveryStats.totalSent})</option>
+                  <option value="voted">من فتح الرابط وصوّت فعلياً ({deliveryStats.totalVoted})</option>
+                  <option value="viewed_only">من شاهد فقط دون تصويت ({deliveryStats.viewedOnly})</option>
+                  <option value="not_opened">من لم يفتح الرابط بعد ({deliveryStats.notOpened})</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">الصف الدراسي:</label>
+                <select
+                  value={reportGradeFilter}
+                  onChange={(e) => setReportGradeFilter(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800"
+                >
+                  <option value="all">جميع الصفوف</option>
+                  {uniqueGrades.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">بحث بالاسم أو الجوال أو الرمز:</label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute right-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={reportSearch}
+                    onChange={(e) => setReportSearch(e.target.value)}
+                    placeholder="ابحث عن طالب أو جوال ولي الأمر..."
+                    className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Report Table */}
+            {filteredReportRecords.length === 0 ? (
+              <div className="p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                <FileText className="w-8 h-8 text-slate-400 mx-auto" />
+                <div className="text-sm font-black text-slate-800">لا توجد سجلات مطابقة في التقرير حالياً</div>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  عند قيامك بإرسال روابط التصويت لأولياء الأمور من تبويب "إرسال رابط التصويت لأولياء الأمور عبر واتساب"، سيظهر هنا فوراً بيان رسمي يثبت الإرسال ويوضح من فتح الرابط ومن صوت ومن شاهد فقط.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                <table className="w-full text-right border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white font-black">
+                      <th className="p-3 border-l border-slate-700 text-center w-10">م</th>
+                      <th className="p-3 border-l border-slate-700">اسم الطالب وولي الأمر</th>
+                      <th className="p-3 border-l border-slate-700 text-center">الصف / الفصل</th>
+                      <th className="p-3 border-l border-slate-700 text-center">جوال ولي الأمر</th>
+                      <th className="p-3 border-l border-slate-700 text-center">رمز التفعيل المرسل</th>
+                      <th className="p-3 border-l border-slate-700 text-center">تاريخ ووقت الإرسال</th>
+                      <th className="p-3 border-l border-slate-700 text-center">حالة فتح الرابط</th>
+                      <th className="p-3 text-center">حالة التصويت / التفاعل</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    {filteredReportRecords.map((rec, idx) => (
+                      <tr key={rec.studentId} className="hover:bg-slate-50">
+                        <td className="p-3 border-l border-slate-100 text-center font-mono font-bold text-slate-500">
+                          {idx + 1}
+                        </td>
+                        <td className="p-3 border-l border-slate-100 font-black text-slate-900">
+                          {rec.studentName}
+                        </td>
+                        <td className="p-3 border-l border-slate-100 text-center text-slate-700 font-bold">
+                          {rec.studentGrade} {rec.studentClass && rec.studentClass !== "—" ? `/ ${rec.studentClass}` : ""}
+                        </td>
+                        <td className="p-3 border-l border-slate-100 text-center font-mono font-bold text-slate-800" dir="ltr">
+                          {rec.guardianPhone || "—"}
+                        </td>
+                        <td className="p-3 border-l border-slate-100 text-center font-mono font-black text-teal-800">
+                          {rec.code || "—"}
+                        </td>
+                        <td className="p-3 border-l border-slate-100 text-center text-[11px] text-slate-600">
+                          {rec.voteSentAt
+                            ? new Date(rec.voteSentAt).toLocaleString("ar-SA", {
+                                year: "numeric",
+                                month: "2-digit",
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "تم الإرسال"}
+                        </td>
+                        <td className="p-3 border-l border-slate-100 text-center">
+                          {rec.isVoteLinkOpened ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-50 text-blue-800 border border-blue-200">
+                              <Eye className="w-3 h-3" />
+                              <span>تم فتح الرابط</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+                              <Clock className="w-3 h-3" />
+                              <span>لم يفتح بعد</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          {rec.statusType === "voted" ? (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>قام بالتصويت ✓</span>
+                            </span>
+                          ) : rec.statusType === "viewed_only" ? (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                              <Eye className="w-3.5 h-3.5 text-amber-700" />
+                              <span>شاهد فقط (فتح ولم يصوت)</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                              <span>أُرسل له ولم يفتح الرابط</span>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 4: SETTINGS & CONFIG */}
       {activeSubTab === "settings" && (
         <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
           <div>
@@ -1145,7 +1663,10 @@ ${groupVoteUrl}
       {isCampaignModalOpen && (
         <UnifiedCampaignModal
           isOpen={isCampaignModalOpen}
-          onClose={() => setIsCampaignModalOpen(false)}
+          onClose={() => {
+            setIsCampaignModalOpen(false);
+            if (onRefreshData) onRefreshData().catch(() => {});
+          }}
           title="إرسال روابط تصويت وترشيح أعضاء مجلس أولياء الأمور عبر الواتساب"
           subtitle={`سيتم إرسال رابط التصويت المخصص متضمناً كود التفعيل إلى ${campaignRecipients.length} من أولياء الأمور.`}
           recipients={campaignRecipients}
@@ -1175,6 +1696,26 @@ ${groupVoteUrl}
               });
               const data = await res.json().catch(() => ({}));
               if (res.ok && data.success) {
+                // Record official voting link delivery in database
+                await fetch("/api/parent-councils/vote/mark-sent", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    studentIds: [String(item.id)],
+                    method: "whatsapp_bot",
+                    recipients: [
+                      {
+                        id: String(item.id),
+                        name: item.name,
+                        phone: sPhone,
+                        grade: item.grade,
+                        className: item.className,
+                        token: item.token,
+                        code: item.code,
+                      },
+                    ],
+                  }),
+                }).catch(() => {});
                 return { success: true };
               }
               return { success: false, error: data.error || "تعذر الإرسال عبر الخادم" };
