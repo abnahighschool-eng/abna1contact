@@ -3,7 +3,7 @@
  * محرك التحليل الذكي وتوليد المؤشرات والتوصيات وبطاقة توجيه المعلم
  */
 
-import {
+import type {
   SurveyResponses,
   SurveyPriorityLevel,
   SurveyCategory,

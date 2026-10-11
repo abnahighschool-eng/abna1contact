@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { Teacher, ScheduleAssignment } from "../types.ts";
+import type { Teacher, ScheduleAssignment } from "../types.ts";
 
 /**
  * Advanced Arabic Text Normalizer for robust name matching

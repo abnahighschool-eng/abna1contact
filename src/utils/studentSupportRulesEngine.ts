@@ -3,7 +3,7 @@
  * محرك القواعد وتحليل الملاحظات دون إصدار أي تشخيص طبي أو نفسي
  */
 
-import {
+import type {
   StudentSupportProfile,
   StudentIndicators,
   IndicatorLevel,
